@@ -64,6 +64,34 @@ export function payloadJs(prefix, name, buf) {
 	);
 }
 
+/**
+ * Additional self-extracting payloads, beyond the UI.
+ *
+ * Same reasoning as the UI payload: anything that is NOT a Max-native object
+ * (an external process, a Node bundle, a data file read by the web app) cannot
+ * see a frozen dependency, so it has to become a real file on disk. The wrapper
+ * writes each of these next to the .amxd on load - see extractExtraPayloads() in
+ * the wrapper's core.ts.
+ */
+export function extraPayloadsJs(payloads) {
+	const names = payloads.map((p) => JSON.stringify(p.name));
+	const bytes = payloads.map((p) => p.data.length);
+	const blobs = payloads.map((p) => {
+		const CHUNK = 30000;
+		const chunks = [];
+		for (let i = 0; i < p.data.length; i += CHUNK) {
+			chunks.push(JSON.stringify(p.data.subarray(i, i + CHUNK).toString("base64")));
+		}
+		return `[\n${chunks.join(",\n")}\n]`;
+	});
+	return (
+		`\n// ---- generated: ${payloads.length} extra payload(s) ----\n` +
+		`var EXTRA_PAYLOAD_NAMES = [${names.join(", ")}];\n` +
+		`var EXTRA_PAYLOAD_BYTES = [${bytes.join(", ")}];\n` +
+		`var EXTRA_PAYLOAD_B64 = [\n${blobs.join(",\n")}\n];\n`
+	);
+}
+
 const u32be = (n) => {
 	const b = Buffer.alloc(4);
 	b.writeUInt32BE(n >>> 0);

@@ -46,14 +46,19 @@ function buildStamp(): string {
 /** live.thisdevice -> the device is fully loaded. Everything LiveAPI starts here. */
 function bang(): void {
 	post("m4l-jweb: bang (device ready)\n");
+	extractExtraPayloads();
 	loadWebview();
 	setupTempoObserver(); // liveapi.ts
 	startTickPoll(); // liveapi.ts
+	// A device's own wrapper/device.ts hooks in here: this is the ONLY safe place
+	// to create LiveAPI objects (see the loadbang trap above).
+	if (typeof onDeviceReady === "function") onDeviceReady();
 }
 
 /** Patcher loaded. File work is safe here; LiveAPI is NOT. */
 function loadbang(): void {
 	post("m4l-jweb: loadbang\n");
+	extractExtraPayloads();
 	loadWebview();
 }
 
@@ -81,6 +86,9 @@ function ui_ready(): void {
 	// mixed install (stale .amxd instance vs newer extracted UI, or vice versa).
 	outlet(0, "build", buildStamp());
 	sendCurrentTempo(); // liveapi.ts
+	// The device resends its own state here. The page loads asynchronously, so
+	// anything sent before it was listening is simply gone.
+	if (typeof onUiReady === "function") onUiReady();
 }
 
 /* ------------------------------------------------------------------ *
@@ -127,6 +135,34 @@ function resolveUiUrl(): string | null {
 function deviceFolder(): string | null {
 	var fp: string = this.patcher.filepath;
 	return fp && fp.length ? fp.replace(/\/[^\/]*$/, "") : null;
+}
+
+/**
+ * Write every non-UI payload the build embedded (manifest `payloads`) next to
+ * the .amxd. Same reason as the UI: anything that is not a Max-native object is
+ * blind to the frozen virtual filesystem, so it needs a real file.
+ *
+ * Idempotent, and cheap after the first load: extractPayload() skips a file whose
+ * size and build stamp already match.
+ */
+function extractExtraPayloads(): void {
+	// The build emits all three together or none at all; bind them locally so the
+	// compiler can see that too.
+	if (typeof EXTRA_PAYLOAD_NAMES === "undefined" || typeof EXTRA_PAYLOAD_B64 === "undefined" || typeof EXTRA_PAYLOAD_BYTES === "undefined") {
+		return;
+	}
+	var names = EXTRA_PAYLOAD_NAMES;
+	var blobs = EXTRA_PAYLOAD_B64;
+	var sizes = EXTRA_PAYLOAD_BYTES;
+
+	var folder = deviceFolder();
+	if (!folder) {
+		post("m4l-jweb: patcher path unknown - cannot extract payloads\n");
+		return;
+	}
+	for (var i = 0; i < names.length; i++) {
+		extractPayload(folder + "/" + names[i], blobs[i], sizes[i]);
+	}
 }
 
 /**

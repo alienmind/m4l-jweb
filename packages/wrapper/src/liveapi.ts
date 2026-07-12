@@ -41,6 +41,9 @@ function pollTransport(): void {
 		var playing = parseInt(String(liveSetApi.get("is_playing")), 10);
 		var beats = parseFloat(String(liveSetApi.get("current_song_time")));
 		outlet(0, "tick", playing, beats);
+		// A device with a second consumer (another engine on outlet 1) mirrors the
+		// clock here rather than polling Live twice.
+		if (typeof onTick === "function") onTick(playing, beats);
 	} catch (e) {
 		/* transient - the next poll retries */
 	}
@@ -70,6 +73,7 @@ function setupTempoObserver(): void {
 function onTempo(a: unknown[]): void {
 	if (a && a[0] == "tempo") {
 		outlet(0, "tempo", a[1]);
+		if (typeof onTempoChange === "function") onTempoChange(Number(a[1]));
 	}
 }
 
@@ -78,7 +82,10 @@ function sendCurrentTempo(): void {
 	try {
 		var api = new LiveAPI("live_set");
 		var t = parseFloat(String(api.get("tempo")));
-		if (t > 0) outlet(0, "tempo", t);
+		if (t > 0) {
+			outlet(0, "tempo", t);
+			if (typeof onTempoChange === "function") onTempoChange(t);
+		}
 	} catch (e) {
 		post("m4l-jweb: tempo read failed - " + (e as Error).message + "\n");
 	}

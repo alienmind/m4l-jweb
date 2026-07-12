@@ -69,3 +69,37 @@ declare const BUILD_STAMP: string | undefined;
 declare const UI_PAYLOAD_NAME: string | undefined;
 declare const UI_PAYLOAD_BYTES: number | undefined;
 declare const UI_PAYLOAD_B64: string[] | undefined;
+
+/**
+ * Injected by @m4l-jweb/build from the manifest's `payloads`: any other file
+ * that must exist on disk next to the .amxd, because whatever reads it is not a
+ * Max-native object and so cannot see the frozen virtual filesystem.
+ */
+declare const EXTRA_PAYLOAD_NAMES: string[] | undefined;
+declare const EXTRA_PAYLOAD_BYTES: number[] | undefined;
+declare const EXTRA_PAYLOAD_B64: string[][] | undefined;
+
+/*
+ * Device hooks.
+ *
+ * Define any of these as a plain function in your repo's `wrapper/device.ts` and
+ * the packaged wrapper will call it; leave it out and nothing happens. They are
+ * declared here (rather than defined) so both sides typecheck: the wrapper guards
+ * every call with `typeof onX === "function"`, which is safe even when the
+ * identifier was never declared at runtime.
+ */
+
+/**
+ * live.thisdevice has fired: the device is fully loaded and LiveAPI is finally
+ * safe. Create your observers HERE - objects built during loadbang are dead.
+ */
+declare function onDeviceReady(): void;
+
+/** The UI announced itself. Resend any device-specific state it needs. */
+declare function onUiReady(): void;
+
+/** Every transport poll (20 Hz), after the packaged wrapper has sent its tick. */
+declare function onTick(playing: number, beats: number): void;
+
+/** Live's tempo changed (and once on attach). */
+declare function onTempoChange(bpm: number): void;
