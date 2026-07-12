@@ -201,8 +201,6 @@ device end to end and verify its own work. `CLAUDE.md` spells out the guardrails
 
 ## Tutorial: define a device
 
-Four files, and you routinely edit two.
-
 ### 1. Declare the device - `patcher/devices.mjs`
 
 The manifest says what the device *is*. The patcher is generated from it, so
