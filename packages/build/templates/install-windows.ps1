@@ -5,13 +5,23 @@
 # (%APPDATA%\Ableton\Live <version>\Preferences\Library.cfg, <ProjectPath>);
 # Live's default location is the fallback. No registry or env vars are involved -
 # Live keeps all of this in plain config files.
+#
+# The device-folder name defaults to this repo's, and `m4l-jweb install` passes
+# the package name explicitly - so a repo scaffolded under another name works.
+# -Src is passed by `m4l-jweb install`; standalone (from the zip) it is found
+# next to this script.
+param([string]$DeviceName = "m4l-jweb", [string]$Src = "")
 $ErrorActionPreference = "Stop"
-$deviceName = "m4l-jweb"
+$deviceName = $DeviceName
 
-# Source: ./m4l-jweb next to this script (zip layout) or ../dist/m4l-jweb (repo layout).
-$src = Join-Path $PSScriptRoot $deviceName
-if (-not (Test-Path $src)) {
-    $src = Join-Path (Split-Path $PSScriptRoot) "dist\$deviceName"
+# Source: an explicit -Src, else ./<name> next to this script (zip and dist
+# layouts), else ../dist/<name> (running it straight from a repo checkout).
+$src = $Src
+if (-not $src) {
+    $src = Join-Path $PSScriptRoot $deviceName
+    if (-not (Test-Path $src)) {
+        $src = Join-Path (Split-Path $PSScriptRoot) "dist\$deviceName"
+    }
 }
 $devices = @(Get-ChildItem (Join-Path $src "*.amxd") -ErrorAction SilentlyContinue)
 if ($devices.Count -eq 0) {

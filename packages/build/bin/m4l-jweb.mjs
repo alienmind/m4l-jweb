@@ -6,17 +6,19 @@
  *   m4l-jweb wrapper    compile wrapper/*.ts to one ES5 script, acorn-gated
  *   m4l-jweb patchers   manifest -> one patcher JSON per device
  *   m4l-jweb package    write each .amxd + the release zip
+ *   m4l-jweb install    copy the built devices into Ableton's User Library
  *
  * Run from a device repo. Bundling the UI (`vite build`) is the app's job and
  * stays in the repo's own npm scripts; everything Max-shaped lives here.
  */
-import { buildAll, buildWrapper, generatePatchers, packageDevices } from "../src/index.mjs";
+import { buildAll, buildWrapper, generatePatchers, installDevices, packageDevices } from "../src/index.mjs";
 
 const commands = {
 	build: buildAll,
 	wrapper: async (root) => void buildWrapper(root),
 	patchers: async (root) => void (await generatePatchers(root)),
 	package: packageDevices,
+	install: installDevices,
 };
 
 const cmd = process.argv[2] ?? "build";

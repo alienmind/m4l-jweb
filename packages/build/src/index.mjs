@@ -217,3 +217,38 @@ export async function buildAll(root) {
 	await generatePatchers(root);
 	await packageDevices(root);
 }
+
+/* ------------------------------------------------------------------ *
+ * Install
+ *
+ * Copy the built devices into Ableton's User Library. The per-platform scripts
+ * are the real implementation (they have to read Live's own config files to find
+ * the library); this just picks the right one and passes the device name.
+ *
+ * Live has no Linux build, so there is nothing to install there.
+ * ------------------------------------------------------------------ */
+export async function installDevices(root) {
+	const { name } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+
+	if (!existsSync(path.join(root, "dist", name))) {
+		throw new Error(`nothing built at dist/${name} - run \`pnpm build\` first`);
+	}
+
+	// The packaged scripts are the real implementation - they have to read Live's
+	// own config files to locate the User Library. Pass the device name and the
+	// built folder explicitly, since the script does not live in the repo.
+	const src = path.join(root, "dist", name);
+	const runners = {
+		win32: [
+			"powershell",
+			["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(templates, "install-windows.ps1"), "-DeviceName", name, "-Src", src],
+		],
+		darwin: ["bash", [path.join(templates, "install-mac.sh"), name, src]],
+	};
+	const runner = runners[process.platform];
+	if (!runner) {
+		throw new Error(`no installer for ${process.platform} - Ableton Live runs on macOS and Windows only`);
+	}
+
+	execFileSync(runner[0], runner[1], { stdio: "inherit", cwd: root });
+}

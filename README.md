@@ -61,11 +61,10 @@ there.
 git clone https://github.com/alienmind/m4l-jweb my-device
 cd my-device && pnpm install
 
-pnpm dev      # browser dev with the Max bridge simulated
-pnpm build    # emits dist/m4l-jweb/<device>.amxd + release zip
-pnpm test     # container round-trip + ES5 gate + protocol lint
-
-dist/install-windows.ps1   # or dist/install-mac.sh
+pnpm dev              # browser dev with the Max bridge simulated
+pnpm build            # emits dist/m4l-jweb/<device>.amxd + release zip
+pnpm test             # container round-trip + ES5 gate + protocol lint
+pnpm install:device   # copy the devices into Ableton's User Library
 ```
 
 Then open Live: **User Library > Max For Live > m4l-jweb**, and drop
@@ -88,6 +87,62 @@ The repo doubles as an agent-friendly codebase. Because every artifact is text
 and every invariant is enforced by the build (ES5 gate, container round-trip
 test, protocol lint), an LLM can implement a device end to end and verify its
 own work. `CLAUDE.md` spells out the guardrails.
+
+---
+
+## Installing the devices
+
+After `pnpm build`, the devices are in `dist/<package-name>/`. Getting them into
+Live means copying them into the Ableton **User Library**.
+
+```bash
+pnpm install:device
+```
+
+That picks the right script for your platform, finds your User Library, and
+replaces any previous install of this device folder. It prints where it put
+things:
+
+```
+  installed hello-midi.amxd
+  installed hello-audio.amxd
+Installed to <User Library>\Max For Live\m4l-jweb
+```
+
+Then in Live: **User Library > Max For Live > m4l-jweb**.
+
+### How the User Library is found
+
+It is read from Live's own preferences file (`Library.cfg`, the `ProjectPath`
+value), newest Live version first, falling back to Live's default location. No
+registry keys and no environment variables are involved - Live keeps all of this
+in plain config files, so a custom library location is picked up automatically.
+
+### Running the scripts directly
+
+`pnpm install:device` is a wrapper around the same per-platform scripts the build
+copies into `dist/` and into the release zip. You can run them yourself:
+
+```powershell
+dist\install-windows.ps1               # Windows
+```
+
+```bash
+dist/install-mac.sh                    # macOS
+```
+
+Both accept an optional device name and source folder
+(`install-mac.sh <name> <src-dir>`), which is how the CLI drives them. Someone
+who receives only the release zip runs the script sitting next to the device
+folder, with no repo and no Node.
+
+There is no Linux installer: Live has no Linux build. The *build* runs anywhere
+Node does, so CI on Linux is fine.
+
+> **The one gotcha:** Live embeds a **copy** of a device into the set. Instances
+> already sitting on a track will **not** update when you reinstall - delete them
+> and re-drag from the browser. The devices show a build stamp so a stale one is
+> visible rather than mysterious.
 
 ---
 

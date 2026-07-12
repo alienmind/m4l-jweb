@@ -5,13 +5,23 @@
 # The User Library path is read from the newest Live preferences file
 # (~/Library/Preferences/Ableton/Live */Library.cfg, <ProjectPath>); Live's
 # default location is the fallback.
+#
+# The device-folder name defaults to this repo's, and `m4l-jweb install` passes
+# the package name explicitly - so a repo scaffolded under another name works.
+#
+# usage: install-mac.sh [device-name] [src-dir]
+# `m4l-jweb install` passes both; standalone (from the zip) both are inferred.
 set -euo pipefail
-device_name="m4l-jweb"
+device_name="${1:-m4l-jweb}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source: ./m4l-jweb next to this script (zip layout) or ../dist/m4l-jweb (repo layout).
-src="$here/$device_name"
-[ -d "$src" ] || src="$(dirname "$here")/dist/$device_name"
+# Source: an explicit second argument, else ./<name> next to this script (zip and
+# dist layouts), else ../dist/<name> (running it straight from a repo checkout).
+src="${2:-}"
+if [ -z "$src" ]; then
+	src="$here/$device_name"
+	[ -d "$src" ] || src="$(dirname "$here")/dist/$device_name"
+fi
 if ! compgen -G "$src/*.amxd" > /dev/null; then
 	echo "No .amxd found next to this script or in dist/. Run 'pnpm build' first." >&2
 	exit 1
