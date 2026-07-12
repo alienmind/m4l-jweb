@@ -47,12 +47,6 @@ says *"free-running"*: the transport is stopped, so it is pulsing off its own
 fallback clock rather than Live's - see the tutorial for why a sequencer must use
 the transport when it is running.
 
-### Each device on its own
-
-| | |
-|---|---|
-| ![MIDI mode](doc/screenshot-midi.png) | ![Audio mode](doc/screenshot-audio.png) |
-
 For how any of it works underneath - the message protocol, the generated
 patchers, the `.amxd` container writer, Push support - see
 **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)**.
