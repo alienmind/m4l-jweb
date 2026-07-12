@@ -4,6 +4,14 @@
 	"description": "Headless Max for Live build toolchain: the binary .amxd container writer, a box()/line() patcher DSL with canned chains, payload embedding, build stamps and the ES5 gate. No Max required.",
 	"type": "module",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/alienmind/m4l-jweb.git",
+		"directory": "packages/build"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"bin": {
 		"m4l-jweb": "./bin/m4l-jweb.mjs"
 	},

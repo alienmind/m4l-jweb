@@ -21,6 +21,12 @@ infrastructure carved into `packages/`.
   writer and chain vocabulary). This is library code shared by every device.
   Change it deliberately, not incidentally, and never to work around something
   that belongs in `src/app/`.
+- **`packages/build/templates/starter/`** - the `m4l-jweb init` scaffold. It
+  mirrors this repo's own root app on purpose. If you change `src/app/`,
+  `patcher/devices.mjs`, or a config file at the root in a way that every new
+  device should start with, port the same change into `templates/starter/` in
+  the same commit - that is what keeps the scaffold from drifting out of sync
+  with the library.
 
 ## Hard rules
 

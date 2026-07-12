@@ -2,6 +2,7 @@
 /**
  * m4l-jweb - the device build CLI.
  *
+ *   m4l-jweb init       scaffold a new device repo from templates/starter/
  *   m4l-jweb build      wrapper + patchers + package (the usual one)
  *   m4l-jweb wrapper    compile wrapper/*.ts to one ES5 script, acorn-gated
  *   m4l-jweb patchers   manifest -> one patcher JSON per device
@@ -12,8 +13,10 @@
  * stays in the repo's own npm scripts; everything Max-shaped lives here.
  */
 import { buildAll, buildWrapper, generatePatchers, installDevices, packageDevices } from "../src/index.mjs";
+import { initProject } from "../src/init.mjs";
 
 const commands = {
+	init: (root, args) => initProject(root, args),
 	build: buildAll,
 	wrapper: async (root) => void buildWrapper(root),
 	patchers: async (root) => void (await generatePatchers(root)),
@@ -30,7 +33,7 @@ if (!run) {
 }
 
 try {
-	await run(process.cwd());
+	await run(process.cwd(), process.argv.slice(3));
 } catch (e) {
 	console.error(`m4l-jweb: ${e.message}`);
 	process.exit(1);

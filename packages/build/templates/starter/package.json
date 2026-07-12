@@ -1,10 +1,9 @@
 {
-	"name": "m4l-jweb",
+	"name": "{{name}}",
 	"private": true,
 	"version": "0.1.0",
 	"type": "module",
-	"packageManager": "pnpm@10.0.0",
-	"description": "Build Ableton Live (.amxd) devices from a TypeScript repo - React UI, LiveAPI glue, CI builds, no Max editor.",
+	"description": "A Max for Live device built with M4L-JWEB.",
 	"scripts": {
 		"dev": "vite --host 127.0.0.1 --port 5175",
 		"build": "tsc -b && vite build && m4l-jweb build",
@@ -12,21 +11,18 @@
 		"build:patchers": "m4l-jweb patchers",
 		"install:device": "m4l-jweb install",
 		"preview": "vite preview --host 127.0.0.1 --port 4175",
-		"test": "vitest run",
-		"format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"packages/*/src/**/*.{ts,mjs}\"",
-		"release": "pnpm -r --filter=./packages/* publish --access public"
+		"test": "vitest run"
 	},
 	"dependencies": {
-		"@m4l-jweb/bridge": "workspace:*",
+		"@m4l-jweb/bridge": "^0.1.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},
 	"devDependencies": {
-		"@m4l-jweb/build": "workspace:*",
+		"@m4l-jweb/build": "^0.1.0",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"@vitejs/plugin-react": "^4.3.4",
-		"prettier": "^3.4.0",
 		"typescript": "^5.7.0",
 		"vite": "^6.0.0",
 		"vite-plugin-singlefile": "^2.1.0",

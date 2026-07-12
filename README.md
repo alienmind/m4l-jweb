@@ -103,6 +103,31 @@ own work. `CLAUDE.md` spells out the guardrails.
 
 ---
 
+## Starting a new device from scratch
+
+The root of this repo (`src/app/`, `patcher/devices.mjs`, the config files) is
+itself a working hello-world device built on `@m4l-jweb/bridge` and
+`@m4l-jweb/build` - not a separate, hand-maintained example. `m4l-jweb init`
+scaffolds a new device repo from the same files:
+
+```bash
+pnpm dlx @m4l-jweb/build init my-device   # or, once installed: m4l-jweb init my-device
+cd my-device && pnpm install
+pnpm dev
+```
+
+It writes a `package.json` with `@m4l-jweb/bridge` / `@m4l-jweb/build` as real
+(published) dependencies rather than workspace links, plus `src/app/`,
+`patcher/devices.mjs`, and the vite/tsconfig scaffolding - a `hello-midi`
+device that builds and runs unmodified.
+
+The template lives inside `@m4l-jweb/build` at `packages/build/templates/starter/`
+rather than in a separate scaffolding repo, precisely so it cannot drift from
+what the library actually needs: when a build option or wrapper convention
+changes here, the template changes in the same commit.
+
+---
+
 ## Installing the devices
 
 After `pnpm build`, the devices are in `dist/<package-name>/`. Getting them into
