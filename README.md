@@ -55,10 +55,7 @@ patchers, the `.amxd` container writer, Push support - see
 
 ## What you need
 
-### To build: nothing musical at all
-
-This is the point of the project. `pnpm build` emits installable `.amxd` devices
-on a bare CI runner.
+### To build
 
 - **Node.js 20+** and **pnpm 10+**.
 - **No Max license, and no Max editor.** The patcher is generated, and the
