@@ -2,10 +2,17 @@
 
 **Build Ableton Live devices like a web developer.**
 
-M4L-JWEB builds installable Ableton Live `.amxd` devices from an ordinary
-TypeScript repo. Your UI is a React app. Your Live glue is TypeScript. Your patch
-cords are code review. `pnpm build` emits devices on a machine that has never
-seen Max, so CI can ship them.
+M4L-JWEB lets you author Ableton Live Max for Live devices (`.amxd`) in an
+ordinary TypeScript repo, with the tools any developer already expects: a package
+manager, a typechecker, unit tests, CI. The device UI is a React app, and it can
+be run, simulated and tested **outside Ableton and outside Max** - against a
+mocked Live, in a browser.
+
+The glue that a device needs is provided rather than rewritten each time: the
+message bridge between the browser and Max, the `[js]` script that talks to
+Live's object model, the generated patcher, and the binary `.amxd` writer. So
+`pnpm build` produces installable devices on a machine that has never had Max on
+it, which means CI can ship them.
 
 ```bash
 pnpm install
