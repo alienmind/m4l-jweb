@@ -522,33 +522,35 @@ order, and which unknowns are gated behind a spike first.
 message tap and the mocked-Live harness, the MIDI contract promoted into
 `@m4l-jweb/bridge`, and `defineSurface()`'s declaration and types.
 
-**Stage 1 is built but not run.** Three questions about Max's actual behaviour
-gate everything after it - `set`-without-output on `live.*`, `[buffer~]` driven
-from `[js]`, and which HTTP object downloads to disk inside Live. The apparatus
-for all three ships as the `spike` device; the procedure and the (empty) results
-table are in **[SPIKES.md](SPIKES.md)**. Nothing downstream should be built until
-those rows are filled in.
+**Stage 1 is built but not run, and it is the next thing to do.** Three questions
+about Max's actual behaviour gate everything after it - `[buffer~]` driven from
+`[js]`, whether a `set`-written parameter still reaches the automation lane, and
+which HTTP object downloads to disk inside Live. The apparatus ships as the
+`spike` device; the procedure and the results table are in
+**[SPIKES.md](SPIKES.md)**. Nothing downstream should be built until those rows
+are filled in.
 
 In outline, what remains:
 
-- **`@m4l-jweb/surface`** - the component model and the mocked-Live dev harness
-  described above. The biggest single win left in the project; see
+- **The Surface codegen.** The declaration ships; compiling it into `live.*`
+  objects and wiring does not. The biggest single win left; see
   [SURFACE.md](SURFACE.md).
 - **A fetch-to-disk primitive that eliminates `[node.script]`** - lets any device
-  pull a real file from the internet through Max-native objects alone, without
-  paying `[node.script]`'s stability cost.
-- **Grow the chain vocabulary.** `buffer~`/`poly~` sample playback (instrument
-  devices - and the route to the first M4L-JWEB device that makes sound) and
-  `plugin~ -> DSP -> plugout~` (audio effects that actually do something).
+  pull a real file from the internet through Max-native objects alone.
+- **`buffer~`/`poly~` sample playback** - instrument devices, and the route to the
+  first M4L-JWEB device that makes sound from samples.
+- **Push banks.** Needs patcher-JSON archaeology. Parameters reach Push without
+  them; banks make the pages read like a performance surface.
 - **Port a real device onto the template** as the proof. The pattern came out of
-  a working Strudel device; folding that back onto the extracted packages is what
-  will find the leaks.
+  a working Strudel device; folding that back onto the packages is what will find
+  the leaks.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
 
-Done: **publishing the packages to npm** (`@m4l-jweb/bridge`, `@m4l-jweb/wrapper`,
-`@m4l-jweb/build` are all live on the registry) and **`m4l-jweb init`**
-(scaffolds a new device repo without cloning this one) - see the README.
+Done: the packages on npm, `m4l-jweb init` (with a drift test), one bundle per
+device, the mocked-Live harness, the library-owned selector contracts, an audio
+effect that is audible (`lowpass`), and a parameter the app can write. See the
+DONE section at the bottom of [TODO.md](TODO.md).
 
 
 ---
