@@ -222,9 +222,6 @@ infrastructure - the same `scripts/`, `vite.config.ts`, `tsconfig` and
 compares those files byte-for-byte and fails if they diverge, so the template
 cannot quietly fall behind the library again.
 
-> Requires `@m4l-jweb/bridge`, `@m4l-jweb/surface` and `@m4l-jweb/build` at
-> **0.2.0** on npm. Until those are published, `init` will not install.
-
 ### 2. Declare the device - `patcher/devices.mjs`
 
 The manifest says what the device *is*. The patcher is generated from it, so
