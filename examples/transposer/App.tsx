@@ -7,7 +7,7 @@
  * place. That is the entire device: no MIDI library, no scheduling code.
  */
 import { useEffect, useRef, useState } from "react";
-import { bindInlet, inJweb, outlet } from "@/lib/maxBridge";
+import { bindInlet, inJweb, outlet, uiReady } from "@m4l-jweb/bridge";
 import { IN, OUT } from "./protocol";
 
 declare const __APP_VERSION__: string;
@@ -43,7 +43,7 @@ export default function App() {
 			setLast({ from: p, to: shifted });
 		});
 
-		outlet(OUT.ui_ready);
+		uiReady();
 	}, []);
 
 	return (

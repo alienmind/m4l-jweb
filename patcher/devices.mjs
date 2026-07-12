@@ -1,7 +1,7 @@
 /**
  * devices.mjs - the device manifest. THIS is what you edit to change the shape
  * of a device; the patcher itself is generated from it (see
- * scripts/generate-patchers.mjs). Patch cords become code review.
+ * @m4l-jweb/build). Patch cords become code review.
  *
  * Fields
  *   name        output basename -> dist/<pkg>/<name>.amxd

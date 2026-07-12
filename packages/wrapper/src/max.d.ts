@@ -62,10 +62,10 @@ declare class LiveAPI {
 	call(method: string, ...args: unknown[]): unknown;
 }
 
-/** Injected by scripts/build-amxd.mjs: "<version> <iso date>". */
+/** Injected by @m4l-jweb/build: "<version> <iso date>". */
 declare const BUILD_STAMP: string | undefined;
 
-/** Injected by scripts/build-amxd.mjs: the UI html, base64, in chunks. */
+/** Injected by @m4l-jweb/build: the UI html, base64, in chunks. */
 declare const UI_PAYLOAD_NAME: string | undefined;
 declare const UI_PAYLOAD_BYTES: number | undefined;
 declare const UI_PAYLOAD_B64: string[] | undefined;

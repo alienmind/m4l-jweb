@@ -33,7 +33,7 @@ export default [
 
 ```bash
 pnpm build                     # -> dist/m4l-jweb/transposer.amxd
-scripts/install-windows.ps1    # or install-mac.sh / install-linux.sh
+dist/install-windows.ps1       # or dist/install-mac.sh
 ```
 
 Drop it on a MIDI track **before** an instrument, play, and turn the knob.

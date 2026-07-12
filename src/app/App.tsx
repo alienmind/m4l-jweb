@@ -12,8 +12,8 @@
  * Replace the body with your device UI. The bridge surface never changes.
  */
 import { useEffect, useRef, useState } from "react";
-import { bindInlet, inJweb, outlet } from "@/lib/maxBridge";
-import { IN, OUT } from "./protocol";
+import { bindInlet, inJweb, uiReady } from "@m4l-jweb/bridge";
+import { IN } from "./protocol";
 import DemoWorker from "./worker.ts?worker&inline";
 
 declare const __APP_VERSION__: string;
@@ -46,7 +46,7 @@ export default function App() {
 
 		// Handshake: the page loads asynchronously, so never assume the wrapper
 		// already sent state - announce readiness and let it reply.
-		outlet(OUT.ui_ready);
+		uiReady();
 
 		return () => worker.terminate();
 	}, []);

@@ -6,16 +6,24 @@ file is the short list of things that will silently break if you get them wrong.
 
 ## Where to make changes
 
+This is a pnpm workspace: a device repo at the root, and the reusable
+infrastructure carved into `packages/`.
+
 - **`src/app/`** - the web app (UI, optional worker, `protocol.ts`). Most work
   belongs here.
 - **`patcher/devices.mjs`** - the device manifest (name, type, chains,
   parameters).
-- Everything else (`wrapper/`, `scripts/`, `patcher/base.json`) is
-  infrastructure. Change it deliberately, not incidentally.
+- **`wrapper/device.ts`** - optional. Extra `[js]` message handlers for this
+  device, concatenated after the packaged wrapper sources.
+- **`packages/*`** - `@m4l-jweb/bridge` (the browser bridge),
+  `@m4l-jweb/wrapper` (the `[js]` sources), `@m4l-jweb/build` (the CLI, `.amxd`
+  writer and chain vocabulary). This is library code shared by every device.
+  Change it deliberately, not incidentally, and never to work around something
+  that belongs in `src/app/`.
 
 ## Hard rules
 
-1. **`wrapper/wrapper.ts` must compile to ES5.** Max's `[js]` is an ES5-era
+1. **The wrapper must compile to ES5.** Max's `[js]` is an ES5-era
    interpreter. No `let`/`const`, no arrow functions, no template literals, no
    promises, no modules, in the EMITTED output. The build parses it with acorn at
    `ecmaVersion: 5` and refuses to package on failure, so you cannot ship this
@@ -45,6 +53,13 @@ file is the short list of things that will silently break if you get them wrong.
   instances already on tracks. If behavior does not match the code, check the
   build stamp in the UI footer and the Max console, then delete and re-drag the
   device.
+- **Use LiveAPI, not MSP, for transport.** A `plugsync~` -> `snapshot~` chain
+  reads zero in a MIDI-effect device: those devices do not reliably run a DSP
+  graph. Poll `live_set is_playing` + `current_song_time` instead. It works in
+  every device type. Likewise, tempo comes from a LiveAPI observer - the
+  signal-domain alternative reports samples-per-beat, not BPM.
+- **Never trust an object's outlet order from memory.** Check the reference page
+  and log the raw values before you wire anything to them.
 - **`unpack` fires right-to-left.** That is why the MIDI chain unpacks
   explicitly: the delay must reach `pipe`'s cold inlet before the pitch hits the
   hot one.
@@ -55,9 +70,10 @@ file is the short list of things that will silently break if you get them wrong.
 the bridge. If you add a message:
 
 1. Add the selector to `IN` or `OUT` in `protocol.ts`.
-2. Bind or emit it in the app (`src/lib/maxBridge.ts`).
-3. Handle it on the Max side: a `function <selector>()` in the wrapper, or a
-   `route` in a chain in `scripts/generate-patchers.mjs`.
+2. Bind or emit it in the app, via `@m4l-jweb/bridge`.
+3. Handle it on the Max side: a `function <selector>()` in the wrapper
+   (`packages/wrapper/src/`, or this device's `wrapper/device.ts`), or a `route`
+   in a chain in `packages/build/src/chains.mjs`.
 
 `tests/protocol.test.mjs` fails if you skip step 3. That is deliberate: an
 unrouted selector is a message falling on the floor, and it produces no error at

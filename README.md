@@ -22,7 +22,7 @@ installable `.amxd` devices on a bare CI runner.
 
 - **Node.js 20+** and **pnpm 10+**.
 - **No Max license, and no Max editor.** The patcher is generated and the
-  container is written byte-for-byte in `scripts/build-amxd.mjs`.
+  container is written byte-for-byte in `packages/build/src/amxd.mjs`.
 - **No Ableton Live.** You can develop the entire UI in a browser (`pnpm dev`),
   where `window.maxSimulate(selector, ...args)` fakes the Max bridge.
 
@@ -49,9 +49,9 @@ introduced in **Max 8**, so Live 10 and 11 should work in principle - but that i
 reasoning from the docs, not something I have run. Treat anything below Live 12
 as unverified.
 
-**Platforms.** Live runs on macOS and Windows only. `scripts/install-linux.sh`
-exists for a Live install inside a Wine prefix; the build itself runs anywhere
-Node does.
+**Platforms.** Live runs on **macOS and Windows** only. The build itself runs
+anywhere Node does, so CI on Linux is fine - you just cannot run the result
+there.
 
 ---
 
@@ -63,9 +63,9 @@ cd my-device && pnpm install
 
 pnpm dev      # browser dev with the Max bridge simulated
 pnpm build    # emits dist/m4l-jweb/<device>.amxd + release zip
-pnpm test     # container round-trip + ES5 gate
+pnpm test     # container round-trip + ES5 gate + protocol lint
 
-scripts/install-windows.ps1   # or install-mac.sh / install-linux.sh
+dist/install-windows.ps1   # or dist/install-mac.sh
 ```
 
 Then open Live: **User Library > Max For Live > m4l-jweb**, and drop
@@ -163,7 +163,7 @@ file (every script, style and asset inlined). jweb exposes a two-call bridge to
 the page: `window.max.bindInlet(name, handler)` to receive Max messages,
 `window.max.outlet(...)` to send them. That is the entire API surface between
 your app and the device. Outside Max, a dev shim simulates the bridge so you
-develop in a normal browser with hot reload. See `src/lib/maxBridge.ts`.
+develop in a normal browser with hot reload. See `@m4l-jweb/bridge`.
 
 **2. Heavy logic runs in a Web Worker.** Sequencers, analyzers, anything that
 must not fight the UI thread. Dedicated workers are also exempt from the timer
@@ -191,7 +191,7 @@ via `box()`/`line()` helpers. Patch cords become code review.
 undocumented but simple, reverse-engineered from devices saved by Max 8/9: a
 header carrying the device-type tag, a chunk with the patcher JSON and each
 embedded dependency, and a directory of name/size/offset entries. About 150
-lines of Buffer code write it byte-for-byte (`scripts/build-amxd.mjs`). This is
+lines of Buffer code write it byte-for-byte (`packages/build/src/amxd.mjs`). This is
 the piece that removes Max from the loop entirely: `pnpm build` on a CI runner
 emits installable devices.
 
@@ -229,7 +229,7 @@ them.
 | Tempo | A LiveAPI property observer on `live_set tempo` (the signal-domain alternative reports samples-per-beat, not BPM). |
 | Any observable property (scale, track name, selected scene...) | `new LiveAPI(callback, "live_set")` + `.property = "..."`; the callback fires on attach and on every change. Forward to the UI as a message. |
 | Things with no observer | Poll with a `Task` and push a message only on change. |
-| Device lifecycle | `live.thisdevice` fires a bang when the device is fully loaded. Do all LiveAPI bootstrapping there - see the pitfalls below for why not `loadbang`. |
+| Device lifecycle | `live.thisdevice` fires a bang when the device is fully loaded. Do all LiveAPI bootstrapping there, never in `loadbang` (see `CLAUDE.md`). |
 
 ### Acting on Live (events out)
 
@@ -275,64 +275,52 @@ the laptop screen; the parameter bank is the performance surface on Push,
 automatable and MIDI-mappable for free. The manifest's `parameters` section
 generates the objects and their patcher wiring.
 
-## Pitfalls you only hit once
+## The packages
 
-Collected from the field; each of these costs an evening the first time:
+The infrastructure is carved into three packages, so a device repo is only the
+parts that are actually about *your* device.
 
-- **LiveAPI objects created during `loadbang` are dead.** They construct without
-  error and observe nothing. Create observers from `live.thisdevice`'s bang;
-  keep `loadbang` for file work. Guard code like `if (obs) return` turns this bug
-  permanent - recreate unconditionally.
-- **Live embeds a copy of the device in the set.** Reinstalling the `.amxd` does
-  not update instances already on tracks; delete and re-drag. Build stamps in
-  both the wrapper and the UI make staleness visible.
-- **The device view height is fixed** (about 169 px). Budget every row of your
-  UI; the bottom of an overgrown layout silently clips.
-- **`route` strips the selector.** A bare selector emerges as a `bang`;
-  re-materialize the word with a message box if the consumer needs it.
-- **`jsarguments[0]` is the script name, not your first argument.** Your object
-  box argument starts at index 1. Read index 0 and your mode comparison is
-  silently false forever.
-- **`File.writebytes` truncates silently** around 16 KB per call; write in 4 KB
-  slices and verify the byte count.
-- **Prefer LiveAPI to MSP for transport** in MIDI devices (no reliable DSP
-  graph), and never trust an object's outlet order from memory. Check the
-  reference page and log the raw values first.
-- **Avoid `[node.script]` unless you need the OS** (filesystem, child
-  processes). It adds a process manager and a boot handshake, and its failure
-  modes in Live range from silently ignoring `script start` to crashing the
-  host. A Web Worker inside jweb covers pure computation with none of that.
-- **ES5 is a build gate, not a style preference.** Parse the wrapper with `acorn`
-  at `ecmaVersion: 5` in CI and refuse to package on failure.
-
----
+| Package | What it is |
+|---|---|
+| **`@m4l-jweb/bridge`** | Browser, zero deps. Typed `bindInlet`/`outlet`, the `uiReady()` handshake, base64 helpers, and the `maxSimulate` dev shim that lets the same code run in a plain browser. |
+| **`@m4l-jweb/wrapper`** | The `[js]` glue in TypeScript: payload extraction, lifecycle, LiveAPI helpers (transport poll, tempo/property observers, clip I/O). Shipped as **sources, not a library** - `[js]` has no module system, so the build compiles them as one program and concatenates the output. |
+| **`@m4l-jweb/build`** | The Node CLI (`m4l-jweb`): the binary `.amxd` writer, the `box()`/`line()` patcher DSL and chain vocabulary, payload embedding, build stamps, the ES5 gate, installer templates. |
 
 ## Repo layout
 
 ```
 m4l-jweb/
   src/
-    app/                # the ONLY folder a device author edits
-      App.tsx           # the jweb UI (React)
-      protocol.ts       # selector names + payload types
-      worker.ts         # optional compute worker (inlined automatically)
-    lib/maxBridge.ts    # bindInlet/outlet + the maxSimulate dev shim
-  wrapper/
-    wrapper.ts          # the [js] glue, compiled to ES5, gated by acorn
-    max.d.ts            # ambient types for post/outlet/LiveAPI/Task/File
-  patcher/
-    base.json           # minimal jweb + js template
-    devices.mjs         # declarative manifest (see below)
-  scripts/
-    build-wrapper.mjs   # tsc -> ES5, then the acorn gate
-    generate-patchers.mjs  # manifest -> patcher JSON (box()/line() DSL)
-    build-amxd.mjs      # the headless .amxd container writer
-    postbuild.mjs       # assemble dist/ + release zip
-    install-{windows.ps1,mac.sh,linux.sh}
-  tests/amxd.test.mjs   # container round-trip + ES5 gate
-  examples/transposer   # hello world: one-knob MIDI transposer, ~50 lines
-  CLAUDE.md             # agent guardrails
+    app/                  # the ONLY folder a device author edits
+      App.tsx             # the jweb UI (React)
+      protocol.ts         # selector names + payload types
+      worker.ts           # optional compute worker (inlined automatically)
+  patcher/devices.mjs     # the declarative manifest (see below)
+  wrapper/device.ts       # OPTIONAL: extra [js] handlers, concatenated last
+
+  packages/
+    bridge/src/index.ts   # @m4l-jweb/bridge
+    wrapper/src/
+      core.ts             # lifecycle, the anything() guard, payload extraction
+      liveapi.ts          # transport, observers, clip I/O
+      max.d.ts            # ambient types for post/outlet/LiveAPI/Task/File
+    build/
+      bin/m4l-jweb.mjs    # the CLI
+      src/amxd.mjs        # the headless .amxd container writer
+      src/chains.mjs      # box()/line() DSL + chain vocabulary
+      src/index.mjs       # wrapper -> patchers -> package
+      templates/          # base.json + installers
+      tests/amxd.test.mjs # container round-trip + ES5 gate
+
+  tests/protocol.test.mjs # every selector is routed on the Max side
+  examples/transposer     # hello world: one-knob MIDI transposer, ~50 lines
+  CLAUDE.md               # agent guardrails
 ```
+
+A device repo owns exactly two files' worth of decisions: `src/app/` and
+`patcher/devices.mjs`. Two escape hatches exist for when that is not enough:
+`patcher/base.json` overrides the patcher template, and `wrapper/device.ts` adds
+your own `[js]` message handlers.
 
 ## The manifest
 
@@ -354,7 +342,7 @@ export default [
 ];
 ```
 
-The chain vocabulary lives in `scripts/generate-patchers.mjs`; each chain is a
+The chain vocabulary lives in `packages/build/src/chains.mjs`; each chain is a
 small function that adds boxes and cords. Shipped today:
 
 | Chain | What it wires |
@@ -367,14 +355,19 @@ Add your own next to them. Keep them small and named after what they do.
 
 ## The build pipeline
 
-`pnpm build` is five steps, each independently runnable:
+`pnpm build` is `tsc -b && vite build && m4l-jweb build`. Bundling the UI is the
+app's business and stays in the repo's own scripts; everything Max-shaped is the
+CLI:
 
-1. `tsc -b` - typecheck the app.
-2. `vite build` - bundle the UI into ONE self-contained `index.html`.
-3. `build-wrapper.mjs` - compile `wrapper.ts` to ES5, then prove it with acorn.
-4. `generate-patchers.mjs` - manifest -> one patcher JSON per device.
-5. `postbuild.mjs` - write each `.amxd` (embedding the UI as a base64 payload in
-   the wrapper), then the release zip.
+| Step | Command | What happens |
+|---|---|---|
+| 1 | `tsc -b` | Typecheck the app. |
+| 2 | `vite build` | Bundle the UI into ONE self-contained `index.html`. |
+| 3 | `m4l-jweb wrapper` | Compile `core.ts` + `liveapi.ts` (+ your `wrapper/device.ts`) as one TS program, concatenate to a single ES5 script, prove it with acorn. |
+| 4 | `m4l-jweb patchers` | Manifest -> one patcher JSON per device. |
+| 5 | `m4l-jweb package` | Write each `.amxd`, embedding the UI as a base64 payload in the wrapper, then the release zip and installers. |
+
+Each is independently runnable. `m4l-jweb build` is 3 + 4 + 5.
 
 ## CI invariants
 
@@ -382,42 +375,84 @@ The build is the test suite. These hold, and are what let an agent work here
 unattended:
 
 1. `pnpm build` produces every `.amxd` with no Max installed.
-2. The wrapper parses at `ecmaVersion: 5` or the build fails (twice: at compile,
-   and again on the exact bytes that ship).
+2. The wrapper parses at `ecmaVersion: 5` or the build fails - twice: once on the
+   concatenated output, and again inside the container writer on the exact bytes
+   that ship.
 3. The built container round-trips: a test parses the `.amxd` and asserts the
-   patcher JSON, the directory entries and the payload sizes and offsets.
+   patcher JSON, the directory entries, the payload sizes and offsets, and that
+   the embedded UI decodes back to the bytes that went in.
 4. Every selector in `protocol.ts` appears in a route or handler on the
    patcher/wrapper side.
 5. No `[node.script]` in the default template.
 
-## Roadmap: carving this into a library
+## Next: the Surface, a component model for the Max side
 
-The scaffold currently lives as a template repo. The extraction plan, in
-implementable order:
+The Push section above ends with three manual chores: add `live.*` objects, wire
+them into your protocol, group them into banks. That is the one place this
+project still says "go do it by hand" - and it means the same control lives in
+four places (the Max object, the patcher wiring, the protocol, the app state),
+free to drift apart.
 
-### Packages
+**The Surface** fixes that the way generated patchers fixed patch cords: declare
+the parameters **once, as code**.
 
-1. **`@m4l-jweb/bridge`** (browser, ~100 lines, zero deps): typed
-   `bindInlet`/`outlet`, the `ui_ready` handshake, base64 helpers, the
-   `maxSimulate` dev shim.
-2. **`@m4l-jweb/wrapper`** (TypeScript compiled to ES5): payload extraction with
-   build-stamp sidecars, LiveAPI helpers (clip I/O, property observers,
-   transport poll, tempo observer), the `anything()` guard, the bang/loadbang
-   lifecycle skeleton. Distributed as a template the build concatenates, because
-   `[js]` has no module system.
-3. **`@m4l-jweb/build`** (Node CLI): the binary `.amxd` writer, the patcher
-   `box()`/`line()` DSL plus canned chains (MIDI out, poly~ bank, plugin~
-   passthrough), payload embedding, build stamps, the ES5 gate, installer
-   templates.
+```ts
+// src/app/surface.ts
+export default defineSurface({
+	params: {
+		density: dial({ range: [0, 1], default: 0.5, short: "Dens" }),
+		running: toggle({ default: false, short: "Run" }),
+	},
+	banks: [{ name: "Perform", params: ["density", "running"] }],
+});
+```
 
-### Migration order
+From that one declaration the build derives the `live.*` objects, their wiring in
+both directions, the Push bank layout, the protocol selectors, and a typed React
+hook:
 
-1. Extract the container writer unchanged; parameterize payload names.
-2. Port the wrapper to TypeScript (`target: "ES5"`), splitting core (extraction,
-   lifecycle, guard) from LiveAPI helpers.
-3. Reduce the patcher generator to the manifest reader + chain vocabulary.
-4. Ship the transposer example; port a real device onto the template as the
-   proof.
+```tsx
+const [density, setDensity] = useParam(surface, "density");
+```
+
+`useParam` is a two-way binding to a **real Live parameter**. Turn the Push
+encoder and React state moves; drag the React slider and the Live parameter moves
+- so it is automatable and MIDI-mappable for free.
+
+A device then has two surfaces, both from one source: the **parameter surface**
+(the only thing Push can see) and the **web UI** (the deep editor on the laptop).
+And because the build now knows what the Max side *is*, `pnpm dev` can render a
+**mocked Live** beside your app - transport, the parameter panel, a Push preview
+showing exactly what the hardware will show, and a log of every message crossing
+the bridge. Both halves of the device, in a browser, with hot reload.
+
+This is a component model in the React sense - declarative, composable, code, not
+pixels - that compiles to Max objects instead of DOM.
+
+**Not implemented yet.** The full design, including the feedback-loop trap that
+makes the naive wiring oscillate, is specified in
+**[doc/SURFACE.md](doc/SURFACE.md)**.
+
+## Roadmap
+
+The library carve-out described above is **done**: bridge, wrapper and build are
+separate packages in a pnpm workspace, and the device repo at the root consumes
+them like any other dependency. What is left:
+
+- **`@m4l-jweb/surface`** - the component model and the mocked-Live dev harness
+  described above. The biggest single win left in the project; see
+  [doc/SURFACE.md](doc/SURFACE.md).
+- **Publish the packages to npm.** They are workspace-local today, so
+  `create-m4l-jweb` (scaffold a device repo without cloning this one) is the
+  natural next step.
+- **Grow the chain vocabulary.** `poly~` voice bank (instrument devices) and
+  `plugin~ -> DSP -> plugout~` (audio effects that actually do something) are the
+  obvious gaps.
+- **Port a real device onto the template** as the proof. The pattern came out of
+  a working Strudel device; folding that back onto the extracted packages is what
+  will find the leaks.
+- **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
+  Nobody has checked.
 
 ---
 

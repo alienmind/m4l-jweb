@@ -1,0 +1,12 @@
+{
+	"name": "@m4l-jweb/bridge",
+	"version": "0.1.0",
+	"description": "Typed bindInlet/outlet over jweb's window.max, the ui_ready handshake, base64 helpers, and a dev shim that simulates the Max bridge in a plain browser.",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"files": ["src"],
+	"sideEffects": ["./src/index.ts"]
+}
