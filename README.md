@@ -235,7 +235,7 @@ without it a `live.dial` loads at the *bottom* of its range, and for a filter
 cutoff that is a device which swallows the signal the moment you drop it on a
 track.
 
-### 2. Agree on the words - `src/app/<device>/protocol.ts`
+### 2. Define the protocol - `src/app/<device>/protocol.ts`
 
 Every message crossing the bridge is a **selector** (a word) followed by
 arguments. This file is the single source of truth for both sides, and `pnpm
