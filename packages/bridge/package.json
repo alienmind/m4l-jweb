@@ -1,7 +1,7 @@
 {
 	"name": "@m4l-jweb/bridge",
 	"version": "0.1.0",
-	"description": "Typed bindInlet/outlet over jweb's window.max, the ui_ready handshake, base64 helpers, and a dev shim that simulates the Max bridge in a plain browser.",
+	"description": "m4l-jweb: the browser-side bridge connecting a device's web UI to Max for Live.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {

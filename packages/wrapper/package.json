@@ -1,7 +1,7 @@
 {
 	"name": "@m4l-jweb/wrapper",
 	"version": "0.1.0",
-	"description": "The [js] glue for a Max for Live device, in TypeScript: payload extraction, lifecycle, LiveAPI helpers. Distributed as a template the build concatenates - [js] has no module system.",
+	"description": "m4l-jweb: the Max for Live glue layer connecting a device to LiveAPI.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {

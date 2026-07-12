@@ -1,7 +1,7 @@
 {
 	"name": "@m4l-jweb/build",
 	"version": "0.1.0",
-	"description": "Headless Max for Live build toolchain: the binary .amxd container writer, a box()/line() patcher DSL with canned chains, payload embedding, build stamps and the ES5 gate. No Max required.",
+	"description": "m4l-jweb: the CLI that builds and packages a device repo into installable Max for Live devices.",
 	"type": "module",
 	"license": "MIT",
 	"repository": {
