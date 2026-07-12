@@ -32,34 +32,60 @@ declare let outlets: number;
 
 /** Max's scheduler. There is no `setTimeout` in [js]. */
 declare class Task {
-	constructor(fn: () => void, ctx: unknown);
-	interval: number;
-	repeat(count?: number): void;
-	schedule(delayMs?: number): void;
-	cancel(): void;
+  constructor(fn: () => void, ctx: unknown);
+  interval: number;
+  repeat(count?: number): void;
+  schedule(delayMs?: number): void;
+  cancel(): void;
 }
 
 /** Max's file object. Note: `writebytes` truncates silently past ~16 KB. */
 declare class File {
-	constructor(path: string, mode?: "read" | "write" | "readwrite");
-	isopen: boolean;
-	eof: number;
-	open(): void;
-	close(): void;
-	readstring(count: number): string;
-	writestring(s: string): void;
-	writebytes(bytes: number[]): void;
+  constructor(path: string, mode?: "read" | "write" | "readwrite");
+  isopen: boolean;
+  eof: number;
+  open(): void;
+  close(): void;
+  readstring(count: number): string;
+  writestring(s: string): void;
+  writebytes(bytes: number[]): void;
+}
+
+/**
+ * A named [buffer~] in the patcher, addressed from [js].
+ *
+ * This is the seam that makes "disk is the audio transport" work: [js] tells a
+ * buffer~ to `replace` a file on disk and MSP plays it from there, so audio
+ * never crosses the Max message bridge (a text-parsed protocol) as data.
+ *
+ * The buffer~ must ALREADY EXIST in the patcher under this name - `new Buffer`
+ * binds to one, it does not create one. And `send("replace", path)` is
+ * ASYNCHRONOUS: framecount() right after it still reads the old size. Come back
+ * on a Task.
+ *
+ * UNVERIFIED. This declaration is what doc/SPIKES.md spike 1.2 exists to
+ * confirm. Do not build on it until that spike is recorded as PASS.
+ */
+declare class Buffer {
+  constructor(name: string);
+  /** Send a message to the buffer~ itself, e.g. `send("replace", "/path/x.wav")`. */
+  send(message: string, ...args: unknown[]): void;
+  framecount(): number;
+  channelcount(): number;
+  /** peek(channel, frameIndex, count) - channels and frames are 1-indexed. */
+  peek(channel: number, index: number, count?: number): number;
+  poke(channel: number, index: number, value: number): void;
 }
 
 /** The Live object model. The whole reason [js] still exists in this stack. */
 declare class LiveAPI {
-	constructor(pathOrCallback: string | ((args: unknown[]) => void), path?: string);
-	property: string;
-	unquotedpath: string;
-	get(prop: string): unknown;
-	set(prop: string, value: unknown): void;
-	getcount(child: string): number;
-	call(method: string, ...args: unknown[]): unknown;
+  constructor(pathOrCallback: string | ((args: unknown[]) => void), path?: string);
+  property: string;
+  unquotedpath: string;
+  get(prop: string): unknown;
+  set(prop: string, value: unknown): void;
+  getcount(child: string): number;
+  call(method: string, ...args: unknown[]): unknown;
 }
 
 /** Injected by @m4l-jweb/build: "<version> <iso date>". */

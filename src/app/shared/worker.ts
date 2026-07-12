@@ -15,12 +15,12 @@
 let ticks = 0;
 
 self.onmessage = (e: MessageEvent) => {
-	const [type] = e.data as [string, ...unknown[]];
-	if (type === "tick") {
-		ticks += 1;
-		self.postMessage(["ticks", ticks]);
-	} else if (type === "reset") {
-		ticks = 0;
-		self.postMessage(["ticks", ticks]);
-	}
+  const [type] = e.data as [string, ...unknown[]];
+  if (type === "tick") {
+    ticks += 1;
+    self.postMessage(["ticks", ticks]);
+  } else if (type === "reset") {
+    ticks = 0;
+    self.postMessage(["ticks", ticks]);
+  }
 };
