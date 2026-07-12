@@ -22,8 +22,6 @@ const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const templates = path.join(pkgDir, "templates");
 
-const UI_NAME = "ui.html";
-
 /* ------------------------------------------------------------------ *
  * Step 1: the wrapper
  * ------------------------------------------------------------------ */
@@ -38,70 +36,70 @@ const UI_NAME = "ui.html";
  * order.
  */
 export function buildWrapper(root) {
-	const { sources, types } = require("@m4l-jweb/wrapper/sources");
-	const deviceExt = path.join(root, "wrapper", "device.ts");
-	const files = [...sources, ...(existsSync(deviceExt) ? [deviceExt] : [])];
+  const { sources, types } = require("@m4l-jweb/wrapper/sources");
+  const deviceExt = path.join(root, "wrapper", "device.ts");
+  const files = [...sources, ...(existsSync(deviceExt) ? [deviceExt] : [])];
 
-	const outDir = path.join(root, "dist", "wrapper");
-	const tmp = path.join(root, "dist", ".wrapper-tsc");
-	rmSync(tmp, { recursive: true, force: true });
-	mkdirSync(tmp, { recursive: true });
-	mkdirSync(outDir, { recursive: true });
+  const outDir = path.join(root, "dist", "wrapper");
+  const tmp = path.join(root, "dist", ".wrapper-tsc");
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  mkdirSync(outDir, { recursive: true });
 
-	// Copy every source next to each other FIRST, then compile in place.
-	//
-	// tsc derives its output layout from the common root of its inputs. The
-	// packaged sources live in node_modules and the device's own device.ts lives
-	// in the repo, so that common root can be some ancestor of both - and the
-	// outputs land in a mirrored directory tree instead of flat. Staging them in
-	// one directory makes the output names predictable, which is what lets us
-	// concatenate them in order below.
-	const staged = files.map((f, i) => {
-		// Prefix with the index: order is the contract (core must precede the rest),
-		// and two sources could share a basename.
-		const dest = path.join(tmp, `${String(i).padStart(2, "0")}-${path.basename(f)}`);
-		writeFileSync(dest, readFileSync(f, "utf8"));
-		return dest;
-	});
-	const stagedTypes = path.join(tmp, path.basename(types));
-	writeFileSync(stagedTypes, readFileSync(types, "utf8"));
+  // Copy every source next to each other FIRST, then compile in place.
+  //
+  // tsc derives its output layout from the common root of its inputs. The
+  // packaged sources live in node_modules and the device's own device.ts lives
+  // in the repo, so that common root can be some ancestor of both - and the
+  // outputs land in a mirrored directory tree instead of flat. Staging them in
+  // one directory makes the output names predictable, which is what lets us
+  // concatenate them in order below.
+  const staged = files.map((f, i) => {
+    // Prefix with the index: order is the contract (core must precede the rest),
+    // and two sources could share a basename.
+    const dest = path.join(tmp, `${String(i).padStart(2, "0")}-${path.basename(f)}`);
+    writeFileSync(dest, readFileSync(f, "utf8"));
+    return dest;
+  });
+  const stagedTypes = path.join(tmp, path.basename(types));
+  writeFileSync(stagedTypes, readFileSync(types, "utf8"));
 
-	// The ES5 target is a build gate, not a style preference. `module: "none"`
-	// forbids imports, which is exactly the [js] constraint.
-	const tsconfig = path.join(tmp, "tsconfig.json");
-	writeFileSync(
-		tsconfig,
-		JSON.stringify({
-			compilerOptions: {
-				target: "ES5",
-				lib: ["ES5"],
-				module: "none",
-				outDir: tmp,
-				strict: true,
-				// At [js] global scope `this` IS the jsthis object - that is how
-				// `this.patcher.filepath` works.
-				noImplicitThis: false,
-				noImplicitAny: false,
-				skipLibCheck: true,
-				types: [],
-			},
-			files: [stagedTypes, ...staged],
-		}),
-	);
+  // The ES5 target is a build gate, not a style preference. `module: "none"`
+  // forbids imports, which is exactly the [js] constraint.
+  const tsconfig = path.join(tmp, "tsconfig.json");
+  writeFileSync(
+    tsconfig,
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES5",
+        lib: ["ES5"],
+        module: "none",
+        outDir: tmp,
+        strict: true,
+        // At [js] global scope `this` IS the jsthis object - that is how
+        // `this.patcher.filepath` works.
+        noImplicitThis: false,
+        noImplicitAny: false,
+        skipLibCheck: true,
+        types: [],
+      },
+      files: [stagedTypes, ...staged],
+    }),
+  );
 
-	execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", tsconfig], { stdio: "inherit" });
+  execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", tsconfig], { stdio: "inherit" });
 
-	// Concatenate the emitted scripts in source order: core's lifecycle first, the
-	// device's own handlers last.
-	const js = staged.map((f) => readFileSync(f.replace(/\.ts$/, ".js"), "utf8")).join("\n");
-	assertES5(js, "wrapper");
+  // Concatenate the emitted scripts in source order: core's lifecycle first, the
+  // device's own handlers last.
+  const js = staged.map((f) => readFileSync(f.replace(/\.ts$/, ".js"), "utf8")).join("\n");
+  assertES5(js, "wrapper");
 
-	const out = path.join(outDir, "wrapper.js");
-	writeFileSync(out, js);
-	rmSync(tmp, { recursive: true, force: true });
+  const out = path.join(outDir, "wrapper.js");
+  writeFileSync(out, js);
+  rmSync(tmp, { recursive: true, force: true });
 
-	console.log(`m4l-jweb: wrapper.js (${js.length} bytes, ES5 verified, from ${files.length} sources)`);
-	return out;
+  console.log(`m4l-jweb: wrapper.js (${js.length} bytes, ES5 verified, from ${files.length} sources)`);
+  return out;
 }
 
 /* ------------------------------------------------------------------ *
@@ -109,16 +107,16 @@ export function buildWrapper(root) {
  * ------------------------------------------------------------------ */
 
 async function readManifest(root) {
-	const p = path.join(root, "patcher", "devices.mjs");
-	if (!existsSync(p)) throw new Error("patcher/devices.mjs not found - a device repo needs a manifest");
-	return (await import(pathToFileURL(p).href)).default;
+  const p = path.join(root, "patcher", "devices.mjs");
+  if (!existsSync(p)) throw new Error("patcher/devices.mjs not found - a device repo needs a manifest");
+  return (await import(pathToFileURL(p).href)).default;
 }
 
 /** patcher/base.json in the device repo wins; otherwise the packaged template. */
 function readBase(root) {
-	const local = path.join(root, "patcher", "base.json");
-	const src = existsSync(local) ? local : path.join(templates, "base.json");
-	return JSON.parse(readFileSync(src, "utf8"));
+  const local = path.join(root, "patcher", "base.json");
+  const src = existsSync(local) ? local : path.join(templates, "base.json");
+  return JSON.parse(readFileSync(src, "utf8"));
 }
 
 /**
@@ -133,52 +131,52 @@ function readBase(root) {
  * in the library.
  */
 async function loadDeviceChains(root) {
-	const p = path.join(root, "patcher", "chains.mjs");
-	if (!existsSync(p)) return;
-	await import(pathToFileURL(p).href);
-	console.log("m4l-jweb: loaded device chains from patcher/chains.mjs");
+  const p = path.join(root, "patcher", "chains.mjs");
+  if (!existsSync(p)) return;
+  await import(pathToFileURL(p).href);
+  console.log("m4l-jweb: loaded device chains from patcher/chains.mjs");
 }
 
 export async function generatePatchers(root) {
-	const devices = await readManifest(root);
-	const base = readBase(root);
-	await loadDeviceChains(root);
-	const outDir = path.join(root, "dist", "patchers");
-	mkdirSync(outDir, { recursive: true });
+  const devices = await readManifest(root);
+  const base = readBase(root);
+  await loadDeviceChains(root);
+  const outDir = path.join(root, "dist", "patchers");
+  mkdirSync(outDir, { recursive: true });
 
-	for (const d of devices) {
-		const amxdtype = AMXD_TYPES[d.type];
-		if (!amxdtype) throw new Error(`unknown type "${d.type}" for device "${d.name}" (midi | audio | instrument)`);
+  for (const d of devices) {
+    const amxdtype = AMXD_TYPES[d.type];
+    if (!amxdtype) throw new Error(`unknown type "${d.type}" for device "${d.name}" (midi | audio | instrument)`);
 
-		const p = structuredClone(base);
-		const { boxes, lines } = p.patcher;
-		p.patcher.project.amxdtype = amxdtype;
-		resetLayout();
+    const p = structuredClone(base);
+    const { boxes, lines } = p.patcher;
+    p.patcher.project.amxdtype = amxdtype;
+    resetLayout();
 
-		// The wrapper is mode-switched by its object-box argument. `mode` defaults
-		// to the device type, but they are not always the same thing: a sample
-		// player can be an audio-effect device ("type") that the wrapper must treat
-		// as a sampler ("mode").
-		//
-		// jsarguments[0] is the SCRIPT NAME, so the mode lands at jsarguments[1].
-		const mode = d.mode ?? d.type;
-		boxes.find((b) => b.box.id === "obj-js").box.text = `js wrapper.js ${mode}`;
+    // The wrapper is mode-switched by its object-box argument. `mode` defaults
+    // to the device type, but they are not always the same thing: a sample
+    // player can be an audio-effect device ("type") that the wrapper must treat
+    // as a sampler ("mode").
+    //
+    // jsarguments[0] is the SCRIPT NAME, so the mode lands at jsarguments[1].
+    const mode = d.mode ?? d.type;
+    boxes.find((b) => b.box.id === "obj-js").box.text = `js wrapper.js ${mode}`;
 
-		const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
+    const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
 
-		for (const name of d.chains ?? []) {
-			const chain = CHAINS[name];
-			if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
-			chain({ boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d });
-		}
+    for (const name of d.chains ?? []) {
+      const chain = CHAINS[name];
+      if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
+      chain({ boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d });
+    }
 
-		// Parameters feed the UI: a knob move arrives as just another inlet message.
-		addParameters(boxes, lines, d.parameters ?? [], "obj-jweb");
+    // Parameters feed the UI: a knob move arrives as just another inlet message.
+    addParameters(boxes, lines, d.parameters ?? [], "obj-jweb");
 
-		writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
-		console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${(d.chains ?? []).join(", ") || "none"})`);
-	}
-	return devices;
+    writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
+    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${(d.chains ?? []).join(", ") || "none"})`);
+  }
+  return devices;
 }
 
 /* ------------------------------------------------------------------ *
@@ -194,99 +192,119 @@ export async function generatePatchers(root) {
  * requirement.
  */
 export async function packageDevices(root) {
-	const dist = path.join(root, "dist");
-	const { name, version } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
-	const devices = await readManifest(root);
+  const dist = path.join(root, "dist");
+  const { name, version } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+  const devices = await readManifest(root);
 
-	const outDir = path.join(dist, name);
-	mkdirSync(outDir, { recursive: true });
+  const outDir = path.join(dist, name);
+  mkdirSync(outDir, { recursive: true });
 
-	// vite emits dist/index.html (everything inlined by vite-plugin-singlefile).
-	const uiPath = path.join(outDir, UI_NAME);
-	const viteOut = path.join(dist, "index.html");
-	if (existsSync(viteOut)) await rename(viteOut, uiPath);
-	if (!existsSync(uiPath)) throw new Error(`no UI at ${uiPath} - run \`vite build\` first`);
+  const wrapperJs = readFileSync(path.join(dist, "wrapper", "wrapper.js"), "utf8");
 
-	const uiHtml = readFileSync(uiPath);
-	const wrapperJs = readFileSync(path.join(dist, "wrapper", "wrapper.js"), "utf8");
+  // The build stamp is what makes a stale install visible: the wrapper posts it
+  // and the UI renders it. Live embeds a copy of the device in the set, so an
+  // instance already on a track does NOT update when you reinstall.
+  const stamp = `${version} ${new Date().toISOString()}`;
+  const banner = `var BUILD_STAMP = ${JSON.stringify(stamp)};\n`;
 
-	// The build stamp is what makes a stale install visible: the wrapper posts it
-	// and the UI renders it. Live embeds a copy of the device in the set, so an
-	// instance already on a track does NOT update when you reinstall.
-	const stamp = `${version} ${new Date().toISOString()}`;
-	const banner = `var BUILD_STAMP = ${JSON.stringify(stamp)};\n`;
+  for (const d of devices) {
+    const deviceName = `${d.name}.amxd`;
 
-	for (const d of devices) {
-		const deviceName = `${d.name}.amxd`;
+    /**
+     * Each device embeds its OWN UI bundle, from dist/ui/<ui ?? name>/index.html
+     * (see scripts/build-ui.mjs). A device ships what it is, not its siblings'
+     * code.
+     *
+     * The payload NAME is per-device too - `<device>.html`, not a shared
+     * `ui.html`. Every device in a repo extracts its payload into the SAME
+     * folder (next to the .amxd), so one shared name would mean two devices
+     * overwriting each other's UI on every load, each one convinced the file on
+     * disk was stale. The symptom would be a device showing its sibling's
+     * interface.
+     */
+    const uiName = `${d.name}.html`;
+    const uiSrc = path.join(dist, "ui", d.ui ?? d.name, "index.html");
+    const legacy = path.join(dist, "index.html"); // single-UI repos (the starter template)
+    const uiFrom = existsSync(uiSrc) ? uiSrc : legacy;
+    if (!existsSync(uiFrom)) {
+      throw new Error(`no UI for "${d.name}" at ${uiSrc} - run \`pnpm build\` (scripts/build-ui.mjs) first`);
+    }
+    const uiHtml = readFileSync(uiFrom);
+    await copyFile(uiFrom, path.join(outDir, uiName));
 
-		/**
-		 * Payloads ride inside wrapper.js as base64 and are written to real files
-		 * next to the .amxd on first load, because Chromium and any external
-		 * process are blind to Max's frozen virtual filesystem. The UI is always
-		 * one; a device can declare more (`payloads: ["dist/foo.cjs"]`).
-		 */
-		let wrapperData = banner + wrapperJs + payloadJs("UI_PAYLOAD", UI_NAME, uiHtml);
-		const payloads = (d.payloads ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) }));
-		if (payloads.length) wrapperData += extraPayloadsJs(payloads);
+    /**
+     * Payloads ride inside wrapper.js as base64 and are written to real files
+     * next to the .amxd on first load, because Chromium and any external
+     * process are blind to Max's frozen virtual filesystem. The UI is always
+     * one; a device can declare more (`payloads: ["dist/foo.cjs"]`).
+     */
+    let wrapperData = banner + wrapperJs + payloadJs("UI_PAYLOAD", uiName, uiHtml);
+    const payloads = (d.payloads ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) }));
+    if (payloads.length) wrapperData += extraPayloadsJs(payloads);
 
-		const amxd = buildAmxd({
-			patcherJson: readFileSync(path.join(dist, "patchers", `${d.name}.json`), "utf8"),
-			wrapperJs: wrapperData,
-			deviceName,
-			// Frozen dependencies: readable by Max-native objects only (a poly~
-			// voice patcher, say), which is exactly why they can stay frozen.
-			extras: (d.extraFiles ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) })),
-		});
-		writeFileSync(path.join(outDir, deviceName), amxd);
-		console.log(`m4l-jweb: ${deviceName} (${d.type}, ${amxd.length} bytes)`);
-	}
+    const amxd = buildAmxd({
+      patcherJson: readFileSync(path.join(dist, "patchers", `${d.name}.json`), "utf8"),
+      wrapperJs: wrapperData,
+      deviceName,
+      // Frozen dependencies: readable by Max-native objects only (a poly~
+      // voice patcher, say), which is exactly why they can stay frozen.
+      extras: (d.extraFiles ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) })),
+    });
+    writeFileSync(path.join(outDir, deviceName), amxd);
+    console.log(`m4l-jweb: ${deviceName} (${d.type}, ${amxd.length} bytes)`);
+  }
 
-	await copyFile(path.join(dist, "wrapper", "wrapper.js"), path.join(outDir, "wrapper.js"));
+  await copyFile(path.join(dist, "wrapper", "wrapper.js"), path.join(outDir, "wrapper.js"));
 
-	/**
-	 * Loose files sit NEXT TO the .amxd in the installed folder, as real files.
-	 *
-	 * Needed when a Max object resolves a filename when it INSTANTIATES - before
-	 * the wrapper has run and before it could have extracted anything. Such an
-	 * object cannot be repointed at runtime, so the file has to be on disk under
-	 * exactly the name the object was created with. The embedded payload of the
-	 * same file is then only a fallback for a bare .amxd copied on its own.
-	 */
-	const loose = [...new Set(devices.flatMap((d) => d.looseFiles ?? []))];
-	for (const f of loose) {
-		await copyFile(path.join(root, f), path.join(outDir, path.basename(f)));
-		console.log(`m4l-jweb: ${path.basename(f)} -> dist/${name}/ (loose)`);
-	}
+  /**
+   * Loose files sit NEXT TO the .amxd in the installed folder, as real files.
+   *
+   * Needed when a Max object resolves a filename when it INSTANTIATES - before
+   * the wrapper has run and before it could have extracted anything. Such an
+   * object cannot be repointed at runtime, so the file has to be on disk under
+   * exactly the name the object was created with. The embedded payload of the
+   * same file is then only a fallback for a bare .amxd copied on its own.
+   */
+  const loose = [...new Set(devices.flatMap((d) => d.looseFiles ?? []))];
+  for (const f of loose) {
+    await copyFile(path.join(root, f), path.join(outDir, path.basename(f)));
+    console.log(`m4l-jweb: ${path.basename(f)} -> dist/${name}/ (loose)`);
+  }
 
-	// Installers go next to the devices so `dist/install-*.ps1` just works.
-	const installers = ["install-windows.ps1", "install-mac.sh"];
-	for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
+  // Installers go next to the devices so `dist/install-*.ps1` just works.
+  const installers = ["install-windows.ps1", "install-mac.sh"];
+  for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
 
-	const zipPath = path.join(dist, `${name}.zip`);
-	await new Promise((resolve, reject) => {
-		const output = createWriteStream(zipPath);
-		const archive = archiver("zip", { zlib: { level: 9 } });
-		output.on("close", resolve);
-		archive.on("error", reject);
-		archive.pipe(output);
-		const files = [...devices.map((d) => `${d.name}.amxd`), ...loose.map((f) => path.basename(f)), "wrapper.js", UI_NAME];
-		for (const f of files) {
-			archive.append(createReadStream(path.join(outDir, f)), { name: `${name}/${f}` });
-		}
-		for (const f of installers) {
-			archive.file(path.join(templates, f), { name: f, mode: 0o755 });
-		}
-		archive.finalize();
-	});
+  const zipPath = path.join(dist, `${name}.zip`);
+  await new Promise((resolve, reject) => {
+    const output = createWriteStream(zipPath);
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    output.on("close", resolve);
+    archive.on("error", reject);
+    archive.pipe(output);
+    const files = [
+      ...devices.map((d) => `${d.name}.amxd`),
+      ...devices.map((d) => `${d.name}.html`), // each device's own UI, for inspection
+      ...loose.map((f) => path.basename(f)),
+      "wrapper.js",
+    ];
+    for (const f of files) {
+      archive.append(createReadStream(path.join(outDir, f)), { name: `${name}/${f}` });
+    }
+    for (const f of installers) {
+      archive.file(path.join(templates, f), { name: f, mode: 0o755 });
+    }
+    archive.finalize();
+  });
 
-	const { size } = await stat(zipPath);
-	console.log(`m4l-jweb: dist/${name}.zip (${size} bytes)`);
+  const { size } = await stat(zipPath);
+  console.log(`m4l-jweb: dist/${name}.zip (${size} bytes)`);
 }
 
 export async function buildAll(root) {
-	buildWrapper(root);
-	await generatePatchers(root);
-	await packageDevices(root);
+  buildWrapper(root);
+  await generatePatchers(root);
+  await packageDevices(root);
 }
 
 /* ------------------------------------------------------------------ *
@@ -299,27 +317,27 @@ export async function buildAll(root) {
  * Live has no Linux build, so there is nothing to install there.
  * ------------------------------------------------------------------ */
 export async function installDevices(root) {
-	const { name } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+  const { name } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 
-	if (!existsSync(path.join(root, "dist", name))) {
-		throw new Error(`nothing built at dist/${name} - run \`pnpm build\` first`);
-	}
+  if (!existsSync(path.join(root, "dist", name))) {
+    throw new Error(`nothing built at dist/${name} - run \`pnpm build\` first`);
+  }
 
-	// The packaged scripts are the real implementation - they have to read Live's
-	// own config files to locate the User Library. Pass the device name and the
-	// built folder explicitly, since the script does not live in the repo.
-	const src = path.join(root, "dist", name);
-	const runners = {
-		win32: [
-			"powershell",
-			["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(templates, "install-windows.ps1"), "-DeviceName", name, "-Src", src],
-		],
-		darwin: ["bash", [path.join(templates, "install-mac.sh"), name, src]],
-	};
-	const runner = runners[process.platform];
-	if (!runner) {
-		throw new Error(`no installer for ${process.platform} - Ableton Live runs on macOS and Windows only`);
-	}
+  // The packaged scripts are the real implementation - they have to read Live's
+  // own config files to locate the User Library. Pass the device name and the
+  // built folder explicitly, since the script does not live in the repo.
+  const src = path.join(root, "dist", name);
+  const runners = {
+    win32: [
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(templates, "install-windows.ps1"), "-DeviceName", name, "-Src", src],
+    ],
+    darwin: ["bash", [path.join(templates, "install-mac.sh"), name, src]],
+  };
+  const runner = runners[process.platform];
+  if (!runner) {
+    throw new Error(`no installer for ${process.platform} - Ableton Live runs on macOS and Windows only`);
+  }
 
-	execFileSync(runner[0], runner[1], { stdio: "inherit", cwd: root });
+  execFileSync(runner[0], runner[1], { stdio: "inherit", cwd: root });
 }

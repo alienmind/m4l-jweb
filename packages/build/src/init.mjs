@@ -17,36 +17,36 @@ const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const starter = path.join(pkgDir, "templates", "starter");
 
 function walk(dir) {
-	const out = [];
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		const p = path.join(dir, entry.name);
-		if (entry.isDirectory()) out.push(...walk(p));
-		else out.push(p);
-	}
-	return out;
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walk(p));
+    else out.push(p);
+  }
+  return out;
 }
 
 export async function initProject(cwd, args = []) {
-	const positional = args.filter((a) => !a.startsWith("--"));
-	const nameFlagIndex = args.indexOf("--name");
-	const target = positional[0] ? path.resolve(cwd, positional[0]) : cwd;
-	const name = nameFlagIndex >= 0 ? args[nameFlagIndex + 1] : path.basename(target);
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const nameFlagIndex = args.indexOf("--name");
+  const target = positional[0] ? path.resolve(cwd, positional[0]) : cwd;
+  const name = nameFlagIndex >= 0 ? args[nameFlagIndex + 1] : path.basename(target);
 
-	if (existsSync(target) && readdirSync(target).length > 0) {
-		throw new Error(`${target} is not empty - init needs an empty (or new) directory`);
-	}
-	mkdirSync(target, { recursive: true });
+  if (existsSync(target) && readdirSync(target).length > 0) {
+    throw new Error(`${target} is not empty - init needs an empty (or new) directory`);
+  }
+  mkdirSync(target, { recursive: true });
 
-	const files = walk(starter);
-	for (const src of files) {
-		const rel = path.relative(starter, src);
-		const dest = path.join(target, rel);
-		mkdirSync(path.dirname(dest), { recursive: true });
-		const contents = readFileSync(src, "utf8").replaceAll("{{name}}", name);
-		writeFileSync(dest, contents);
-	}
+  const files = walk(starter);
+  for (const src of files) {
+    const rel = path.relative(starter, src);
+    const dest = path.join(target, rel);
+    mkdirSync(path.dirname(dest), { recursive: true });
+    const contents = readFileSync(src, "utf8").replaceAll("{{name}}", name);
+    writeFileSync(dest, contents);
+  }
 
-	console.log(`m4l-jweb: scaffolded "${name}" at ${target} (${files.length} files)`);
-	console.log(`m4l-jweb: next steps:\n  cd ${path.relative(cwd, target) || "."}\n  pnpm install\n  pnpm dev`);
-	return target;
+  console.log(`m4l-jweb: scaffolded "${name}" at ${target} (${files.length} files)`);
+  console.log(`m4l-jweb: next steps:\n  cd ${path.relative(cwd, target) || "."}\n  pnpm install\n  pnpm dev`);
+  return target;
 }

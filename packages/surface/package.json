@@ -1,0 +1,30 @@
+{
+	"name": "@m4l-jweb/surface",
+	"version": "0.1.0",
+	"description": "m4l-jweb: declare a device's Live parameters as code - the surface Push actually sees - plus a mocked-Live dev harness.",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/alienmind/m4l-jweb.git",
+		"directory": "packages/surface"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./dev": "./src/dev.tsx"
+	},
+	"files": ["src"],
+	"peerDependencies": {
+		"@m4l-jweb/bridge": "workspace:*",
+		"react": ">=18"
+	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		}
+	},
+	"sideEffects": false
+}
