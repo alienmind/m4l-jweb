@@ -3,6 +3,11 @@
 *Design document. Nothing here is implemented yet. It describes
 `@m4l-jweb/surface`, the planned fourth package.*
 
+*This file is the **design**. For where the Surface sits in the library's
+sequenced backlog - and why two cheaper items come before it - see
+**[TODO.md](TODO.md)**, which is the **order**. The implementation order at the
+bottom of this file is superseded by it.*
+
 ---
 
 ## The problem, stated precisely
@@ -326,6 +331,13 @@ Following the project's rule that an invariant is enforced, not documented:
    `ui.html` does not contain the harness marker).
 
 ## Implementation order
+
+> **Superseded by [TODO.md](TODO.md)**, which sequences this work against the
+> rest of the library's backlog. Two changes worth knowing: the **message log
+> and mock transport** are hoisted to the very front (they depend on nothing and
+> make everything else debuggable), and the **`set`-without-output question is
+> resolved by a spike *before* the codegen is written**, not during it. The
+> order below is kept for the rationale.
 
 1. **`defineSurface()` + types.** Pure data and typing. No Max, no React. Ship
    the type-level guarantees (bank membership, bank size, default-in-range)

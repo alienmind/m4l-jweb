@@ -315,17 +315,20 @@ makes the naive wiring oscillate, is specified in
 
 The library carve-out described above is **done**: bridge, wrapper and build are
 separate packages in a pnpm workspace, and the device repo at the root consumes
-them like any other dependency. What is left:
+them like any other dependency.
+
+**The sequenced plan lives in [TODO.md](TODO.md)** - what to build, in what
+order, and which unknowns are gated behind a spike first. In outline:
 
 - **`@m4l-jweb/surface`** - the component model and the mocked-Live dev harness
   described above. The biggest single win left in the project; see
   [SURFACE.md](SURFACE.md).
-- **A fetch-to-disk primitive that eliminates `[node.script]`.** See
-  [TODO.md](TODO.md) - lets any device pull a real file from the internet
-  through `[js]` alone, without paying `[node.script]`'s stability cost.
-- **Grow the chain vocabulary.** `poly~` voice bank (instrument devices) and
-  `plugin~ -> DSP -> plugout~` (audio effects that actually do something) are the
-  obvious gaps.
+- **A fetch-to-disk primitive that eliminates `[node.script]`** - lets any device
+  pull a real file from the internet through Max-native objects alone, without
+  paying `[node.script]`'s stability cost.
+- **Grow the chain vocabulary.** `buffer~`/`poly~` sample playback (instrument
+  devices - and the route to the first M4L-JWEB device that makes sound) and
+  `plugin~ -> DSP -> plugout~` (audio effects that actually do something).
 - **Port a real device onto the template** as the proof. The pattern came out of
   a working Strudel device; folding that back onto the extracted packages is what
   will find the leaks.
