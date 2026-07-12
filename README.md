@@ -11,6 +11,19 @@ Your UI is a React app. Your Live glue is TypeScript. Your patch cords are code
 review. `pnpm build` emits installable devices on a machine that has never seen
 Max.
 
+## Screenshots
+
+The device can run in either MIDI or audio mode. These screenshots show the
+plugin in action from the root project:
+
+### MIDI mode
+
+![MIDI mode](doc/screenshot-midi.png)
+
+### Audio mode
+
+![Audio mode](doc/screenshot-audio.png)
+
 ---
 
 ## Requirements
