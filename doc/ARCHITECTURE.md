@@ -320,9 +320,9 @@ them like any other dependency. What is left:
 - **`@m4l-jweb/surface`** - the component model and the mocked-Live dev harness
   described above. The biggest single win left in the project; see
   [SURFACE.md](SURFACE.md).
-- **Publish the packages to npm.** They are workspace-local today, so
-  `create-m4l-jweb` (scaffold a device repo without cloning this one) is the
-  natural next step.
+- **A fetch-to-disk primitive that eliminates `[node.script]`.** See
+  [TODO.md](TODO.md) - lets any device pull a real file from the internet
+  through `[js]` alone, without paying `[node.script]`'s stability cost.
 - **Grow the chain vocabulary.** `poly~` voice bank (instrument devices) and
   `plugin~ -> DSP -> plugout~` (audio effects that actually do something) are the
   obvious gaps.
@@ -331,6 +331,10 @@ them like any other dependency. What is left:
   will find the leaks.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
+
+Done: **publishing the packages to npm** (`@m4l-jweb/bridge`, `@m4l-jweb/wrapper`,
+`@m4l-jweb/build` are all live on the registry) and **`m4l-jweb init`**
+(scaffolds a new device repo without cloning this one) - see the README.
 
 
 ---
