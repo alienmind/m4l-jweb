@@ -1,0 +1,16 @@
+# The repo is LF, everywhere, including on Windows checkouts.
+#
+# Without this, git's core.autocrlf rewrites line endings on checkout and the
+# working tree ends up mixed: files written by tools (prettier, the build) stay
+# LF while files that round-trip through git become CRLF. That is invisible until
+# something compares two files byte-for-byte - which tests/starter.test.mjs does,
+# and it failed on nothing but \r.
+#
+# It also matters for the shipped device: the wrapper is embedded as bytes and
+# its size is verified after extraction, so a checkout that silently changed line
+# endings changes the byte count.
+* text=auto eol=lf
+
+# Binary - never touch these.
+*.png binary
+*.amxd binary

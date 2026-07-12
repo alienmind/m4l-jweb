@@ -48,9 +48,19 @@ const SHARED = [
   "src/app/shared/worker.ts",
 ];
 
+/**
+ * Line endings are not drift.
+ *
+ * `.gitattributes` normalises the repo to LF, but a checkout with a different
+ * core.autocrlf, or an editor that rewrites on save, can still leave one copy
+ * CRLF. Comparing raw bytes then fails on `\r` alone and says "has drifted",
+ * which is a lie and sends you looking for a change that is not there.
+ */
+const content = (p) => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
+
 test.each(SHARED)("template's %s is identical to this repo's", (rel) => {
-  const mine = readFileSync(path.join(root, rel), "utf8");
-  const theirs = readFileSync(path.join(starter, rel), "utf8");
+  const mine = content(path.join(root, rel));
+  const theirs = content(path.join(starter, rel));
   expect(theirs, `packages/build/templates/starter/${rel} has drifted - copy ${rel} over it`).toBe(mine);
 });
 
