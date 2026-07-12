@@ -74,7 +74,7 @@ pixels - but it compiles to Max objects instead of DOM.
 ### Declaring the Surface
 
 ```ts
-// src/app/surface.ts
+// src/app/<device>/surface.ts
 import { defineSurface, dial, toggle, menu } from "@m4l-jweb/surface";
 
 export default defineSurface({
@@ -120,7 +120,7 @@ Type-level guarantees worth having:
 ### Using it from the app
 
 ```tsx
-// src/app/App.tsx
+// src/app/<device>/App.tsx
 import { useParam, useSurface } from "@m4l-jweb/surface/react";
 import surface from "./surface";
 
@@ -351,8 +351,8 @@ Following the project's rule that an invariant is enforced, not documented:
    the project stops being a build system and becomes a development environment.
 5. **Push banks.** Last, because it needs the patcher-format archaeology and
    nothing else is blocked on it.
-6. **Port the transposer.** Its one `live.dial` becomes three lines of
-   `surface.ts` and the example gets *shorter*. If it does not, the API is wrong.
+6. **Port the hello-world devices.** Their dials become a few lines of
+   `surface.ts` and the examples get *shorter*. If they do not, the API is wrong.
 
 ## Open questions
 

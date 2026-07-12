@@ -149,10 +149,11 @@ real and it works: `packages/build/src/chains.mjs` has a `midiout` chain
 `makenote` -> `midiformat` -> `midiout`, so the app computes *when* and Max
 places the note precisely) and a `midiin` chain (`notein <pitch> <velocity>`).
 
-But the *contract* for addressing those chains lives only in
-`examples/transposer/protocol.ts`. Every device that wants MIDI re-declares
-`midinote` and `notein` by hand, and `@m4l-jweb/bridge` offers no typed helper.
-The chain is library code; the way to talk to it is copy-paste.
+But the *contract* for addressing those chains lived only in each device's own
+`protocol.ts`. Every device that wanted MIDI re-declared `midinote` and `notein`
+by hand, and `@m4l-jweb/bridge` offered no typed helper. The chain was library
+code; the way to talk to it was copy-paste. **Done** - see `CHAIN_IN`/`CHAIN_OUT`
+and `sendNote`/`onNote`/`flushNotes` in the bridge.
 
 - Export the chain-owned selectors from `@m4l-jweb/bridge` (a `CHAIN_IN` /
   `CHAIN_OUT` a device spreads into its own `protocol.ts`), so the selector a
@@ -270,11 +271,13 @@ With a declaration to render from, the harness gains the parameter panel and the
 formatted values. You are looking at what a Push user will look at. Normally
 that is a hardware-in-the-loop discovery; here it is a browser tab.
 
-## 2.5 Port the transposer
+## 2.5 Port the hello-world devices
 
-Its `live.dial` becomes three lines of `surface.ts` and the example gets
-*shorter*. If it does not, the API is wrong. This is the acceptance test for the
-whole stage.
+`hello-midi`'s two dials and `hello-audio`'s cutoff become a few lines of
+`surface.ts`, the `writableParams()` sliver in `chains.mjs` is deleted (the
+Surface generates that wiring for every parameter), and the manifest's
+`parameters` field goes away. The examples get *shorter*. If they do not, the API
+is wrong. This is the acceptance test for the whole stage.
 
 > **Deliberately deferred: Push banks.** The bank layout needs patcher-JSON
 > archaeology (discover it by configuring banks once in the Max editor, saving,
