@@ -35,9 +35,6 @@ Each lives in its own folder under `src/app/`, and each builds into its own
 
 ![hello-midi, an instrument, and hello-audio on a Live track](doc/screenshot-midi-audio-chain.png)
 
-That is the whole point of the project in one screenshot, and it is a signal
-chain, not a mock-up:
-
 **hello-midi** (left, a MIDI effect) is pulsing C3 at 1/16. It feeds **Hello
 Bass** - an ordinary Ableton instrument, nothing to do with this repo - which
 turns those notes into audio. That audio then runs through **hello-audio**
