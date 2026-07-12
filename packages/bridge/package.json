@@ -16,7 +16,8 @@
 		".": "./src/index.ts"
 	},
 	"files": [
-		"src"
+		"src",
+		"LICENSE"
 	],
 	"sideEffects": [
 		"./src/index.ts"

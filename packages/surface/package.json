@@ -17,7 +17,8 @@
 		"./dev": "./src/dev.tsx"
 	},
 	"files": [
-		"src"
+		"src",
+		"LICENSE"
 	],
 	"peerDependencies": {
 		"@m4l-jweb/bridge": "workspace:*",

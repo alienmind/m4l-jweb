@@ -341,4 +341,18 @@ ships what it is, not what its siblings are.
 
 ## License
 
-MIT.
+**MIT** - see [LICENSE](LICENSE). The published packages (`@m4l-jweb/bridge`,
+`@m4l-jweb/surface`, `@m4l-jweb/wrapper`, `@m4l-jweb/build`) carry the same
+licence.
+
+In practice that means you can use this commercially, modify it, and ship
+closed-source devices built with it, with no obligation to publish your changes.
+The only condition is that the copyright notice and licence text travel with
+copies or substantial portions of *this* software - not with the devices you
+build using it. It comes with no warranty and no liability.
+
+**What it does not cover.** Ableton Live and Max are Cycling '74's and Ableton's,
+under their own licences - this project neither redistributes them nor grants any
+rights to them. A `.amxd` you build here runs inside Max for Live and needs a
+licence for it (see [What you need](#what-you-need)). The dependencies pulled in
+at build time (React, vite, and so on) carry their own licences, all permissive.

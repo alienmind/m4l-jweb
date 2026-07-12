@@ -18,6 +18,7 @@
 	},
 	"files": [
 		"src",
-		"sources.mjs"
+		"sources.mjs",
+		"LICENSE"
 	]
 }

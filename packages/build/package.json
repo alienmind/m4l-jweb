@@ -24,7 +24,8 @@
 	"files": [
 		"bin",
 		"src",
-		"templates"
+		"templates",
+		"LICENSE"
 	],
 	"dependencies": {
 		"@m4l-jweb/wrapper": "workspace:*",
