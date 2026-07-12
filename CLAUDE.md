@@ -1,8 +1,9 @@
 # CLAUDE.md - guardrails for agents working in this repo
 
 This repo builds Ableton Live `.amxd` devices from TypeScript, with no Max
-editor in the loop. Read `README.md` first; it explains the architecture. This
-file is the short list of things that will silently break if you get them wrong.
+editor in the loop. Read `README.md`, then `doc/ARCHITECTURE.md`, which explains
+how the layers fit together. This file is the short list of things that will
+silently break if you get them wrong.
 
 ## Where to make changes
 

@@ -7,8 +7,8 @@
 
 ## The problem, stated precisely
 
-M4L-JWEB's README makes a claim about Push and then leaves the reader to do the
-work by hand:
+M4L-JWEB's [architecture doc](ARCHITECTURE.md) makes a claim about Push and then
+leaves the reader to do the work by hand:
 
 > Push support is not about the UI technology at all. It is about exposing your
 > musically meaningful controls as real Live parameters: add `live.dial` /
