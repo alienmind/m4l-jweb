@@ -2,144 +2,133 @@
 
 **Build Ableton Live devices like a web developer.**
 
-Max for Live is the most powerful extension point Ableton ever shipped, and the
-least approachable one if you come from modern software engineering. M4L-JWEB is
-a scaffold and a set of patterns that let you build, test and ship `.amxd`
-devices from an ordinary TypeScript repo, with CI and no Max editor in the loop.
+M4L-JWEB builds installable Ableton Live `.amxd` devices from an ordinary
+TypeScript repo. Your UI is a React app. Your Live glue is TypeScript. Your patch
+cords are code review. `pnpm build` emits devices on a machine that has never
+seen Max, so CI can ship them.
 
-Your UI is a React app. Your Live glue is TypeScript. Your patch cords are code
-review. `pnpm build` emits installable devices on a machine that has never seen
-Max.
+```bash
+pnpm install
+pnpm dev:hello-midi   # the device in a browser, with a mocked Live beside it
+pnpm build            # .amxd files, no Max installed
+pnpm install:device   # into Ableton's User Library
+```
 
-## Screenshots
+The repo builds two devices out of the box, and they are the examples:
 
-The device can run in either MIDI or audio mode. These screenshots show the
-plugin in action from the root project:
+| Device | Type | What it is |
+|---|---|---|
+| **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
+| **hello-audio** | audio effect | A lowpass filter. A Cutoff slider in the device window drives a real filter in the signal path. |
 
-### MIDI mode
+Each lives in its own folder under `src/app/`, and each builds into its own
+`.amxd` carrying its own UI bundle.
 
-![MIDI mode](doc/screenshot-midi.png)
+### Both of them, in a real chain
 
-### Audio mode
+![hello-midi, an instrument, and hello-audio on a Live track](doc/screenshot-midi-audio-chain.png)
 
-![Audio mode](doc/screenshot-audio.png)
+That is the whole point of the project in one screenshot, and it is a signal
+chain, not a mock-up:
+
+**hello-midi** (left, a MIDI effect) is pulsing C3 at 1/16. It feeds **Hello
+Bass** - an ordinary Ableton instrument, nothing to do with this repo - which
+turns those notes into audio. That audio then runs through **hello-audio**
+(right, an audio effect), whose Cutoff slider is riding a real lowpass filter at
+10.7 kHz.
+
+Two devices built from TypeScript, sitting in a normal Live device chain either
+side of a stock instrument, behaving like any other device. Note that hello-midi
+says *"free-running"*: the transport is stopped, so it is pulsing off its own
+fallback clock rather than Live's - see the tutorial for why a sequencer must use
+the transport when it is running.
+
+### Each device on its own
+
+| | |
+|---|---|
+| ![MIDI mode](doc/screenshot-midi.png) | ![Audio mode](doc/screenshot-audio.png) |
+
+For how any of it works underneath - the message protocol, the generated
+patchers, the `.amxd` container writer, Push support - see
+**[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)**.
 
 ---
 
-## Requirements
+## What you need
 
-### To build
+### To build: nothing musical at all
 
-Nothing musical at all. This is the point of the project: `pnpm build` emits
-installable `.amxd` devices on a bare CI runner.
+This is the point of the project. `pnpm build` emits installable `.amxd` devices
+on a bare CI runner.
 
 - **Node.js 20+** and **pnpm 10+**.
-- **No Max license, and no Max editor.** The patcher is generated and the
-  container is written byte-for-byte in `packages/build/src/amxd.mjs`.
-- **No Ableton Live.** You can develop the entire UI in a browser (`pnpm dev`),
-  where `window.maxSimulate(selector, ...args)` fakes the Max bridge.
+- **No Max license, and no Max editor.** The patcher is generated, and the
+  container is written byte-for-byte by `packages/build/src/amxd.mjs`.
+- **No Ableton Live.** The entire UI develops in a browser, against a mocked Live.
 
-### To actually run the device in Live
+### To run the device: Live, and not every edition
 
-Here you need Live, and **not every edition can run Max for Live devices**:
+**Not every Ableton edition can run Max for Live devices:**
 
 | Edition | Runs this device? |
 |---|---|
 | **Live Suite** | Yes. Max for Live is included. This is the normal path. |
 | **Live Standard** | Only with the paid **Max for Live add-on**. Not included by default. |
 | **Live Intro** | No. Max for Live is not available, and there is no add-on path. |
-| **Live Lite** (the version bundled with hardware) | No. Same as Intro. |
+| **Live Lite** (bundled with hardware) | No. Same as Intro. |
 
-So: **the basic/entry-level Ableton license cannot run this.** You need Suite, or
-Standard plus the Max for Live add-on.
+So **the entry-level Ableton license cannot run this.** You need Suite, or
+Standard plus the Max for Live add-on. You do **not** need a separate Cycling '74
+Max license on top - Max for Live bundles the Max runtime, and this repo never
+opens the Max editor anyway.
 
-You do **not** need a separate Cycling '74 Max license on top of that - Max for
-Live bundles the Max runtime, and this repo never opens the Max editor anyway.
+**Versions.** Developed and tested against **Live 12 with Max 9** on Windows. The
+`[jweb]` object the whole UI depends on arrived in **Max 8**, so Live 10 and 11
+should work in principle - but that is reasoning from the docs, not something I
+have run. Treat anything below Live 12 as unverified.
 
-**Versions.** Developed and tested against **Live 12 with Max 9** on Windows.
-The `[jweb]` object (the embedded Chromium view the whole UI depends on) was
-introduced in **Max 8**, so Live 10 and 11 should work in principle - but that is
-reasoning from the docs, not something I have run. Treat anything below Live 12
-as unverified.
-
-**Platforms.** Live runs on **macOS and Windows** only. The build itself runs
-anywhere Node does, so CI on Linux is fine - you just cannot run the result
-there.
+**Platforms.** Live runs on **macOS and Windows** only. The build runs anywhere
+Node does, so CI on Linux is fine - you just cannot run the result there.
 
 ---
 
-## Quick start
+## Build, run, install
+
+### Develop without Live
 
 ```bash
-git clone https://github.com/alienmind/m4l-jweb my-device
-cd my-device && pnpm install
-
-pnpm dev              # browser dev with the Max bridge simulated
-pnpm build            # emits dist/m4l-jweb/<device>.amxd + release zip
-pnpm test             # container round-trip + ES5 gate + protocol lint
-pnpm install:device   # copy the devices into Ableton's User Library
+pnpm dev:hello-midi     # or dev:hello-audio, or dev:spike
 ```
 
-Then open Live: **User Library > Max For Live > m4l-jweb**, and drop
-`hello-midi` on a MIDI track.
+A **mocked Live** renders beside your device: a transport (play/stop, BPM)
+driving real `tick` and `tempo` messages at the same 20 Hz cadence the wrapper
+polls Live at, and a **log of every message crossing the bridge**, in both
+directions. A sequencer becomes developable, and debuggable, in a browser tab.
 
-You edit two places:
+The device keeps its true **169 px** height there, deliberately: the Live device
+view does not scroll, it silently clips, and that is the cheapest bug to catch
+early.
 
-- **`src/app/`** - the web app: `App.tsx`, an optional `worker.ts`, and
-  `protocol.ts`, the typed list of selectors that is the single source of truth
-  for both sides of the bridge.
-- **`patcher/devices.mjs`** - the manifest: name, type, chains, parameters.
+**A mock is a mock.** It gives you the entire message-level contract without a
+DAW - the tedious, easy-to-get-wrong part. It cannot tell you about MIDI jitter,
+real DSP, or LiveAPI on a loaded set. Keep "load it in Live" for those.
 
-The wrapper, the patcher generator, the container writer and the installers are
-infrastructure you should rarely touch.
-
-`examples/transposer/` is the hello world: a one-knob MIDI transposer, about
-fifty lines, wired end to end.
-
-The repo doubles as an agent-friendly codebase. Because every artifact is text
-and every invariant is enforced by the build (ES5 gate, container round-trip
-test, protocol lint), an LLM can implement a device end to end and verify its
-own work. `CLAUDE.md` spells out the guardrails.
-
----
-
-## Starting a new device from scratch
-
-The root of this repo (`src/app/`, `patcher/devices.mjs`, the config files) is
-itself a working hello-world device built on `@m4l-jweb/bridge` and
-`@m4l-jweb/build` - not a separate, hand-maintained example. `m4l-jweb init`
-scaffolds a new device repo from the same files:
+### Build and test
 
 ```bash
-pnpm dlx @m4l-jweb/build init my-device   # or, once installed: m4l-jweb init my-device
-cd my-device && pnpm install
-pnpm dev
+pnpm build   # one UI bundle per device, then one .amxd per device
+pnpm test    # container round-trip, ES5 gate, protocol lint, bundle separation
 ```
 
-It writes a `package.json` with `@m4l-jweb/bridge` / `@m4l-jweb/build` as real
-(published) dependencies rather than workspace links, plus `src/app/`,
-`patcher/devices.mjs`, and the vite/tsconfig scaffolding - a `hello-midi`
-device that builds and runs unmodified.
-
-The template lives inside `@m4l-jweb/build` at `packages/build/templates/starter/`
-rather than in a separate scaffolding repo, precisely so it cannot drift from
-what the library actually needs: when a build option or wrapper convention
-changes here, the template changes in the same commit.
-
----
-
-## Installing the devices
-
-After `pnpm build`, the devices are in `dist/<package-name>/`. Getting them into
-Live means copying them into the Ableton **User Library**.
+### Install into Live
 
 ```bash
 pnpm install:device
 ```
 
 That picks the right script for your platform, finds your User Library, and
-replaces any previous install of this device folder. It prints where it put
-things:
+replaces any previous install of this device folder:
 
 ```
   installed hello-midi.amxd
@@ -149,106 +138,213 @@ Installed to <User Library>\Max For Live\m4l-jweb
 
 Then in Live: **User Library > Max For Live > m4l-jweb**.
 
-### How the User Library is found
-
-It is read from Live's own preferences file (`Library.cfg`, the `ProjectPath`
-value), newest Live version first, falling back to Live's default location. No
-registry keys and no environment variables are involved - Live keeps all of this
-in plain config files, so a custom library location is picked up automatically.
-
-### Running the scripts directly
-
-`pnpm install:device` is a wrapper around the same per-platform scripts the build
-copies into `dist/` and into the release zip. You can run them yourself:
-
-```powershell
-dist\install-windows.ps1               # Windows
-```
-
-```bash
-dist/install-mac.sh                    # macOS
-```
-
-Both accept an optional device name and source folder
-(`install-mac.sh <name> <src-dir>`), which is how the CLI drives them. Someone
-who receives only the release zip runs the script sitting next to the device
-folder, with no repo and no Node.
-
-There is no Linux installer: Live has no Linux build. The *build* runs anywhere
-Node does, so CI on Linux is fine.
-
 > **The one gotcha:** Live embeds a **copy** of a device into the set. Instances
 > already sitting on a track will **not** update when you reinstall - delete them
-> and re-drag from the browser. The devices show a build stamp so a stale one is
-> visible rather than mysterious.
+> and re-drag from the browser. Every device prints a build stamp in its footer,
+> so a stale one is visible rather than mysterious.
+
+The User Library is read from Live's own preferences (`Library.cfg`, the
+`ProjectPath` value), newest version first, falling back to Live's default
+location. No registry keys and no environment variables are involved, so a custom
+library location is picked up automatically.
+
+`pnpm install:device` wraps the same per-platform scripts the build copies into
+`dist/` and into the release zip, so you can run them yourself
+(`dist\install-windows.ps1`, `dist/install-mac.sh`). Both accept an optional
+device name and source folder, which is how the CLI drives them - someone who
+receives only the release zip runs the script sitting next to the device folder,
+with no repo and no Node. There is no Linux installer: Live has no Linux build.
 
 ---
 
-## How Max for Live development normally works
+## Why: what Max for Live development normally costs
 
-Ableton Live has no public plugin SDK for its device area. What it has is
-**Max for Live (M4L)**: an embedding of Cycling '74's Max, a visual programming
-environment with four decades of history. A device is a Max *patcher* - a graph
-of boxes connected by patch cords - wrapped in a binary `.amxd` container and
-hosted in Live's device chain.
+Ableton has no public plugin SDK for its device area. What it has is **Max for
+Live**: an embedding of Cycling '74's Max, a visual programming environment with
+four decades of history. A device is a Max *patcher* - a graph of boxes connected
+by patch cords - wrapped in a binary `.amxd` container and hosted in Live's
+device chain.
 
-The canonical workflow looks like this:
+The canonical workflow:
 
-1. Open Live, drop a Max device on a track, click its Edit button. The Max
-   editor opens.
-2. Drag objects onto the canvas: `midiin`, `midiout`, `live.dial`, `[js]`
-   scripts, MSP signal objects. Draw cords between them. Position everything by
-   pixel.
-3. For anything algorithmic, write ES5 JavaScript inside the `[js]` object,
-   which also carries **LiveAPI** - the only scriptable access to Live's object
-   model (tracks, clips, scenes, transport, scale).
+1. Open Live, drop a Max device on a track, click Edit. The Max editor opens.
+2. Drag objects onto a canvas: `midiin`, `live.dial`, `[js]`, MSP signal objects.
+   Draw cords between them. Position everything by pixel.
+3. For anything algorithmic, write ES5 JavaScript inside the `[js]` object, which
+   also carries **LiveAPI** - the only scriptable access to Live's object model
+   (tracks, clips, scenes, transport, scale).
 4. Save. "Freeze" the device so its file dependencies travel inside the `.amxd`.
    Distribute that file.
 
-This workflow has real strengths: it is direct, live-editable, and the Max
-object library is enormous. Thousands of excellent devices are built this way.
-But if your background is software engineering, you will notice what is missing:
+This workflow has real strengths: it is direct, live-editable, and the Max object
+library is enormous. Thousands of excellent devices are built this way. **None of
+this is a criticism of Max** - it was designed for musicians patching live, and it
+excels at that. It just means a software engineer's entire toolbox sits unused:
 
-- **No components, no CSS, no state management.** The UI toolkit is Max's own,
-  positioned visually, styled sparsely.
-- **No modern language.** The `[js]` object runs an ES5-era interpreter: no
-  modules, no `let`/`const`, no promises, no npm.
-- **No build, no diff, no CI.** The patcher is both source and artifact. Version
-  control sees JSON blobs full of pixel coordinates. Producing a distributable
-  requires a human clicking inside a licensed Max editor.
-- **A virtual filesystem quirk.** Frozen dependencies live inside the device
-  where only Max-native objects can read them; an embedded browser or external
-  process cannot open the files you shipped with your own device.
-
-None of this is a criticism of Max. It was designed for musicians patching live,
-and it excels at that. It just means a web developer's entire toolbox sits
-unused.
-
----
-
-## This is exactly what M4L-JWEB brings
-
-Every one of those gaps is a solved problem outside Max, and none of them is
-essential to what a device *is*. So M4L-JWEB puts the missing toolbox back:
-
-- **Components, CSS, state management** - the UI is a React app, running in the
-  `[jweb]` Chromium view that ships with Max.
-- **A modern language** - you write TypeScript, everywhere, including the `[js]`
-  glue. The ES5 the interpreter demands is a compiler target, not a way of life.
-- **A build, a diff, a CI** - patchers are generated from a manifest, so patch
-  cords become code review, and `pnpm build` emits installable `.amxd` files on a
-  runner that has never had Max on it.
-- **A way past the virtual filesystem** - the UI travels inside the device as a
-  payload the wrapper extracts on load, so the browser can read what you shipped.
+| What is missing | What M4L-JWEB does instead |
+|---|---|
+| **No components, no CSS, no state management.** The UI toolkit is Max's own, positioned visually and styled sparsely. | **The UI is a React app**, running in the `[jweb]` Chromium view that ships with Max. Components, CSS, canvas, WebGL, Web Workers. |
+| **No modern language.** `[js]` runs an ES5-era interpreter: no modules, no `let`/`const`, no promises, no npm. | **You write TypeScript**, everywhere, including the `[js]` glue. ES5 is a compiler target, not a way of life - and the build re-parses the emitted glue to *prove* it is ES5 before it will package. |
+| **No build, no diff, no CI.** The patcher is both source and artifact; version control sees JSON full of pixel coordinates; producing a distributable needs a human clicking inside a licensed Max editor. | **Patchers are generated from a manifest**, so patch cords become code review, and `pnpm build` emits `.amxd` files on a runner that has never had Max on it. |
+| **A virtual filesystem quirk.** Frozen dependencies live inside the device where only Max-native objects can read them - an embedded browser cannot open the files you shipped with your own device. | **The UI travels inside the device** as a payload the `[js]` wrapper extracts to a real file on load, then points `[jweb]` at. |
 
 The result is an Ableton device you build the way you build anything else: edit
 text, run tests, push, let CI produce the artifact. No editor in the loop, no
 pixel coordinates in your diffs.
 
-Start with the [Quick start](#quick-start) above. When you want to know how any
-of it actually works - the message protocol, the generated patchers, the `.amxd`
-container, Push support, the roadmap - that is all in
-**[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)**.
+**What it does not change.** Push still sees only Live *parameters*, never your
+UI. Audio still belongs to Max's signal path, not to your app. Timing still
+belongs to Max's scheduler. M4L-JWEB moves the *authoring*, not the runtime - and
+the tutorial below is mostly about respecting that line.
+
+It also makes the repo unusually agent-friendly, for the same reason: every
+artifact is text, and every invariant is enforced by the build (ES5 gate,
+container round-trip, protocol lint, bundle separation), so an LLM can implement a
+device end to end and verify its own work. `CLAUDE.md` spells out the guardrails.
+
+---
+
+## Tutorial: define a device
+
+Four files, and you routinely edit two.
+
+### 1. Declare the device - `patcher/devices.mjs`
+
+The manifest says what the device *is*. The patcher is generated from it, so
+patch cords become something you review rather than something you drag.
+
+```js
+export default [
+  {
+    name: "my-device",
+    type: "midi",                    // midi | audio | instrument
+    chains: ["midiin", "midiout"],   // canned wiring, applied in order
+    parameters: [                    // real Live parameters - see step 4
+      { id: "density", object: "live.dial", range: [0, 1], default: 0.5 },
+    ],
+    unmatchedTo: "js",
+  },
+];
+```
+
+A **chain** is a small function that adds boxes and cords. Shipped today:
+
+| Chain | What you get |
+|---|---|
+| `midiin` | Notes played into the device arrive in your app. |
+| `midiout` | Notes your app generates are placed by Max, with sample-accurate timing. |
+| `lowpass` | An audio effect you can hear: a filter with a Cutoff parameter. |
+| `gain` | An audio effect with a Live parameter on the level. |
+| `passthrough` | A straight wire. It does *nothing* to the audio - a scaffold, not a feature. |
+
+Write your own in `patcher/chains.mjs`. And set `default` on every parameter:
+without it a `live.dial` loads at the *bottom* of its range, and for a filter
+cutoff that is a device which swallows the signal the moment you drop it on a
+track.
+
+### 2. Agree on the words - `src/app/<device>/protocol.ts`
+
+Every message crossing the bridge is a **selector** (a word) followed by
+arguments. This file is the single source of truth for both sides, and `pnpm
+test` fails if you name a selector nothing on the Max side handles - because an
+unrouted selector produces no error at runtime, it just falls on the floor.
+
+Spread in the library's contracts rather than retyping the names. `DEVICE_IN` is
+what the wrapper sends every device; `CHAIN_IN`/`CHAIN_OUT` are what the chains
+own.
+
+```ts
+import { CHAIN_IN, CHAIN_OUT, DEVICE_IN } from "@m4l-jweb/bridge";
+
+export const IN = {
+  ...DEVICE_IN,         // mode, build, tick, tempo
+  ...CHAIN_IN,          // notein <pitch> <velocity>
+  density: "density",   // a parameter is just another message
+} as const;
+
+export const OUT = {
+  ...CHAIN_OUT,         // midinote ..., flush
+  ui_ready: "ui_ready",
+} as const;
+```
+
+### 3. Write the device - `src/app/<device>/App.tsx`
+
+It is a React app. The only thing that makes it a *device* is the bridge.
+
+```tsx
+import { flushNotes, onNote, sendNote } from "@m4l-jweb/bridge";
+import { useDevice } from "../shared/device";
+
+// mode, build stamp, tempo, transport - and the `ui_ready` handshake, which is
+// not optional: the page loads asynchronously, so anything the wrapper sent
+// before your handlers existed is simply gone.
+const device = useDevice((playing, beats) => {
+  // Called on every transport poll. Send your notes from in here.
+});
+
+// Notes played INTO the device. Note-offs are filtered - Max owns the release.
+onNote((pitch, velocity) => { /* ... */ });
+
+// Notes OUT of it. You compute WHEN; Max places the note on its scheduler.
+sendNote({ pitch: 60, velocity: 100, durationMs: 120, delayMs: 80 });
+
+// Notes are HELD by Max. A device that just stops sending leaves them sounding.
+flushNotes();
+```
+
+**`delayMs` is the whole point of the split.** Live's transport reaches you at
+20 Hz, so each tick covers a *slice* of musical time rather than an instant - and
+a note almost never falls exactly on a poll. Work out which notes land inside the
+slice, send each one with the delay that carries it to its true position, and Max
+places them precisely. The notes land tight even though the clock driving them is
+coarse, and your app never touches a timer.
+
+**Audio is not yours to carry.** An audio effect's parameter is wired straight
+into the signal path inside the patcher: your React code moves a *value*, never a
+sample, and the sound keeps working even if the browser stalls.
+
+### 4. Make it playable on Push - `parameters`
+
+**No custom UI reaches Push. Not yours, not anyone's.** Push renders Live
+*parameters*, in banks of eight, and nothing else. So every musically meaningful
+control has to exist as a parameter in the manifest as well as in your UI. They
+are automatable and MIDI-mappable for free, and each one arrives in your app as
+just another message (`density 0.42`).
+
+`src/app/<device>/surface.ts` is where that declaration is heading: one typed
+`defineSurface({ params, banks })` generating the objects, the wiring, the
+protocol selectors and a React hook, from a single source. Today it **validates
+but does not yet generate**, so the manifest's `parameters` is still what Live
+sees and the two must be kept in step by hand. See
+[doc/SURFACE.md](doc/SURFACE.md) for the design and [doc/TODO.md](doc/TODO.md)
+for where it sits in the plan.
+
+### 5. One device, one bundle
+
+Each device is a folder under `src/app/`, and each `.amxd` embeds **its own** UI
+bundle: `hello-midi` carries no filter code, `hello-audio` carries no sequencer.
+`pnpm dev:<device>` runs one of them; `pnpm build` bundles each in turn. A device
+ships what it is, not what its siblings are.
+
+---
+
+## Starting a new device from scratch
+
+`m4l-jweb init` scaffolds a fresh device repo, with `@m4l-jweb/bridge` and
+`@m4l-jweb/build` as real published dependencies rather than workspace links:
+
+```bash
+pnpm dlx @m4l-jweb/build init my-device
+cd my-device && pnpm install
+pnpm dev
+```
+
+The template lives inside `@m4l-jweb/build` at
+`packages/build/templates/starter/` rather than in a separate scaffolding repo,
+precisely so it cannot drift from what the library actually needs: when a build
+option or wrapper convention changes here, the template changes in the same
+commit.
 
 ---
 
