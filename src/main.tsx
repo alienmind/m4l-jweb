@@ -7,12 +7,11 @@ import "./index.css";
  *
  * `@device` is an alias resolved in vite.config.ts to `src/app/<device>/`, where
  * <device> comes from the dev/build script (see scripts/). So this entry point is
- * shared but contains no branching, and each bundle holds exactly one device:
- * hello-midi's has no filter code in it, hello-audio's has no sequencer, and
- * neither carries the spike.
+ * shared but contains no branching, and each bundle holds exactly one device: a
+ * MIDI device's bundle carries no audio code, and vice versa.
  *
- * That separation is not tidiness. Every .amxd embeds its own UI bundle, and a
- * device should ship what it IS, not what its siblings are.
+ * That separation is not tidiness. Every .amxd embeds its own UI bundle, so a
+ * device ships what it is, not what its siblings are.
  */
 import App from "@device/App";
 

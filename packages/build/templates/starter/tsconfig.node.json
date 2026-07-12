@@ -11,5 +11,5 @@
 		"noEmit": true,
 		"strict": true
 	},
-	"include": ["vite.config.ts", "patcher/**/*.mjs"]
+	"include": ["vite.config.ts", "scripts/**/*.mjs", "patcher/**/*.mjs"]
 }

@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import pkg from "./package.json";
+import { devices, uiDir } from "./scripts/devices.mjs";
 
 /**
  * ONE BUILD PER DEVICE.
@@ -25,7 +26,9 @@ import pkg from "./package.json";
 // first one's sources. Vite invokes the factory on each config load, so reading
 // the env var HERE is what makes the loop work.
 export default defineConfig(() => {
-  const DEVICE = process.env.DEVICE ?? "hello-midi";
+  // Falls back to the first device in the manifest, so a bare `vite` still runs
+  // something and this config carries no device name of its own.
+  const DEVICE = process.env.DEVICE ?? uiDir(devices[0]);
 
   // The device UI is bundled into ONE self-contained index.html (every script,
   // style and asset inlined) so it can be embedded in the .amxd as a base64

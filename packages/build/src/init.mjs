@@ -1,13 +1,16 @@
 /**
  * init.mjs - `m4l-jweb init [dir] [--name <name>]`: scaffold a new device repo.
  *
- * The template lives in templates/starter/ and is not a hand-maintained copy:
- * it mirrors this repo's own root app (src/app/, patcher/devices.mjs, the
- * config files), which is itself a working hello-world device built on
- * @m4l-jweb/bridge and @m4l-jweb/build. Keeping the template that close to a
- * real, CI-built app is what keeps it from drifting out of sync with the
- * library - change the shape of a real device, then port the same change
- * into templates/starter/ in the same commit.
+ * The template lives in templates/starter/ and mirrors this repo's own layout:
+ * the same scripts/, vite.config.ts, tsconfig and src/app/shared/, with one
+ * device instead of three.
+ *
+ * Those shared files are checked for drift by tests/starter.test.mjs, which
+ * compares them byte-for-byte against the root repo's. The template used to be
+ * kept in sync by hand and by good intentions, and it fell behind.
+ *
+ * `{{name}}` is substituted in file CONTENTS and in PATHS - the device's app
+ * lives at src/app/{{name}}/, so the folder is named after the device too.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -39,7 +42,9 @@ export async function initProject(cwd, args = []) {
 
   const files = walk(starter);
   for (const src of files) {
-    const rel = path.relative(starter, src);
+    // The device's app folder is named after the device, so {{name}} has to be
+    // substituted in the PATH as well as in the contents.
+    const rel = path.relative(starter, src).replaceAll("{{name}}", name);
     const dest = path.join(target, rel);
     mkdirSync(path.dirname(dest), { recursive: true });
     const contents = readFileSync(src, "utf8").replaceAll("{{name}}", name);

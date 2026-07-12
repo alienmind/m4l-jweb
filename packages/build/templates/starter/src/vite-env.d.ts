@@ -4,6 +4,6 @@
 declare const __APP_VERSION__: string;
 
 declare module "*?worker&inline" {
-	const workerConstructor: new () => Worker;
-	export default workerConstructor;
+  const workerConstructor: new () => Worker;
+  export default workerConstructor;
 }
