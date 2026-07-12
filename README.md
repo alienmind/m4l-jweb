@@ -297,21 +297,17 @@ coarse, and your app never touches a timer.
 into the signal path inside the patcher: your React code moves a *value*, never a
 sample, and the sound keeps working even if the browser stalls.
 
-### 4. Make it playable on Push - `parameters`
+### 4. Add parameters - `parameters`
 
-**No custom UI reaches Push. Not yours, not anyone's.** Push renders Live
-*parameters*, in banks of eight, and nothing else. So every musically meaningful
-control has to exist as a parameter in the manifest as well as in your UI. They
-are automatable and MIDI-mappable for free, and each one arrives in your app as
-just another message (`density 0.42`).
+Parameters in the manifest become Live parameters: automatable, MIDI-mappable,
+and readable by Push. Each one also arrives in your app as a message
+(`density 0.42`).
 
-`src/app/<device>/surface.ts` is where that declaration is heading: one typed
-`defineSurface({ params, banks })` generating the objects, the wiring, the
-protocol selectors and a React hook, from a single source. Today it **validates
-but does not yet generate**, so the manifest's `parameters` is still what Live
-sees and the two must be kept in step by hand. See
+Push shows parameters, not your UI, so a control has to exist in both places.
+Declaring them once - in `src/app/<device>/surface.ts` - and generating the rest
+is planned but not built yet; for now the manifest is what Live reads. See
 [doc/SURFACE.md](doc/SURFACE.md) for the design and [doc/TODO.md](doc/TODO.md)
-for where it sits in the plan.
+for the plan.
 
 ### 5. One device, one bundle
 
