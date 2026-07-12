@@ -199,9 +199,31 @@ device end to end and verify its own work. `CLAUDE.md` spells out the guardrails
 
 ---
 
-## Tutorial: define a device
+## Tutorial: author a device
 
-### 1. Declare the device - `patcher/devices.mjs`
+### 1. Scaffold a repo
+
+`m4l-jweb init` creates a new device repo, with `@m4l-jweb/bridge` and
+`@m4l-jweb/build` as published dependencies rather than workspace links:
+
+```bash
+pnpm dlx @m4l-jweb/build init my-device
+cd my-device && pnpm install
+pnpm dev
+```
+
+You get a working `hello-midi` device that builds and runs unmodified. The rest
+of this tutorial is what you change in it.
+
+The template lives inside `@m4l-jweb/build` at
+`packages/build/templates/starter/` rather than in a separate repo, so a change
+to a build option or wrapper convention can update the template in the same
+commit.
+
+> The template has drifted behind this repo (it predates the per-device layout
+> and the library-owned selectors). Fixing it is on the list.
+
+### 2. Declare the device - `patcher/devices.mjs`
 
 The manifest says what the device *is*. The patcher is generated from it, so
 patch cords become something you review rather than something you drag.
@@ -235,7 +257,7 @@ without it a `live.dial` loads at the *bottom* of its range, and for a filter
 cutoff that is a device which swallows the signal the moment you drop it on a
 track.
 
-### 2. Define the protocol - `src/app/<device>/protocol.ts`
+### 3. Define the protocol - `src/app/<device>/protocol.ts`
 
 Every message crossing the bridge is a **selector** (a word) followed by
 arguments. This file is the single source of truth for both sides, and `pnpm
@@ -261,7 +283,7 @@ export const OUT = {
 } as const;
 ```
 
-### 3. Write the device - `src/app/<device>/App.tsx`
+### 4. Write the device - `src/app/<device>/App.tsx`
 
 It is a React app. The only thing that makes it a *device* is the bridge.
 
@@ -297,7 +319,7 @@ coarse, and your app never touches a timer.
 into the signal path inside the patcher: your React code moves a *value*, never a
 sample, and the sound keeps working even if the browser stalls.
 
-### 4. Add parameters - `parameters`
+### 5. Add parameters - `parameters`
 
 Parameters in the manifest become Live parameters: automatable, MIDI-mappable,
 and readable by Push. Each one also arrives in your app as a message
@@ -309,31 +331,12 @@ is planned but not built yet; for now the manifest is what Live reads. See
 [doc/SURFACE.md](doc/SURFACE.md) for the design and [doc/TODO.md](doc/TODO.md)
 for the plan.
 
-### 5. One device, one bundle
+### 6. One device, one bundle
 
 Each device is a folder under `src/app/`, and each `.amxd` embeds **its own** UI
 bundle: `hello-midi` carries no filter code, `hello-audio` carries no sequencer.
 `pnpm dev:<device>` runs one of them; `pnpm build` bundles each in turn. A device
 ships what it is, not what its siblings are.
-
----
-
-## Starting a new device from scratch
-
-`m4l-jweb init` scaffolds a fresh device repo, with `@m4l-jweb/bridge` and
-`@m4l-jweb/build` as real published dependencies rather than workspace links:
-
-```bash
-pnpm dlx @m4l-jweb/build init my-device
-cd my-device && pnpm install
-pnpm dev
-```
-
-The template lives inside `@m4l-jweb/build` at
-`packages/build/templates/starter/` rather than in a separate scaffolding repo,
-precisely so it cannot drift from what the library actually needs: when a build
-option or wrapper convention changes here, the template changes in the same
-commit.
 
 ---
 
