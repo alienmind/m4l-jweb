@@ -26,12 +26,13 @@ infrastructure carved into `packages/`.
   `@m4l-jweb/build` (the CLI, `.amxd` writer and chain vocabulary). This is
   library code shared by every device. Change it deliberately, not incidentally,
   and never to work around something that belongs in `src/app/`.
-- **`packages/build/templates/starter/`** - the `m4l-jweb init` scaffold. It
-  mirrors this repo's own root app on purpose. If you change `src/app/`,
-  `patcher/devices.mjs`, or a config file at the root in a way that every new
-  device should start with, port the same change into `templates/starter/` in
-  the same commit - that is what keeps the scaffold from drifting out of sync
-  with the library.
+- **`packages/build/templates/starter/`** - the `m4l-jweb init` scaffold. Most of
+  it is this repo's own infrastructure, copied verbatim: `scripts/`,
+  `vite.config.ts`, the tsconfigs, `src/main.tsx`, `src/index.css`,
+  `src/app/shared/`. `tests/starter.test.mjs` compares those byte-for-byte, so if
+  you change one at the root, **copy it into the template** - that is the intended
+  fix when the test fails, not an edit to the assertion. Keep device names out of
+  those shared files; the template inherits them.
 
 ## Hard rules
 

@@ -216,12 +216,14 @@ You get a working `hello-midi` device that builds and runs unmodified. The rest
 of this tutorial is what you change in it.
 
 The template lives inside `@m4l-jweb/build` at
-`packages/build/templates/starter/` rather than in a separate repo, so a change
-to a build option or wrapper convention can update the template in the same
-commit.
+`packages/build/templates/starter/`, and most of it is this repo's own
+infrastructure - the same `scripts/`, `vite.config.ts`, `tsconfig` and
+`src/app/shared/`, with one device instead of three. `tests/starter.test.mjs`
+compares those files byte-for-byte and fails if they diverge, so the template
+cannot quietly fall behind the library again.
 
-> The template has drifted behind this repo (it predates the per-device layout
-> and the library-owned selectors). Fixing it is on the list.
+> Requires `@m4l-jweb/bridge`, `@m4l-jweb/surface` and `@m4l-jweb/build` at
+> **0.2.0** on npm. Until those are published, `init` will not install.
 
 ### 2. Declare the device - `patcher/devices.mjs`
 
