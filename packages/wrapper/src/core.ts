@@ -108,7 +108,7 @@ function get_state(id: string): void {
 
 function sync_state(id: string): void {
   try {
-    var jsonParts = [];
+    var jsonParts: string[] = [];
     for (var i = 1; i < arguments.length; i++) {
       jsonParts.push(String(arguments[i]));
     }

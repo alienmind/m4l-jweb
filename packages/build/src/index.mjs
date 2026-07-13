@@ -8,7 +8,7 @@
  *   wrapper/device.ts  - extra [js] message handlers, concatenated last
  */
 import archiver from "archiver";
-import { createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { copyFile, rename, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";

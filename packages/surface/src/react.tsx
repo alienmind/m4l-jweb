@@ -47,7 +47,7 @@ export function useSurface<P extends Record<string, ParamSpec>>(
 
 /** Open and close a declared floating window. */
 export function useWindow<P extends Record<string, ParamSpec>>(
-  surface: Surface<P>,
+  _surface: Surface<P>,
   id: string,
 ): { open: () => void; close: () => void } {
   return useMemo(
