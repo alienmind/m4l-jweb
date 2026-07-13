@@ -234,6 +234,39 @@ Routes are chained in **series**, each handing its unmatched outlet to the next
 Two routes hanging off `[jweb]` in parallel would each pass the unmatched messages
 on, and the wrapper would see every one of them twice.
 
+### What that actually looks like in Max
+
+`hello-audio`, opened in the Max editor. **Nobody drew any of this** - it is the
+patcher the build emits from four lines of `surface.ts`, and the only reason to
+open it is to check the generator's work:
+
+![The generated hello-audio patcher, in the Max editor](screenshot-patcher-view.png)
+
+Read it from the `Cutoff` dial on the right, and every claim in this document is
+visible as a cord:
+
+- **`[live.dial]` (Cutoff)** - the parameter object, `parameter_enable` on. This is
+  the entire reason Push can see the device. It is generated; nothing in the app
+  points at it.
+- **`[prepend cutoff]` -> `[jweb]`** - the read direction. A knob turn, an
+  automation lane or a Push encoder arrives in React as `cutoff <value>`.
+- **`[route set_cutoff]` -> `[prepend set]` -> `[live.dial]`** - the write
+  direction, with the `set` message that updates the dial without making it echo
+  back at the app.
+- **The fan-out.** Follow the cords *out of* `[route set_cutoff]`: one goes to
+  `[prepend set]`, and another goes straight to the filter. That second cord is
+  the whole of the `set` trap - without it the dial moves and the DSP hears
+  nothing.
+- **`plugin~ -> onepole~ -> plugout~`** - the audio path. It never touches
+  `[jweb]`: the browser can stall and the filter keeps filtering.
+
+> **This screenshot predates the real-units change.** It still shows
+> `[expr 40. * pow(450., $f1)]` sitting between the parameter and the filters, and
+> a dial that reads `1`. That box no longer exists - the cutoff is now a
+> `[40, 18000]` Hz parameter with the curve on it (`exponent`), so the value goes
+> from the route and the dial *directly* into `onepole~`'s right inlet. Everything
+> else in the picture is current.
+
 ### 4. Push banks
 
 Max stores parameter-bank definitions in the patcher. The generator writes them
