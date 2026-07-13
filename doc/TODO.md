@@ -20,34 +20,37 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: run the spikes
+# NEXT: 1.3, then build Stage 2
 
-**Nothing below this section should be built until the results table in
-[SPIKES.md](SPIKES.md) is filled in.** The apparatus is built and shipped as the
-`spike` device: `pnpm build`, `pnpm install:device`, drag `spike` onto a MIDI
-track, open the Max console, follow SPIKES.md.
+The two spikes the plan actually rested on are answered in Live, on hardware.
+**Only 1.3 is still open, and it gates only Stage 3.1.**
 
 | Spike | Question | Status |
 |---|---|---|
-| **1.2** | Can `[js]` drive a `[buffer~]` to read a file off disk? | **inconclusive - rerun, do this first** |
-| **1.3** | `[maxurl]` or `[jit.uldl]` - which downloads to disk inside Live? | **not run** |
+| **1.3** | `[maxurl]` or `[jit.uldl]` - which downloads to disk inside Live? | **not run - the last one** |
 | 1.1a | Does a `set`-written parameter still reach Live's automation lane? | not run - but 1.1b makes it near-certain |
 | ~~1.1~~ | Does `set` on a `live.*` suppress its outlet? | **YES, measured in Live** |
 | ~~1.1b~~ | ...and does the `set` write still reach the parameter? | **YES, on a Push** |
+| ~~1.2~~ | Can `[js]` drive a `[buffer~]` to read a file off disk? | **YES - 124439 frames off disk** |
 
-**Stage 2 is no longer gated.** 1.1 and 1.1b are answered on hardware: `set`
-suppresses the outlet (the echo counter stays frozen) *and* still writes the
-parameter itself (a Push knob's readout follows a `set_param`). So the
-suppression is scoped to the outlet and the cords it drives - which is exactly
-the no-feedback behaviour the Surface was designed around, with the fan-out
-caveat below. 1.1a is the same question asked of the automation lane; it is worth
-confirming, but it is no longer a plausible blocker.
+**Stage 2 is no longer gated.** `set` suppresses the outlet (the echo counter
+stays frozen) *and* still writes the parameter itself (a Push knob's readout
+follows a `set_param`). So the suppression is scoped to the outlet and the cords
+it drives - exactly the no-feedback behaviour the Surface was designed around,
+with the fan-out caveat below. 1.1a asks the same question of the automation lane;
+worth confirming, no longer a plausible blocker.
 
-**1.2 is the cheapest and de-risks the most.** No network, no download chain, no
-new protocol: a payload already lands on disk on every load. It is the
-load-bearing claim under *"disk is the audio transport"*, which is what makes an
-instrument device possible at all. If `[js]` can point a `buffer~` at a real file
-and see the frames arrive, Stage 3.2 is mostly wiring.
+**Stage 3.2's premise holds: disk IS the audio transport.** An empty `buffer~`
+went to 124439 frames with a non-zero midsample after `[js]` sent it `replace
+jongly.aif`. Audio never has to cross the Max message bridge as data - the file
+lands on disk, `buffer~` reads it, MSP plays it, and `[js]` only ever sends
+control messages. The `Buffer` binding in `max.d.ts` is confirmed too (`send`,
+`framecount`, `channelcount`, `peek`); only `poke` is still taken on faith.
+
+One trap that cost a run, now recorded in `max.d.ts`: **`replace` on a file
+`buffer~` cannot decode is a silent no-op.** No error, and the buffer keeps
+whatever it held. A frame count on its own never means "the read worked" - it
+means something only next to what the count was *before*.
 
 ## What 1.1 taught us
 
@@ -171,8 +174,10 @@ want this):
 
 ## 3.2 Instrument devices: `buffer~` playback
 
-**Gated on spike 1.2** (and on 3.1 for the download half - but the `samples`
-chain can be built and tested against an already-extracted payload first).
+**Spike 1.2 passed** - `[js]` loaded a real file into a `buffer~` in Live, so the
+seam this stage rests on is real. Still gated on 3.1 for the *download* half, but
+the `samples` chain can be built and tested against an already-extracted payload
+first, and now it is worth doing.
 
 **The tempting idea, and why it cannot be built.** It looks like `[js]` could
 grow an "audio out" utility: the app generates sound, hands it to `[js]`, `[js]`

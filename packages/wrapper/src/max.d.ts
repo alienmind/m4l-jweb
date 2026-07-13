@@ -63,8 +63,14 @@ declare class File {
  * ASYNCHRONOUS: framecount() right after it still reads the old size. Come back
  * on a Task.
  *
- * UNVERIFIED. This declaration is what doc/SPIKES.md spike 1.2 exists to
- * confirm. Do not build on it until that spike is recorded as PASS.
+ * VERIFIED in Live (doc/SPIKES.md spike 1.2): an empty buffer~ went to 124439
+ * frames, 1 channel, midsample -0.0319 after `send("replace", "jongly.aif")`.
+ * `send`, `framecount`, `channelcount` and `peek` are all real and behave as
+ * declared. `poke` is the one member here still taken on faith from the docs.
+ *
+ * `replace` on a file buffer~ cannot decode is a SILENT NO-OP: no error, and the
+ * buffer keeps whatever it held before. So a frame count on its own never means
+ * "the read worked" - it only means something next to what the count was before.
  */
 declare class Buffer {
   constructor(name: string);
@@ -74,6 +80,7 @@ declare class Buffer {
   channelcount(): number;
   /** peek(channel, frameIndex, count) - channels and frames are 1-indexed. */
   peek(channel: number, index: number, count?: number): number;
+  /** UNVERIFIED - spike 1.2 exercised everything above this, but not poke. */
   poke(channel: number, index: number, value: number): void;
 }
 
