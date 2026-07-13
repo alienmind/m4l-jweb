@@ -33,8 +33,19 @@ export default function Spike() {
   // its search path, so a bare filename resolves with no path at all.
   const [bufferPath, setBufferPath] = useState("jongly.aif");
   const [probePath, setProbePath] = useState("");
-  const [urlWords, setUrlWords] = useState("download https://example.com/a.wav ~/Music/a.wav");
+  const [urlWords, setUrlWords] = useState("get https://example.com/");
   const [urlResult, setUrlResult] = useState<string | null>(null);
+  // A small, real .wav over https. The download-to-file form is a `dictionary`
+  // message per maxurl's reference, so the wrapper builds the dict - raw words
+  // cannot say it. If it lands, buffer_load it: 1.2 already proved that seam, so
+  // a non-zero frame count here is the whole download->disk->audio path, end to end.
+  // Verified live (200, audio/x-wav, ~1.2 MB) at the time of writing - a dead URL
+  // and a broken download look identical from in here, and one of them is not the
+  // thing under test. Big enough to catch a truncating write, too: this project
+  // already knows File.writebytes gives up silently past ~16 KB.
+  const [dlUrl, setDlUrl] = useState("https://www.kozco.com/tech/piano2.wav");
+  const [dlPath, setDlPath] = useState("");
+  const [dlBytes, setDlBytes] = useState<number | null>(null);
 
   useEffect(() => {
     bindInlet(IN.dial_out, (v) => {
@@ -46,6 +57,8 @@ export default function Spike() {
     });
     bindInlet(IN.probe_path, (p) => setProbePath(String(p)));
     bindInlet(IN.url_result, (...a) => setUrlResult(a.map(String).join(" ")));
+    bindInlet(IN.download_path, (p) => setDlPath(String(p)));
+    bindInlet(IN.url_check_result, (b) => setDlBytes(Number(b)));
 
     outlet(OUT.buffer_probe_path);
   }, []);
@@ -81,9 +94,25 @@ export default function Spike() {
 
       <dt>1.3 maxurl</dt>
       <dd className="row">
-        <input value={urlWords} onChange={(e) => setUrlWords(e.target.value)} size={30} />
+        <input value={dlUrl} onChange={(e) => setDlUrl(e.target.value)} size={26} />
+        <button onClick={() => outlet(OUT.url_download, dlUrl)} disabled={!dlUrl.trim()}>
+          download
+        </button>
+        <button onClick={() => outlet(OUT.url_check, dlPath)} disabled={!dlPath} title={dlPath}>
+          on disk?
+        </button>
+        <button onClick={() => outlet(OUT.buffer_load, dlPath)} disabled={!dlPath}>
+          -&gt; buffer~
+        </button>
+        <span>{dlBytes === null ? "-" : dlBytes > 0 ? `${dlBytes} bytes` : "NO FILE"}</span>
+      </dd>
+
+      <dt>1.3 raw</dt>
+      <dd className="row">
+        <input value={urlWords} onChange={(e) => setUrlWords(e.target.value)} size={26} />
         <button onClick={() => outlet(OUT.url_send, ...urlWords.trim().split(/\s+/))}>send</button>
         <span>{urlResult ?? "-"}</span>
+        <em className="hint">flat words - for exploring, not for files</em>
       </dd>
     </Frame>
   );

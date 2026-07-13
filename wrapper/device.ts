@@ -106,9 +106,112 @@ function url_send(): void {
   post("spike: -> maxurl " + a.join(" ") + "\n");
 }
 
-/** Whatever [maxurl] replied. Straight to the UI's message log, verbatim. */
+/**
+ * Download a URL to a FILE on disk. See doc/SPIKES.md, spike 1.3.
+ *
+ * `url_send` above forwards raw words, and raw words turn out not to be enough:
+ * per the maxurl reference, `get <url>` hands the BODY back through an outlet,
+ * and the download-to-file form is not a flat message at all. It is a
+ * `dictionary <name>` message carrying a dict whose `filename_out` key names the
+ * output file. So [js] has to build the dict - nothing else in the patcher can -
+ * and the Dict binding is therefore part of what this spike tests, exactly as
+ * Buffer was for 1.2. See max.d.ts.
+ *
+ * Keys, from the reference and not from memory: url, http_method, filename_out,
+ * overwrite_output_file, response_dict, headers, timeout.
+ *
+ * url_download <url> [dest]   dest defaults to spike_download.wav next to the .amxd
+ */
+function url_download(): void {
+  var a = arrayfromargs(arguments);
+  var url = a.length ? String(a[0]) : "";
+  if (!url) {
+    post("spike: url_download needs a url\n");
+    return;
+  }
+  // Default the destination next to the .amxd, where the UI payload already
+  // lands - a folder we know is writable, because the wrapper writes to it on
+  // every load.
+  var dest = a.length > 1 ? String(a[1]) : deviceFolder() + "/spike_download.wav";
+
+  try {
+    var d = new Dict("m4ljweb_spike_req");
+    d.clear();
+    d.set("url", url);
+    d.set("http_method", "get");
+    d.set("filename_out", dest);
+    d.set("overwrite_output_file", 1);
+    d.set("response_dict", "m4ljweb_spike_res");
+    d.set("timeout", 30);
+    post("spike: url_download req " + d.stringify() + "\n");
+
+    // outlet 1 is the wrapper's spare outlet; the spike chain wires it to maxurl.
+    outlet(1, "dictionary", "m4ljweb_spike_req");
+    outlet(0, "download_path", dest);
+    post("spike: url_download -> maxurl, dest " + dest + "\n");
+  } catch (e) {
+    post("spike: url_download FAILED - " + (e as Error).message + "\n");
+    post("spike: ^ if that is about Dict, THAT is the finding. Record it.\n");
+  }
+}
+
+/**
+ * Does the file actually exist on disk, and how big is it?
+ *
+ * maxurl saying "done" is not the finding. The file is the finding. And this is
+ * the project that already learned File.writebytes truncates silently past 16 KB,
+ * so "a file appeared" is not the same as "the bytes are all there" - hence the
+ * byte count, not just isopen.
+ *
+ * url_check <path>
+ */
+function url_check(): void {
+  var a = arrayfromargs(arguments);
+  var path = a.length ? String(a[0]) : "";
+  if (!path) return;
+  try {
+    var f = new File(path, "read");
+    if (!f.isopen) {
+      post("spike: url_check NO FILE at " + path + "\n");
+      outlet(0, "url_check_result", 0);
+      return;
+    }
+    var bytes = f.eof;
+    f.close();
+    post("spike: url_check " + bytes + " bytes at " + path + "\n");
+    outlet(0, "url_check_result", bytes);
+  } catch (e) {
+    post("spike: url_check FAILED - " + (e as Error).message + "\n");
+    outlet(0, "url_check_result", -1);
+  }
+}
+
+/**
+ * Whatever [maxurl] replied, from WHICHEVER outlet - the chain prefixes the
+ * outlet index, because "which outlet does completion arrive on" is one of the
+ * things SPIKES.md says to find out and one of the things CLAUDE.md says never
+ * to trust from memory.
+ *
+ * If the reply names a dictionary, dump it: maxurl's answer to a `dictionary`
+ * request is itself a dict, and its contents (status code, error, headers) are
+ * what tell an HTTP failure apart from a filesystem one.
+ *
+ * url_reply <outletIndex> <word> ...
+ */
 function url_reply(): void {
   var a = arrayfromargs(arguments);
   post("spike: <- maxurl " + a.join(" ") + "\n");
+
+  for (var i = 0; i < a.length; i++) {
+    if (String(a[i]) === "dictionary" && i + 1 < a.length) {
+      try {
+        var res = new Dict(String(a[i + 1]));
+        post("spike: <- maxurl dict " + res.stringify() + "\n");
+      } catch (e) {
+        post("spike: could not read the reply dict - " + (e as Error).message + "\n");
+      }
+    }
+  }
+
   (outlet as Function).apply(this, ([0, "url_result"] as unknown[]).concat(a));
 }

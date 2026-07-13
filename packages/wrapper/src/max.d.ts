@@ -39,6 +39,32 @@ declare class Task {
   cancel(): void;
 }
 
+/**
+ * A named Max dictionary, addressed from [js].
+ *
+ * The reason this exists here at all is [maxurl]: downloading to a FILE is not
+ * expressible as a flat Max message. Per the reference, the file form is a
+ * `dictionary <name>` message carrying a dict with a `filename_out` key - so
+ * something has to build that dict, and [js] is the only thing in the patcher
+ * that can.
+ *
+ * UNVERIFIED. Same status `Buffer` had before spike 1.2: this is written from
+ * the docs, and doc/SPIKES.md spike 1.3 is what confirms it. If a member here is
+ * not what Max's [js] actually exposes, the exception IS the finding.
+ */
+declare class Dict {
+  constructor(name?: string);
+  name: string;
+  set(key: string, value: unknown): void;
+  get(key: string): unknown;
+  /** The whole dict as JSON - the cheapest way to see what maxurl replied. */
+  stringify(): string;
+  parse(json: string): void;
+  clear(): void;
+  /** Release the dict's reference. Max dictionaries are refcounted. */
+  freepeer(): void;
+}
+
 /** Max's file object. Note: `writebytes` truncates silently past ~16 KB. */
 declare class File {
   constructor(path: string, mode?: "read" | "write" | "readwrite");

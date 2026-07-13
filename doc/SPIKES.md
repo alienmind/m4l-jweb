@@ -158,23 +158,51 @@ has been rewritten around it.
 Jitter runtime. `[jit.uldl]` is the long-standing alternative built for exactly
 this: asynchronous HTTP download to a local file, with a completion callback.
 
-**The apparatus is deliberately not a guess.** Nobody here has confirmed
-`maxurl`'s message vocabulary inside Live, so the wrapper does not encode one:
-`url_send` forwards **raw words** from a text field straight to `[maxurl]`, and
-`url_reply` sends whatever comes back to the UI and the console, verbatim. It is
-an instrument for exploring, not an implementation of a guess.
+**The raw-words apparatus was not enough, and that is already a finding.** The
+first cut of this spike forwarded raw words from a text field to `[maxurl]`, on
+the principle that guessing a vocabulary in code just bakes the guess in. Reading
+the reference says a flat message cannot express the thing we want: `get <url>`
+hands the **body** back through an outlet, and downloading to a **file** is a
+`dictionary <name>` message carrying a dict with a `filename_out` key. So
+something has to build a dict, and `[js]` is the only thing in the patcher that
+can. The raw-words field is still there (the `1.3 raw` row) for exploring, but
+the download itself is now `url_download` in `wrapper/device.ts`.
 
-**Procedure.** Type a message into the field and press send. Start from the Max
-reference page for `maxurl` (not from memory - see `CLAUDE.md`: *never trust an
-object's outlet order from memory*), and try the download-to-file form. Watch
-what the outlets say. Then check whether the file actually appeared on disk,
-which is the only thing that really counts.
+The dict keys, from the reference: `url`, `http_method`, `filename_out`,
+`overwrite_output_file`, `response_dict`, `headers`, `timeout`.
 
-**What to record:** the exact message that works, which outlet the completion
-arrives on, what an HTTP error looks like versus a filesystem error, and whether
-the write is genuinely streamed (try something large enough to notice - and
-remember `File.writebytes` truncating past ~16 KB is *this project's* scar
-tissue, not necessarily `maxurl`'s).
+**`Dict` is therefore part of what this spike tests**, exactly as `Buffer` was for
+1.2. It is newly declared in `max.d.ts` and marked UNVERIFIED. If `new Dict()`,
+`set` or `stringify` is not what Max's `[js]` exposes, the exception in the
+console **is the result**.
+
+**The apparatus reads all three `maxurl` outlets**, each tagged with its own index
+(`url_reply 2 ...` means outlet 2 fired), because which outlet carries completion
+is one of the questions and `CLAUDE.md` is explicit that outlet order is never to
+be trusted from memory. If the reply names a dictionary, the wrapper dumps its
+contents - that is where the status code lives, and it is what tells an HTTP error
+apart from a filesystem one.
+
+**Procedure.** Three buttons, in order:
+
+1. **download** - builds the dict, sends `dictionary` to `[maxurl]`, and posts the
+   request JSON and the destination (`spike_download.wav`, next to the `.amxd` -
+   a folder known to be writable, because the wrapper writes the UI payload there
+   on every load). The default URL is a real, live `.wav`, verified before it was
+   put there: a dead link and a broken download look identical from inside the
+   device, and only one of them is under test.
+2. **on disk?** - `maxurl` saying "done" is not the finding. **The file is the
+   finding.** This opens the path from `[js]` and reports the byte count, which is
+   also the truncation check: the file is ~1.2 MB, and this project already knows
+   `File.writebytes` gives up silently past ~16 KB.
+3. **-> buffer~** - loads the downloaded file into the spike's `buffer~`. Spike 1.2
+   already proved that seam, so a non-zero frame count here is the **entire**
+   path - network, disk, decode, audio - end to end, with no `[node.script]`
+   anywhere in it. That is the whole point of Stage 3.1.
+
+**What to record:** the exact request that works, which outlet completion arrives
+on, what an HTTP error looks like versus a filesystem error, and whether the file
+lands complete.
 
 **If `[maxurl]` cannot do it**, swap the box for `[jit.uldl]` in
 `patcher/chains.mjs` (one line) and repeat. If neither can, that is a genuine

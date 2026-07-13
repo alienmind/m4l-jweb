@@ -97,11 +97,20 @@ function spikeChain({ boxes, lines, jwebId, unmatchedId }) {
   boxes.push(box("obj-spike-buffer", "buffer~ m4ljweb_spike", { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
 
   // --- spike 1.3: maxurl on the wrapper's spare outlet ---
+  //
+  // ALL THREE outlets come back, each tagged with its own index, because "which
+  // outlet does the completion arrive on" is one of the questions - and CLAUDE.md
+  // is explicit that an object's outlet order is never to be trusted from memory.
+  // The tag turns that from a guess into a reading: `url_reply 2 ...` says outlet
+  // 2 fired, in the console, in front of you.
   boxes.push(box("obj-spike-maxurl", "maxurl", { numinlets: 1, numoutlets: 3, outlettype: ["", "", ""] }));
-  boxes.push(box("obj-spike-urlreply", "prepend url_reply"));
   lines.push(line(unmatchedId, 1, "obj-spike-maxurl", 0)); // [js] outlet 1 (spare) -> maxurl
-  lines.push(line("obj-spike-maxurl", 0, "obj-spike-urlreply", 0));
-  lines.push(line("obj-spike-urlreply", 0, unmatchedId, 0)); // -> [js] url_reply()
+
+  for (let i = 0; i < 3; i++) {
+    boxes.push(box("obj-spike-urlreply-" + i, "prepend url_reply " + i));
+    lines.push(line("obj-spike-maxurl", i, "obj-spike-urlreply-" + i, 0));
+    lines.push(line("obj-spike-urlreply-" + i, 0, unmatchedId, 0)); // -> [js] url_reply()
+  }
 }
 
 registerChain("spike", spikeChain);
