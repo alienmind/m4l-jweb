@@ -63,56 +63,56 @@ export default function Spike() {
     outlet(OUT.buffer_probe_path);
   }, []);
 
-  // The device view is a fixed ~169 px and clips silently, so the prose is kept
-  // short here on purpose: doc/SPIKES.md has the procedure, and the Max console
-  // has the findings. This UI only has to be pressable.
+  // The device view is a fixed ~169 px and CLIPS SILENTLY - which this spike
+  // proved on itself: the `-> buffer~` button spent a session below the fold,
+  // where it could not be pressed and did not look missing. So: no hint text, no
+  // spare rows, short labels. doc/SPIKES.md has the procedure and the Max console
+  // has the findings; this UI only has to be pressable.
   return (
     <Frame title="SPIKE" device={device}>
       <dt>1.1 set</dt>
       <dd className="row">
-        <button onClick={() => outlet(OUT.set_param, Math.random())}>set_param</button>
-        <button onClick={() => outlet(OUT.raw_param, Math.random())}>raw_param</button>
+        <button onClick={() => outlet(OUT.set_param, Math.random())}>set</button>
+        <button onClick={() => outlet(OUT.raw_param, Math.random())}>raw</button>
         <span>
-          echoes: <strong>{echoes}</strong>
-          {lastEcho !== null && ` (last ${lastEcho.toFixed(3)})`}
+          echoes <strong>{echoes}</strong>
+          {lastEcho !== null && ` (${lastEcho.toFixed(3)})`}
         </span>
-        <em className="hint">set_param must not raise it; raw_param must</em>
       </dd>
 
       <dt>1.2 buffer~</dt>
       <dd className="row">
-        <input value={bufferPath} onChange={(e) => setBufferPath(e.target.value)} size={14} />
+        <input value={bufferPath} onChange={(e) => setBufferPath(e.target.value)} size={10} />
         <button onClick={() => outlet(OUT.buffer_load, bufferPath)} disabled={!bufferPath.trim()}>
           load
         </button>
         <button onClick={() => outlet(OUT.buffer_load, probePath)} disabled={!probePath} title={probePath}>
-          .html (control)
+          .html
         </button>
         <span>{buffer ?? "-"}</span>
-        <em className="hint">frames&gt;0 is the finding; the control must stay 0</em>
       </dd>
 
       <dt>1.3 maxurl</dt>
       <dd className="row">
-        <input value={dlUrl} onChange={(e) => setDlUrl(e.target.value)} size={26} />
+        <input value={dlUrl} onChange={(e) => setDlUrl(e.target.value)} size={18} />
         <button onClick={() => outlet(OUT.url_download, dlUrl)} disabled={!dlUrl.trim()}>
-          download
+          get
         </button>
         <button onClick={() => outlet(OUT.url_check, dlPath)} disabled={!dlPath} title={dlPath}>
           on disk?
         </button>
+        {/* The end-to-end one: network -> disk -> decode -> audio, in one click. */}
         <button onClick={() => outlet(OUT.buffer_load, dlPath)} disabled={!dlPath}>
           -&gt; buffer~
         </button>
-        <span>{dlBytes === null ? "-" : dlBytes > 0 ? `${dlBytes} bytes` : "NO FILE"}</span>
+        <span>{dlBytes === null ? "-" : dlBytes > 0 ? `${dlBytes}B` : "NO FILE"}</span>
       </dd>
 
-      <dt>1.3 raw</dt>
+      <dt>raw</dt>
       <dd className="row">
-        <input value={urlWords} onChange={(e) => setUrlWords(e.target.value)} size={26} />
+        <input value={urlWords} onChange={(e) => setUrlWords(e.target.value)} size={18} />
         <button onClick={() => outlet(OUT.url_send, ...urlWords.trim().split(/\s+/))}>send</button>
         <span>{urlResult ?? "-"}</span>
-        <em className="hint">flat words - for exploring, not for files</em>
       </dd>
     </Frame>
   );
