@@ -19,6 +19,11 @@ export default function Spike() {
   const [echoes, setEchoes] = useState(0);
   const [lastEcho, setLastEcho] = useState<number | null>(null);
   const [buffer, setBuffer] = useState<string | null>(null);
+  // An AUDIO file, not the wrapper's own spike.html - buffer~ decodes audio, and
+  // pointing it at HTML leaves the buffer untouched at its declared size, which
+  // reads exactly like a successful load. jongly.aif ships with Max and sits on
+  // its search path, so a bare filename resolves with no path at all.
+  const [bufferPath, setBufferPath] = useState("jongly.aif");
   const [probePath, setProbePath] = useState("");
   const [urlWords, setUrlWords] = useState("download https://example.com/a.wav ~/Music/a.wav");
   const [urlResult, setUrlResult] = useState<string | null>(null);
@@ -58,13 +63,17 @@ export default function Spike() {
 
         <dt>1.2 buffer~</dt>
         <dd>
-          <button onClick={() => outlet(OUT.buffer_load, probePath)} disabled={!probePath}>
+          <input value={bufferPath} onChange={(e) => setBufferPath(e.target.value)} size={40} />
+          <button onClick={() => outlet(OUT.buffer_load, bufferPath)} disabled={!bufferPath.trim()}>
             buffer_load
+          </button>
+          <button onClick={() => outlet(OUT.buffer_load, probePath)} disabled={!probePath}>
+            load the .html (control)
           </button>
           <div>{buffer ?? "-"}</div>
           <small>
-            Loads {probePath || "(no path yet)"} - the wrapper's own extracted ui.html, a file that certainly exists. It is not audio, so frames&gt;0
-            is the finding, not the sound.
+            The buffer~ starts empty, so <strong>frames&gt;0 is the finding</strong> - and a non-zero midsample is what proves audio actually landed.
+            The control button points the same `replace` at {probePath || "the extracted .html"}, which is not audio: it should leave the buffer at 0.
           </small>
         </dd>
 

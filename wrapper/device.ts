@@ -22,11 +22,18 @@
  * an instrument device never has to push a single sample through the Max
  * message bridge.
  *
+ * Pass an AUDIO file. The first cut of this spike pointed `replace` at the
+ * wrapper's own extracted spike.html - chosen because it certainly exists - and
+ * that was a mistake: buffer~ decodes audio, so an HTML file leaves it untouched
+ * and the probe reports the buffer's declared size, which looks like a pass.
+ * `jongly.aif` ships with Max and lives on its search path, so a bare filename
+ * with no directory at all is the cleanest possible subject.
+ *
  * NOTE the Buffer binding's exact API surface is PART of what this spike tests.
  * If `send` or `framecount` is not what Max's [js] exposes, the catch below is
  * the finding - post it and record it, do not work around it.
  *
- * buffer_load <path>   (a real path; the wrapper's own extracted ui.html will do)
+ * buffer_load <path>   (an audio file: a bare `jongly.aif`, or any .wav on disk)
  */
 function buffer_load(): void {
   var a = arrayfromargs(arguments);
@@ -37,6 +44,10 @@ function buffer_load(): void {
   }
   try {
     var b = new Buffer("m4ljweb_spike");
+    // The baseline. The buffer~ is declared with no size, so this should be 0 -
+    // and printing it is what stops a later non-zero reading from being the
+    // buffer's own dimensions wearing the result's clothes.
+    post("spike: buffer before replace frames=" + b.framecount() + "\n");
     // `replace` reads the file and RESIZES the buffer to fit it; `read` keeps
     // the declared size. replace is what a sample player wants.
     b.send("replace", path);
