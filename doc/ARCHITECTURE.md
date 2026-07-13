@@ -403,6 +403,43 @@ parameters is what makes Push work at all. (The dev harness's Push preview alrea
 renders the declared banks; only Live does not read them yet.) Sequence in
 [TODO.md](TODO.md).
 
+## Declarative Floating Windows and State Persistence
+
+Two additional primitives are generated from the same `surface.ts` declaration: floating windows and state persistence.
+
+### Floating Windows
+
+Max patches can open subpatchers in floating windows, but managing them manually is tedious. M4L-JWEB allows you to declare windows inside `defineSurface()`:
+
+```ts
+windows: {
+  drumMap: { title: "Drum Kit Mapping", width: 800, height: 600, entry: "DrumMap" }
+}
+```
+
+**How it works:** 
+- The build detects declared windows and uses `applyWindows()` to emit a `[pcontrol]` object wired to a subpatcher `[p <title>]` for each window.
+- Inside the subpatcher, a dedicated `[jweb]` object is generated, sized appropriately, with `openinpresentation: 1` enabled so it floats correctly.
+- The wrapper scripts extract the window's UI HTML bundle (produced by `build-ui.mjs` iterating over `process.env.WINDOW`) and sends a `url file://...` message exclusively to the subpatcher's `[jweb]`.
+- Your React code opens/closes the window by sending `window_<id>_open` or `window_<id>_close` messages via the bridge using the `useWindow(surface, id)` hook, triggering the `[pcontrol]` object.
+
+### State Persistence (JSON)
+
+Often an app needs to save configuration data that isn't a simple automation parameter (e.g. an array of drum mappings or complex JSON objects). M4L-JWEB provides a generic state store mechanism to save arbitrary JSON:
+
+```ts
+state: {
+  drumMap: { default: {} }
+}
+```
+
+**How it works:**
+- The build detects the `state` declaration and uses `applyPersistence()` to emit a `[dict obj-state-<id>]` and a `[pattr @bindto obj-state-<id> @autorestore 1 @save 1]`.
+- This ensures the JSON blob is saved inside the Ableton Live Set and restored when the project opens.
+- The `useStateSync(surface, id)` hook gives React a two-way binding. Writing to it sends `sync_state <id> <json_string>` across the bridge.
+- The `[js]` wrapper catches `sync_state`, reconstructs the string (which may have spaces), and parses it into the `[dict]`.
+- When the UI connects, it emits `get_state <id>` to retrieve the persisted values, ensuring the UI is immediately up to date with the saved Set.
+
 ## Developing without Live: the mocked harness
 
 `pnpm dev` used to give you `window.maxSimulate()` on the console. That is a

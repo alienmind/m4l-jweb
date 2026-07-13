@@ -294,3 +294,109 @@ export function applySurface(ctx) {
     lines.push(line(`obj-set-${id}`, 0, paramObject(id), 0));
   });
 }
+
+/**
+ * Generate [pcontrol] and subpatchers for floating windows.
+ */
+export function applyWindows(ctx) {
+  const { boxes, lines, surface, jwebId } = ctx;
+  if (!surface || !surface.windows) return;
+
+  const windowIds = Object.keys(surface.windows);
+  if (windowIds.length === 0) return;
+
+  const selectors = [];
+  windowIds.forEach((id) => {
+    selectors.push(`window_${id}_open`);
+    selectors.push(`window_${id}_close`);
+  });
+
+  const routeId = "obj-windows-route";
+  boxes.push(
+    box(routeId, `route ${selectors.join(" ")}`, {
+      numoutlets: selectors.length + 1,
+      outlettype: selectors.map(() => "").concat(""),
+    })
+  );
+  lines.push(line(jwebId, 0, routeId, 0));
+
+  windowIds.forEach((id, index) => {
+    const spec = surface.windows[id];
+    const openOutlet = index * 2;
+    const closeOutlet = index * 2 + 1;
+
+    const openMsgId = `obj-window-${id}-openmsg`;
+    boxes.push(box(openMsgId, "message", { text: "open" }));
+    lines.push(line(routeId, openOutlet, openMsgId, 0));
+
+    const closeMsgId = `obj-window-${id}-closemsg`;
+    boxes.push(box(closeMsgId, "message", { text: "wclose" }));
+    lines.push(line(routeId, closeOutlet, closeMsgId, 0));
+
+    const pcontrolId = `obj-window-${id}-pcontrol`;
+    boxes.push({ box: { id: pcontrolId, maxclass: "pcontrol", numinlets: 1, numoutlets: 1, outlettype: [""] } });
+    lines.push(line(openMsgId, 0, pcontrolId, 0));
+    lines.push(line(closeMsgId, 0, pcontrolId, 0));
+
+    const subpatcherId = `obj-window-${id}-sub`;
+    boxes.push({
+      box: {
+        id: subpatcherId,
+        maxclass: "newobj",
+        text: `p ${spec.title}`,
+        patching_rect: [0, 0, 100, 22],
+        patcher: {
+          fileversion: 1,
+          rect: [100, 100, spec.width, spec.height],
+          openinpresentation: 1,
+          boxes: [
+            {
+              box: {
+                id: "obj-recv",
+                maxclass: "newobj",
+                text: `r window-read-${id}`,
+                patching_rect: [10, 10, 100, 22],
+              },
+            },
+            {
+              box: {
+                id: "obj-jweb",
+                maxclass: "jweb",
+                patching_rect: [10, 40, spec.width, spec.height],
+                presentation: 1,
+                presentation_rect: [0, 0, spec.width, spec.height],
+                color: [1.0, 1.0, 1.0, 1.0],
+              },
+            },
+          ],
+          lines: [
+            {
+              patchline: {
+                source: ["obj-recv", 0],
+                destination: ["obj-jweb", 0],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    lines.push(line(pcontrolId, 0, subpatcherId, 0));
+  });
+}
+
+/**
+ * Generate [dict] and [pattr] for state persistence.
+ */
+export function applyPersistence(ctx) {
+  const { boxes, surface } = ctx;
+  if (!surface || !surface.state) return;
+
+  for (const id of Object.keys(surface.state)) {
+    const dictId = `obj-state-${id}`;
+    boxes.push({ box: { id: dictId, maxclass: "dict", name: dictId } });
+
+    const pattrId = `obj-pattr-${id}`;
+    boxes.push(box(pattrId, `pattr ${pattrId} @bindto ${dictId} @autorestore 1 @save 1`));
+  }
+}

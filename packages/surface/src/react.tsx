@@ -17,8 +17,9 @@
  * has no React in it and is tested without a DOM. This file is the hook.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { outlet } from "@m4l-jweb/bridge";
 import type { ParamSpec, ParamValue, Surface } from "./index";
-import { paramStore } from "./store";
+import { paramStore, stateStore } from "./store";
 
 /**
  * A two-way binding to one Live parameter. `[value, setValue]`, like useState -
@@ -42,4 +43,29 @@ export function useSurface<P extends Record<string, ParamSpec>>(
   const values = useSyncExternalStore(store.subscribe, store.get, store.get);
   const set = useCallback(<K extends Extract<keyof P, string>>(id: K, value: ParamValue<P[K]>) => store.write(id, value), [store]);
   return [values as { [K in keyof P]: ParamValue<P[K]> }, set];
+}
+
+/** Open and close a declared floating window. */
+export function useWindow<P extends Record<string, ParamSpec>>(
+  surface: Surface<P>,
+  id: string,
+): { open: () => void; close: () => void } {
+  return useMemo(
+    () => ({
+      open: () => outlet(`window_${id}_open`, 1),
+      close: () => outlet(`window_${id}_close`, 1),
+    }),
+    [id],
+  );
+}
+
+/** A two-way binding to a persisted JSON state inside the Live Set. */
+export function useStateSync<P extends Record<string, ParamSpec>, T = any>(
+  surface: Surface<P>,
+  id: string,
+): [T, (value: T) => void] {
+  const store = useMemo(() => stateStore(surface), [surface]);
+  const values = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const set = useCallback((value: T) => store.write(id, value), [store, id]);
+  return [values[id] as T, set];
 }

@@ -9,11 +9,30 @@
  */
 import { build } from "vite";
 import { uiDirs } from "./devices.mjs";
+import { loadSurface } from "../packages/build/src/surface.mjs";
+import { renameSync, copyFileSync } from "node:fs";
+import path from "node:path";
+
+const root = process.cwd();
 
 for (const dir of uiDirs) {
   process.env.DEVICE = dir;
   console.log(`\nm4l-jweb: bundling UI for ${dir}`);
+  delete process.env.WINDOW;
   await build();
+
+  const surface = await loadSurface(root, dir);
+  if (surface && surface.windows) {
+    for (const winId of Object.keys(surface.windows)) {
+      process.env.WINDOW = winId;
+      process.env.WINDOW_ENTRY = surface.windows[winId].entry;
+      console.log(`\nm4l-jweb: bundling window ${winId} for ${dir}`);
+      await build();
+      
+      const outDir = path.join(root, "dist", "ui", dir);
+      renameSync(path.join(outDir, "index.html"), path.join(outDir, `${winId}.html`));
+    }
+  }
 }
 
 console.log(`\nm4l-jweb: ${uiDirs.length} UI bundle(s) -> dist/ui/`);

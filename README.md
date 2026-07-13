@@ -409,7 +409,48 @@ Live parameter - so automation, MIDI mapping and Push all follow. `pnpm dev:<dev
 renders the same declaration as a parameter panel and a **Push preview**, so you can
 see what a performer will see without leaving the browser.
 
-### 6. One device, one bundle
+### 6. Declare Floating Windows and State Persistence
+
+If your UI gets too big to fit inside the standard device view, you can offload sections to **floating windows**. You can also declare arbitrary JSON **state** that is automatically saved into the Live Set (so the user doesn't lose their settings when they reopen the project).
+
+Declare them both inside `surface.ts`:
+
+```ts
+import { defineSurface, state, window } from "@m4l-jweb/surface";
+
+export default defineSurface({
+  params: { /* ... */ },
+  windows: {
+    drumMap: window({ title: "Drum Mapping", width: 800, height: 600, entry: "DrumMap" })
+  },
+  state: {
+    kitSettings: state({ default: { voices: 4, tuning: "C" } })
+  }
+});
+```
+
+And bind to them in your React app with hooks:
+
+```tsx
+import { useWindow, useStateSync } from "@m4l-jweb/surface/react";
+import surface from "./surface";
+
+export default function App() {
+  const drumWindow = useWindow(surface, "drumMap");
+  const [kitSettings, setKitSettings] = useStateSync(surface, "kitSettings");
+
+  return (
+    <div>
+      <button onClick={drumWindow.open}>Open Drum Mapping</button>
+      <button onClick={() => setKitSettings({ ...kitSettings, voices: 8 })}>Set Voices to 8</button>
+    </div>
+  );
+}
+```
+
+The build process emits the correct Max `[pcontrol]` objects for the windows, and the exact `[pattr]` and `[dict]` objects needed to safely persist your JSON state inside the DAW. 
+
+### 7. One device, one bundle
 
 Each device is a folder under `src/app/`, and each `.amxd` embeds **its own** UI
 bundle: `hello-midi` carries no filter code, `hello-audio` carries no sequencer.

@@ -97,6 +97,33 @@ export type ParamSpec = DialSpec | ToggleSpec | MenuSpec;
 /** The value type a given parameter carries. `useParam` will be typed by this. */
 export type ParamValue<P extends ParamSpec> = P extends DialSpec ? number : P extends ToggleSpec ? boolean : P extends MenuSpec<infer O> ? O : never;
 
+/* ------------------------------------------------------------------ *
+ * Windows and State
+ * ------------------------------------------------------------------ */
+
+export interface WindowSpec {
+  kind: "window";
+  title: string;
+  width: number;
+  height: number;
+  entry: string;
+}
+
+export interface StateSpec<T = any> {
+  kind: "state";
+  default: T;
+}
+
+export const window = (spec: Omit<WindowSpec, "kind">): WindowSpec => ({
+  kind: "window",
+  ...spec,
+});
+
+export const state = <T = any>(spec: Omit<StateSpec<T>, "kind">): StateSpec<T> => ({
+  kind: "state",
+  ...spec,
+});
+
 export const dial = (spec: Omit<DialSpec, "kind">): DialSpec => ({
   kind: "dial",
   ...spec,
@@ -132,6 +159,8 @@ export interface Bank<K extends string> {
 export interface SurfaceDef<P extends Record<string, ParamSpec>> {
   params: P;
   banks?: readonly Bank<Extract<keyof P, string>>[];
+  windows?: Record<string, WindowSpec>;
+  state?: Record<string, StateSpec>;
 }
 
 export interface Surface<P extends Record<string, ParamSpec> = Record<string, ParamSpec>> extends SurfaceDef<P> {

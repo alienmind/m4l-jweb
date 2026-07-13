@@ -86,9 +86,39 @@ function ui_ready(): void {
   // mixed install (stale .amxd instance vs newer extracted UI, or vice versa).
   outlet(0, "build", buildStamp());
   sendCurrentTempo(); // liveapi.ts
-  // The device resends its own state here. The page loads asynchronously, so
+// The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
+}
+
+/* ------------------------------------------------------------------ *
+ * Persistence Handlers
+ * ------------------------------------------------------------------ */
+
+function get_state(id: string): void {
+  try {
+    // @ts-ignore Dict is a Max object
+    var d = new Dict("obj-state-" + id);
+    var jsonStr = d.stringify();
+    outlet(0, "state_" + id, jsonStr);
+  } catch (e) {
+    post("m4l-jweb: get_state error for " + id + " - " + (e as Error).message + "\n");
+  }
+}
+
+function sync_state(id: string): void {
+  try {
+    var jsonParts = [];
+    for (var i = 1; i < arguments.length; i++) {
+      jsonParts.push(String(arguments[i]));
+    }
+    var jsonStr = jsonParts.join(" ");
+    // @ts-ignore Dict is a Max object
+    var d = new Dict("obj-state-" + id);
+    d.parse(jsonStr);
+  } catch (e) {
+    post("m4l-jweb: sync_state error for " + id + " - " + (e as Error).message + "\n");
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -107,6 +137,20 @@ function loadWebview(): void {
     if (!url) return;
     outlet(0, "url", url);
     post("m4l-jweb: sent url " + url + "\n");
+
+    if (typeof EXTRA_PAYLOAD_NAMES !== "undefined") {
+      var folder = deviceFolder();
+      for (var i = 0; i < EXTRA_PAYLOAD_NAMES.length; i++) {
+        var name = EXTRA_PAYLOAD_NAMES[i];
+        if (name.slice(-5) === ".html") {
+          var winId = name.replace(/^.*_/, "").replace(".html", "");
+          var winUrl = encodeURI("file:///" + folder + "/" + name) + "?v=" + encodeURIComponent(buildStamp());
+          // @ts-ignore Messnamed is a Max object
+          var m = new Messnamed("window-read-" + winId);
+          m.send("url", winUrl);
+        }
+      }
+    }
   } catch (e) {
     post("m4l-jweb: loadWebview error " + (e as Error).message + "\n");
   }

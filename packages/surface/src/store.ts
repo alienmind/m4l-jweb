@@ -133,3 +133,65 @@ export function paramStore<P extends Record<string, ParamSpec>>(surface: Surface
   stores.set(surface, store);
   return store;
 }
+
+/* ------------------------------------------------------------------ *
+ * State Store
+ * ------------------------------------------------------------------ */
+
+export interface StateStore {
+  get(): Values;
+  subscribe(fn: () => void): () => void;
+  write(id: string, value: unknown): void;
+}
+
+const stateStores = new WeakMap<object, StateStore>();
+
+export function stateStore<P extends Record<string, ParamSpec>>(surface: Surface<P>): StateStore {
+  const existing = stateStores.get(surface);
+  if (existing) return existing;
+
+  // Defaults from the surface definition
+  let values: Values = {};
+  if (surface.state) {
+    for (const [id, spec] of Object.entries(surface.state)) {
+      values[id] = spec.default;
+    }
+  }
+
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const fn of listeners) fn();
+  };
+
+  if (surface.state) {
+    for (const id of Object.keys(surface.state)) {
+      bindInlet(`state_${id}`, (raw) => {
+        try {
+          const parsed = JSON.parse(String(raw));
+          values = { ...values, [id]: parsed };
+          notify();
+        } catch (e) {
+          console.error(`Failed to parse state for ${id}:`, raw);
+        }
+      });
+      // Request initial state on boot
+      outlet("get_state", id);
+    }
+  }
+
+  const store: StateStore = {
+    get: () => values,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    write(id, value) {
+      values = { ...values, [id]: value };
+      notify();
+      outlet(`sync_state_${id}`, JSON.stringify(value));
+    },
+  };
+
+  stateStores.set(surface, store);
+  return store;
+}
