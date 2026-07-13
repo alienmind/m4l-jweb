@@ -91,8 +91,12 @@ export default function HelloAudio() {
         </label>
       </dd>
 
+      {/* Deliberately NOT naming the order. This app is shared by hello-audio and
+          hello-audio-rev, which differ only in the order of their chains - so a page
+          that claimed one would be lying in the other. The page cannot know: the
+          signal path is the manifest's, and it never crosses the bridge. */}
       <dt>chain</dt>
-      <dd>lowpass &rarr; drive &rarr; gain - in the signal path, not in this page</dd>
+      <dd>filter, drive and level - in the signal path, in the order patcher/devices.mjs lists them</dd>
 
       <Transport device={device} />
     </Frame>
