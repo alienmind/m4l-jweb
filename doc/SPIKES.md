@@ -267,10 +267,40 @@ buffer should ask `channelcount()` rather than remember an answer.
 **`Dict` is confirmed** along with it - `new Dict()`, `set`, `clear`, `stringify`
 are all real. `max.d.ts` updated; `get`, `parse` and `freepeer` remain unexercised.
 
-**Still open, and cheap:** what an HTTP error (404) and a filesystem error
-(unwritable `filename_out`) look like. `status` is in the dict, so a 404 is
-presumably `status 404` with the file absent - but that is a guess, and this
-document exists because guesses cost weeks. Point the field at a dead URL and look.
+### The 404, and it is nastier than it looks - READ THIS BEFORE BUILDING 3.1
+
+The guess was "a 404 arrives as `status 404`, with no file". Half right, and the
+wrong half is dangerous. Pointing the same request at a dead URL on a live host:
+
+```
+status 404, content_type "text/html; charset=iso-8859-1", size_download 355
+url_check -> 355 bytes at .../spike_download.wav      <- THE FILE IS THERE
+buffer frames=0 channels=0 midsample=0                <- and it is not audio
+```
+
+**`[maxurl]` wrote the 404 error page to `filename_out`.** It did not refuse, it
+did not warn - and with `overwrite_output_file: 1` it **destroyed the good 1.2 MB
+`.wav` that was already at that path**. A failed download does not leave the old
+file alone; it replaces it with an Apache error page wearing a `.wav` extension.
+
+Chain that with the other two findings and you get a device that fails silently,
+late, far from the cause:
+
+1. `fetchToFile` asks "did a file appear?" - yes, 355 bytes. Reports success.
+2. The sample is "cached". Nothing re-downloads it.
+3. `buffer~` `replace`s it: **silent no-op**, `frames=0`, no error (spike 1.2).
+4. The device plays nothing, and there is not one line in the console about it.
+
+**So Stage 3.1's `fetchToFile` MUST:**
+
+- **check `status` in the completion dict** - the presence of a file proves nothing,
+- **download to a TEMP path and move it into place only on 2xx**, so a failure
+  cannot destroy a good cached file,
+- and treat a non-2xx as an error the app can *see*, with the status in it.
+
+**Still open, and cheap:** the filesystem error (an unwritable `filename_out`).
+"The server said no" and "the disk said no" need different handling, and we still
+cannot tell them apart. The apparatus would need a destination field to ask.
 
 **`[jit.uldl]` is not needed.** `[maxurl]` does the job, and it does not drag in
 the Jitter runtime.
