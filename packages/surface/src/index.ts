@@ -105,7 +105,18 @@ export const toggle = (spec: Omit<ToggleSpec, "kind">): ToggleSpec => ({
   kind: "toggle",
   ...spec,
 });
-export const menu = <O extends string>(spec: Omit<MenuSpec<O>, "kind">): MenuSpec<O> => ({ kind: "menu", ...spec });
+/**
+ * The options are spelled out rather than written as `Omit<MenuSpec<O>, "kind">`,
+ * and that is not a style choice: TypeScript cannot infer `O` THROUGH an `Omit`,
+ * so it falls back to the constraint and every menu's value type widens to
+ * `string`. The whole point of a menu is that `useParam(surface, "rate")` gives
+ * you `"off" | "1/4" | ...` and a typo fails the build, so the inference is the
+ * feature.
+ */
+export const menu = <const O extends string>(spec: { options: readonly O[]; default: O; short: string }): MenuSpec<O> => ({
+  kind: "menu",
+  ...spec,
+});
 
 /* ------------------------------------------------------------------ *
  * The surface
