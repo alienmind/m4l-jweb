@@ -165,19 +165,32 @@ Live with no truncation. Build against the shape recorded in
 outlet 1, the completion dict on outlet 0 - and note the progress stream means
 `fetchToFile` can report bytes as they land, not just when it finishes.
 
-**A failed download WRITES THE ERROR PAGE TO YOUR FILE. This is not negotiable
-design guidance; it is measured behaviour.** A 404 came back as `status 404` and
-`[maxurl]` wrote the 355-byte Apache error page to `filename_out` anyway -
-destroying the good 1.2 MB `.wav` already cached at that path, because
-`overwrite_output_file` does not care what the status was. Combined with `replace`
-being a silent no-op on undecodable files (spike 1.2), the naive implementation
-produces a device that plays nothing, reports nothing, and has an HTML page sitting
-where its sample should be. So `fetchToFile`:
+**Both failure modes were measured, and each one defeats the obvious check.**
 
-1. **Checks `status` in the completion dict.** A file existing proves nothing.
-2. **Downloads to a temp path and moves it into place only on 2xx**, so a failure
-   can never destroy a good cached file.
-3. **Surfaces a non-2xx to the app as an error, with the status in it.**
+| Outcome | `status` | `error` key | The file |
+|---|---|---|---|
+| Success | 2xx | absent | complete |
+| **HTTP failure** (404) | 404 | absent | **the error page, written over whatever was there** |
+| **Filesystem failure** | **200** | **present** | none |
+
+A 404 does not decline to write - `[maxurl]` wrote the 355-byte Apache error page
+to `filename_out` and **destroyed the good 1.2 MB `.wav` already cached there**,
+because `overwrite_output_file` does not care what the status was. And an
+unwritable path comes back as **`status 200`**, because the *server* was fine; the
+only sign is an `error` key that is absent on success.
+
+Combined with `replace` being a silent no-op on undecodable files (spike 1.2), the
+naive implementation is a device that plays nothing, reports nothing, and has an
+HTML page sitting where its sample should be. So `fetchToFile`:
+
+1. **Checks `status` AND the `error` key.** Neither alone is sufficient: a file
+   existing proves nothing, and a 200 does not mean it was written.
+2. **Downloads to a temp path and moves it into place only on success**, so a
+   failure can never destroy a good cached file.
+3. **Surfaces the failure to the app**, with the status or the error string in it.
+
+(Do not add `size_download` vs `content_length_download` as a third check. It flags
+the truncation, but a chunked response reports `content_length_download: -1`.)
 
 `[jweb]` is a sandboxed Chromium view: it can `fetch()`, but cannot write
 arbitrary files to disk. The only current escape hatch is `[node.script]`, whose
