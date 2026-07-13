@@ -67,6 +67,18 @@ test("a short name Push would truncate is rejected", () => {
   expect(() => defineSurface({ params: { a: dial({ range: [0, 1], default: 0, short: "Resonance" }) } })).toThrow(/truncate/);
 });
 
+test("a menu keeps its options as LITERALS - the value type is the union, not `string`", () => {
+  // Not a type test in disguise: this is what makes Push print "1/16" instead of
+  // "2". The options must survive as a real list on the spec (they become
+  // `parameter_enum`), and `useParam` must give the app the union so a typo fails
+  // the build. Writing `menu()`'s argument as Omit<MenuSpec<O>, "kind"> silently
+  // broke the inference - TS cannot infer O through a mapped type, so it fell back
+  // to `string` - and the labels never reached Live.
+  const s = defineSurface({ params: { rate: menu({ options: ["off", "1/4", "1/8"], default: "off", short: "Rate" }) } });
+  expect(s.params.rate.options).toEqual(["off", "1/4", "1/8"]);
+  expect(formatValue(s.params.rate, "1/8")).toBe("1/8");
+});
+
 test("formatValue falls back sensibly when no format is given", () => {
   const s = ok();
   expect(formatValue(s.params.density, 0.5)).toBe("50%"); // its own format

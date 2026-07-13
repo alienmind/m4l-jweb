@@ -27,7 +27,7 @@ import { useParam } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
 import { useEffect } from "react";
-import surface from "./surface";
+import surface, { RATES } from "./surface";
 import DemoWorker from "../shared/worker.ts?worker&inline";
 
 /**
@@ -37,41 +37,43 @@ import DemoWorker from "../shared/worker.ts?worker&inline";
 const C3 = 60;
 
 /**
- * The Rate slider: a note division, not a frequency. 0 is off; 4 is quarter
- * notes; 32 is thirty-second notes.
+ * A rate label -> the division it means. `off` is 0: no pulse.
  *
- * The slider's position is an INDEX into this list. A list rather than a number
- * because 0, 4, 8, 16, 32 are the divisions anyone actually wants, and a
- * continuous knob would spend most of its travel on ones nobody does.
+ * The labels live in surface.ts, because they are the Live parameter's `options` -
+ * which is what Push prints under the encoder. This device and the hardware read
+ * the same list.
  */
-const RATES = [0, 4, 8, 16, 32] as const;
+const DIVISION: Record<(typeof RATES)[number], number> = { off: 0, "1/4": 4, "1/8": 8, "1/16": 16, "1/32": 32 };
 
 /** A division, in beats. 4 (a quarter note) is 1 beat; 8 is half of one. */
 const beatsPerPulse = (division: number) => 4 / division;
 
+/** The Density parameter is a PERCENTAGE (Live prints "50 %"); MIDI velocity is 1-127. */
+const toVelocity = (density: number) => Math.round(40 + (density / 100) * 87);
+
 export default function HelloMidi() {
   /**
-   * Both are REAL Live parameters, bound in both directions. `density` scales how
-   * hard the pulse hits; `rate` is the index into RATES.
+   * Both are REAL Live parameters, bound in both directions and typed from the
+   * declaration: `rate` is one of the labels ("1/8"), not an index, and `density`
+   * is a percentage.
    *
-   * The rate slider used to be a one-way readout - the app followed the dial and
-   * could not move it - because writing a parameter meant hand-rolling
-   * `set_rate`. Now the binding is symmetric by default: drag the slider and the
-   * Live dial, the automation lane and Push all follow.
+   * Both are also SHOWN below. A parameter the UI never renders is one the user
+   * cannot tell from a broken one - they turn the Push encoder and nothing on
+   * screen moves.
    */
-  const [density] = useParam(surface, "density");
-  const [rateIdx, setRateIdx] = useParam(surface, "rate");
+  const [rate, setRate] = useParam(surface, "rate");
+  const [density, setDensity] = useParam(surface, "density");
   const [notesSent, setNotesSent] = useState(0);
   const [lastIn, setLastIn] = useState<number | null>(null);
   const [workerTicks, setWorkerTicks] = useState(0);
 
-  const division = RATES[clampIdx(rateIdx)];
+  const division = DIVISION[rate] ?? 0;
 
   const worker = useRef<Worker | null>(null);
 
   // The tick handler must read the CURRENT parameters and the PREVIOUS tick's
   // position. A ref keeps them out of the binding without going stale.
-  const state = useRef({ tempo: 120, density: 0.5, division: 0, lastBeat: -1 });
+  const state = useRef({ tempo: 120, density: 50, division: 0, lastBeat: -1 });
   state.current.density = density;
   state.current.division = division;
 
@@ -99,7 +101,7 @@ export default function HelloMidi() {
         pitch: C3,
         // The Density dial is a real Live parameter, so this is also how you see
         // automation and Push reach the app: it scales how hard C3 hits.
-        velocity: Math.round(40 + s.density * 87),
+        velocity: toVelocity(s.density),
         // Staccato, so pulses never overlap - at 1/32 they are 60 ms apart.
         durationMs: Math.max(20, Math.round(msPerBeat * step * 0.5)),
         delayMs: Math.max(0, Math.round((at - beat) * msPerBeat)),
@@ -125,11 +127,11 @@ export default function HelloMidi() {
     return () => w.terminate();
   }, []);
 
-  function changeRate(idx: number) {
-    setRateIdx(idx); // writes the Live parameter, not just this component
+  function changeRate(next: (typeof RATES)[number]) {
+    setRate(next); // writes the Live parameter, not just this component
     // Going to "off" mid-note would leave C3 sounding: the note-off is Max's to
     // send, and it only sends one for notes it still knows about.
-    if (RATES[idx] === 0) flushNotes();
+    if (DIVISION[next] === 0) flushNotes();
   }
 
   /**
@@ -148,7 +150,7 @@ export default function HelloMidi() {
     if (!division || device.playing) return;
     const stepMs = (60000 / (device.tempo ?? 120)) * beatsPerPulse(division);
     const fire = () => {
-      sendNote({ pitch: C3, velocity: Math.round(40 + density * 87), durationMs: Math.max(20, Math.round(stepMs * 0.5)) });
+      sendNote({ pitch: C3, velocity: toVelocity(density), durationMs: Math.max(20, Math.round(stepMs * 0.5)) });
       setNotesSent((n) => n + 1);
     };
     fire(); // at once, so moving the slider is audible immediately
@@ -161,15 +163,27 @@ export default function HelloMidi() {
       <dt>rate</dt>
       <dd>
         <label className="slider">
+          {/* The slider steps through the parameter's own OPTIONS - the same list
+              Push prints under its encoder, because both come from surface.ts. */}
           <input
             type="range"
             min={0}
             max={RATES.length - 1}
             step={1}
-            value={clampIdx(rateIdx)}
-            onChange={(e) => changeRate(Number(e.target.value))}
+            value={Math.max(0, RATES.indexOf(rate))}
+            onChange={(e) => changeRate(RATES[Number(e.target.value)])}
           />
-          <strong>{division === 0 ? "off" : `1/${division}`}</strong>
+          <strong>{rate}</strong>
+        </label>
+      </dd>
+
+      <dt>density</dt>
+      <dd>
+        <label className="slider">
+          <input type="range" min={0} max={100} step={1} value={density} onChange={(e) => setDensity(Number(e.target.value))} />
+          <strong>
+            {Math.round(density)}% - vel {toVelocity(density)}
+          </strong>
         </label>
       </dd>
 
@@ -189,5 +203,3 @@ export default function HelloMidi() {
     </Frame>
   );
 }
-
-const clampIdx = (n: number) => Math.max(0, Math.min(RATES.length - 1, Math.round(n)));
