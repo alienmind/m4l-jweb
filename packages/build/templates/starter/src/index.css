@@ -87,6 +87,23 @@ h1 {
   color: var(--fg);
 }
 
+/* The build stamps, top right. Deliberately NOT in a footer: the device view is
+   a fixed ~169 px and clips at the bottom, so a footer stamp vanishes exactly
+   when the UI has grown enough for staleness to be worth checking. The stamps
+   are long (version + ISO timestamp), so they ellipsize - the full text is in
+   the title attribute, and the hover works in Max's jweb. */
+.stamp {
+  color: var(--muted);
+  display: flex;
+  font-size: 9px;
+  gap: 8px;
+  margin-left: auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 dl {
   column-gap: 10px;
   display: grid;

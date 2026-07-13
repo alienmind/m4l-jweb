@@ -64,8 +64,10 @@ infrastructure carved into `packages/`.
   does not scroll.
 - **Live embeds a copy of the device in the set.** Reinstalling does not update
   instances already on tracks. If behavior does not match the code, check the
-  build stamp in the UI footer and the Max console, then delete and re-drag the
-  device.
+  build stamp in the UI header (top right, from `Frame`) and the Max console,
+  then delete and re-drag the device. Keep the stamps in the header, not a
+  footer: the view clips at the bottom, so a footer stamp disappears exactly when
+  the UI has grown enough for staleness to be worth checking.
 - **Use LiveAPI, not MSP, for transport.** A `plugsync~` -> `snapshot~` chain
   reads zero in a MIDI-effect device: those devices do not reliably run a DSP
   graph. Poll `live_set is_playing` + `current_song_time` instead. It works in
