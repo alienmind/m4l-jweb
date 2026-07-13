@@ -75,6 +75,21 @@ export function removeLine(lines, srcId, dstId) {
  */
 export function claimAppMessages(ctx, routeId, unmatchedOutlet) {
   const [srcId, srcOutlet] = ctx.appOut ?? [ctx.jwebId, 0];
+
+  // Nobody has claimed the stream yet, and yet [jweb] no longer reaches the
+  // wrapper: a chain cut that cord by hand (the old `removeLine(jwebId,
+  // unmatchedId)` idiom) without saying where it put the messages. We cannot know
+  // - and guessing produces a patcher that WORKS while delivering every unrouted
+  // message twice, which is not a failure anyone would look for. Say so instead.
+  if (!ctx.appOut && !ctx.lines.some((l) => l.patchline.source[0] === ctx.jwebId && l.patchline.destination[0] === ctx.unmatchedId)) {
+    throw new Error(
+      `a chain on device "${ctx.device?.name}" took [jweb]'s outlet without claimAppMessages(). ` +
+        `Routes are chained in series, so each one must hand the next what it did not match. ` +
+        `Replace "removeLine(lines, jwebId, unmatchedId); lines.push(line(jwebId, 0, myRoute, 0)); ` +
+        `lines.push(line(myRoute, <last>, unmatchedId, 0));" with "claimAppMessages(ctx, myRoute, <last>)".`,
+    );
+  }
+
   removeLine(ctx.lines, srcId, ctx.unmatchedId);
   ctx.lines.push(line(srcId, srcOutlet, routeId, 0));
   ctx.lines.push(line(routeId, unmatchedOutlet, ctx.unmatchedId, 0));

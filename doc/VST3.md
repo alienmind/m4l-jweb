@@ -490,14 +490,15 @@ opens it:
 - **State.** `getState`/`setState`, versioned. Live stored our state for us; a
   plugin serializes its own.
 
-The generated header from Stage 2 is the only per-device input. `chains` in
-`patcher/devices.mjs` selects compiled components instead of patcher boxes -
-`midiout` pulls in the event queue, `lowpass` pulls in a one-pole filter.
+The generated header from Stage 3 is the only per-device input. `chains` in the
+manifest selects compiled components instead of patcher boxes - `midiout` pulls in
+the event queue, `lowpass` pulls in a one-pole filter.
 
-### Stage 4 - the build target
+### Stage 5 - the build target
 
 ```bash
-m4l-jweb build --target vst3
+pnpm build --target vst3      # opt-in; needs a toolchain, and says so if absent
+pnpm build                    # unchanged: Node only, .amxd out
 ```
 
 Same UI bundle step, then: generate the header, invoke CMake, assemble the bundle
@@ -511,12 +512,18 @@ Run `pluginval` at its strictest level in CI. It is the VST3 world's equivalent 
 this repo's container round-trip and ES5 gate: an invariant checker for the
 failures that produce no error.
 
-### Stage 5 - the harness, generalised
+### Stage 6 - the harness, generalised
 
-Rename Live to "host" in `@m4l-jweb/surface/dev`, drop the Push preview behind a
-flag, and the mocked-Live harness is a mocked-host harness. Near-zero work; it is
-listed only because it is what keeps the promise that a device develops in a
-browser.
+Rename Live to "host" in the dev harness, drop the Push preview behind a flag, and
+the mocked-Live harness is a mocked-host harness. Near-zero work; it is listed only
+because it is what keeps the promise that a device develops in a browser.
+
+### Stage 7 - the rename
+
+Last, on its own, touching everything and changing nothing. `@m4l-jweb/*` becomes
+the new scope; `m4l-jweb` survives as the name of a *target*; the old packages ship
+one final deprecated release that re-exports the new ones. Doing this earlier would
+bury a real change inside a thousand-line diff.
 
 ---
 
@@ -525,14 +532,17 @@ browser.
 | | |
 |---|---|
 | Stage 0 (spikes) | days, and they may change the plan |
-| Stages 1-2 (bridge seam, surface codegen) | **the cheap, high-value half.** Pure TypeScript, testable without a host |
-| Stage 3 (runtime) | the real work. A correct, realtime-safe, cross-platform plugin runtime is not a weekend, and the thread seam is where the bodies are buried |
-| Stage 4 (build, sign, notarize, pluginval) | tedious, well-trodden, unavoidable |
-| Ongoing | **two host backends, forever.** Every chain, every parameter kind, every trap, twice |
+| Stage 1 (the `Target` seam) | a refactor, no new behaviour, **pays for itself with one target** |
+| Stages 2-3 (bridge transport, surface codegen) | **the cheap, high-value half.** Pure TypeScript, testable without a host |
+| Stage 4 (the runtime) | the real work. A correct, realtime-safe, cross-platform plugin runtime is not a weekend, and the thread seam is where the bodies are buried |
+| Stage 5 (build, sign, notarize, pluginval) | tedious, well-trodden, unavoidable |
+| Stages 6-7 (harness, rename) | hours, and mechanical |
+| Ongoing | **two backends, forever.** Every chain, every parameter kind, every trap, twice - which is precisely why they must share one declaration |
 
-The asymmetry is the point. Stages 1 and 2 are worth doing on their own merits,
-they make the codebase better even if the VST3 backend never ships, and they can
-be finished before anyone commits to Stage 3.
+The asymmetry is the point. **Stages 1 to 3 are worth doing on their own merits,
+improve the codebase even if the VST3 target never ships, and can be finished
+before anyone commits to Stage 4** - which is the only stage that is expensive, and
+the only one that is hard to walk back.
 
 ---
 
