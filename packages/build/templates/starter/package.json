@@ -17,13 +17,13 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/*.mjs\" \"patcher/*.mjs\""
   },
   "dependencies": {
-    "@m4l-jweb/bridge": "^0.5.0",
-    "@m4l-jweb/surface": "^0.5.0",
+    "@m4l-jweb/bridge": "^0.6.0",
+    "@m4l-jweb/surface": "^0.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@m4l-jweb/build": "^0.5.0",
+    "@m4l-jweb/build": "^0.6.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
