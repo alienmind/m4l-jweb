@@ -56,6 +56,18 @@ patchers, the `.amxd` container writer, Push support - see
 
 ---
 
+## What is supported
+
+M4L-JWEB handles the entire Max bridge so your React app feels like a native Ableton device. Out of the box, it supports:
+
+- **Parameter Automation:** Your UI components drive real Max parameters underneath. Recording an automation lane in Live, automating via clip envelopes, or MIDI-mapping a physical controller just works without fighting your app.
+- **Push Integration:** Parameters declared in your code are automatically exposed and grouped for Ableton Push encoders.
+- **Accurate MIDI Timing:** Notes are placed on Max's scheduler. Your JavaScript sequencer computes *when* a note should fall, and Max places it with sample-accurate precision despite the UI's 20Hz refresh rate.
+- **Audio DSP Chains:** Declarative audio signal paths (filters, gains, overdrives) that process sound at native C++ speeds. Audio never crosses the JS bridge.
+- **Mocked Development:** A simulated Live environment runs in the browser, providing transport controls, tempo, and message logs so you can build the UI without opening Ableton.
+
+---
+
 ## What you need
 
 ### To build

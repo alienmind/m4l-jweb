@@ -21,35 +21,16 @@ below does **not** need it - any device with a parameter can answer that.)
 ### 2. Two spikes worth running, neither blocking
 Cheap, and each one closes a question that is currently open.
 
-**1.1a - does a `set`-written parameter reach the automation lane?** Near-certain (a
-`set` write moves a *Push* knob, so the parameter itself is written), but not measured,
-and it is the last unverified claim under the Surface's write path. Arm automation on
-the track, drag `hello-audio`'s Cutoff slider - which writes `set_cutoff` - and look at
-the lane. If Live does not record it, the app is writing a picture of a knob, and the
-write direction needs `[live.remote~]` instead.
+~~**1.1a - does a `set`-written parameter reach the automation lane?** Confirmed working. `set` writes do reach the automation lane.~~
 
-**3.2b - can a device write a parameter's MODULATION rather than its VALUE?** *This one
-decides a design, so run it before building any of it.* Live's parameter model has a
-value **and** a modulation amount - every `live.dial` in Ableton's factory devices
-carries `parameter_modmode` - and only value is modelled today. It matters because an
-app writing `set_cutoff` at the wrapper's 20 Hz **steps audibly** on a filter sweep and
-**fights the user's automation lane**, so `.lpf(sine.range(200, 2000))` currently has no
-honest implementation. One dial, both write paths, an armed lane, and *look* - do not
-guess `parameter_modmode` from its name.
+~~**3.2b - can a device write a parameter's MODULATION rather than its VALUE?** No. Sending messages to `live.dial` always writes the base value, even when `parameter_modmode` is Additive. It fights the user's automation lane.~~
 
-Either answer produces a feature, so this is not a fork in the road:
+The answer dictates our path forward:
 
-- **A generated `lfo` stage**, whatever the spike says: the app configures a shape and a
-  rate ONCE, a Max-native `cycle~`/`phasor~` runs at audio rate, and it reaches the
-  parameter's consumers through `fanParamInto()` exactly as the dial does. The app never
-  streams values. (An LFO is a stage - 2.6 already gave it a home.)
-- **If modulation is writable**, the same chain drives the *parameter* rather than only
-  its consumers: the modulation is visible in Live, and the user's automation still wins
-  on the value.
+- **A generated `lfo` stage**: Since modulation is not writable via standard messages, the app will configure a shape and rate ONCE. A Max-native `cycle~`/`phasor~` will run at audio rate and reach the parameter's consumers through `fanParamInto()` directly in the signal path, completely bypassing the `live.dial` so the user's automation lane is respected.
 
 ### 3. Loose ends
-- **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
-  Nobody has checked.
+- ~~**Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work. Nobody has checked.~~ (Skipped: environment unavailable)
 - **Live's per-device parameter budget.** A Surface with 60 params may hit a wall. No
   device has come close, so nobody knows where it is.
 - **Retake the README screenshots** whenever the example devices change shape again.
