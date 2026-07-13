@@ -298,9 +298,43 @@ late, far from the cause:
   cannot destroy a good cached file,
 - and treat a non-2xx as an error the app can *see*, with the status in it.
 
-**Still open, and cheap:** the filesystem error (an unwritable `filename_out`).
-"The server said no" and "the disk said no" need different handling, and we still
-cannot tell them apart. The apparatus would need a destination field to ask.
+### The filesystem error: `status 200`, and no file
+
+The same good URL, aimed at an unwritable `filename_out` (`C:/Windows/System32/`):
+
+```
+status 200                    <- the SERVER was perfectly happy
+size_download 8000            <- gave up here...
+content_length_download 1210892   <- ...of this
+error "Failed writing received data to disk/application"
+url_check -> NO FILE
+```
+
+**HTTP status cannot tell you the file was written.** A disk failure comes back as
+a 200. The discriminator is an **`error` key that is simply absent on success** -
+`[maxurl]` adds it exactly when the transfer fails locally.
+
+### The three outcomes, and how to tell them apart
+
+This is the table Stage 3.1 is built against:
+
+| Outcome | `status` | `error` key | The file |
+|---|---|---|---|
+| **Success** | 2xx | absent | complete |
+| **HTTP failure** (404) | 404 | absent | **the error page, written over whatever was there** |
+| **Filesystem failure** | **200** | **present** | none |
+
+**Both checks are needed. Neither alone is sufficient.** `status` catches the
+server saying no; `error` catches the disk saying no; and a 404 is the one that
+*also* destroys your cached file, so the temp-path-then-move rule stands.
+
+Do **not** be tempted by `size_download` vs `content_length_download` as a third
+check: it does flag the truncation here (8000 of 1,210,892), but a chunked response
+reports `content_length_download: -1` (seen on example.com), so the comparison is
+not meaningful in general.
+
+Completion always arrives on **outlet 0**, success or failure. Outlet 2 has never
+fired.
 
 **`[jit.uldl]` is not needed.** `[maxurl]` does the job, and it does not drag in
 the Jitter runtime.
@@ -319,6 +353,7 @@ Fill this in as they are run. An unrun spike is not a "probably fine".
 | 1.1b | ...and a `set` write still reaches Push | **YES, on hardware** | `set_param` moves the Push knob's value **while the echo counter stays frozen**. So `set` writes the parameter itself, and the suppression is scoped to the outlet (and the cords it drives). This is the result Stage 2 was gated on. |
 | 1.1c | a `parameter_enable`d dial reaches Push at all | **YES, on hardware** | Push banked it automatically - no extra wiring, named from `parameter_shortname`, over `parameter_range`. Turning the Push knob moves the on-screen value. That is the parameter -> app direction; 1.1b is the untested one. |
 | 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **YES, measured in Live** | `[maxurl]` streamed 1,210,892 bytes of `.wav` over HTTPS to a file - and `[js]` then opened that file and counted the same 1,210,892 bytes. `status 200`, no truncation, progress on outlet 1, completion dict on outlet 0. `[jit.uldl]` not needed. `[node.script]` can go. |
+| 1.3a | ...and what its failures look like | **BOTH measured** | A 404 **overwrites your file with the error page**. An unwritable path returns **`status 200`** plus an `error` key. Check both; trust neither alone. See the table below - it is what Stage 3.1 is built against. |
 
 ### Field evidence for 1.1, from hello-audio
 
