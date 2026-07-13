@@ -102,7 +102,7 @@ export default [
     /**
      * Not a device - an instrument for answering the three Stage 1 questions
      * that the rest of the plan is gated on. Build it, drag it onto a MIDI
-     * track, open the Max console, and follow doc/SPIKES.md.
+     * track, open the Max console, and follow doc/TODO.md.
      *
      * Delete this entry (and patcher/chains.mjs, and wrapper/device.ts) once
      * the answers are recorded.

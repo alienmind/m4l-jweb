@@ -13,8 +13,22 @@ assumes all of that and does not repeat it.
 
 ## The idea
 
-M4L-JWEB starts from one observation: Max ships two escape hatches, and together
-they cover almost everything a device needs.
+M4L-JWEB starts from one observation:
+
+> **Building a Max for Live device means clicking around a UI - dragging objects,
+> drawing cords - instead of *declaring* what the device is made of. To a developer
+> that feels unnatural.**
+
+It is not just aesthetics. A patcher you assemble by hand is a binary you cannot
+diff, cannot review, cannot generate and cannot test; the "source" of a device is a
+picture of it. Every practice a developer relies on - version control, code review,
+CI, refactoring by rename - stops at the edge of the Max window.
+
+So: **declare the device, and generate the patcher.** Everything else in this
+document follows from taking that seriously.
+
+It is possible because Max ships two escape hatches, and together they cover almost
+everything a device needs.
 
 - **`[jweb]`** is a full Chromium browser view embedded in the device. It runs
   anything the web runs: React, canvas, WebAssembly, Web Workers.
@@ -182,17 +196,50 @@ of truth for one string is the drift the Surface exists to delete.
 The type is one field in the device manifest; the same UI and wrapper can ship
 as all three variants.
 
-## Parameters: the surface Push reads
+## Parameters: the Surface Push reads
 
 The README states the rule (*no custom UI reaches Push - it renders Live
-parameters, in banks of eight, and nothing else*). Here is what the build
-actually emits for one.
+parameters, in banks of eight, and nothing else*). This section is what the build
+emits for one, and why each piece of it is the way it is.
 
-You declare a parameter **once**, in `src/app/<device>/surface.ts`:
+### Two surfaces, one declaration
+
+A device has **two** surfaces, and they are not rivals - they are projections of
+the same state:
+
+```
+   the Surface (Max)                     the App (Chromium)
+   real Live parameters                  your React UI
+   automatable, MIDI-mappable            canvas, WebGL, whatever
+   THE ONLY THING PUSH SEES              the deep editor on the laptop
+  +---------------------+               +----------------------------+
+  |  Slot  Dens  Oct    |  <--------->  |                            |
+  |  ( )   ( )   ( )    |   one shared  |    your actual UI          |
+  |  Run                |    protocol   |                            |
+  +---------------------+               +----------------------------+
+              \                                     /
+               \                                   /
+                +----- one declaration in code ---+
+                        src/app/<device>/surface.ts
+```
+
+Push cannot see your React UI - not yours, not anyone's. It reads Live parameters
+and nothing else. So the Surface is not a lesser copy of the app's UI; it is the
+half of the device that reaches the hardware, and it is generated from the same
+declaration the app binds to. A component model in the React sense - declarative,
+composable, code rather than pixels - that compiles to Max objects instead of DOM.
+
+You declare a parameter **once**:
 
 ```ts
+// src/app/<device>/surface.ts
 export default defineSurface({
-	params: { cutoff: dial({ range: [0, 1], default: 1, short: "Cutoff" }) },
+	params: {
+		cutoff: dial({ range: [40, 18000], unit: "Hz", exponent: 4, default: 18000, short: "Cutoff" }),
+		slot: menu({ options: ["A", "B", "C"], default: "A", short: "Slot" }),
+		running: toggle({ default: false, short: "Run" }),
+	},
+	banks: [{ name: "Filter", params: ["cutoff", "slot", "running"] }],
 });
 ```
 
@@ -200,23 +247,57 @@ export default defineSurface({
 imports that file (esbuild, in milliseconds - it is TypeScript, and it imports
 `@m4l-jweb/surface`), and emits a `live.*` box with `parameter_enable: 1`, wired
 out to `[jweb]` through a `prepend <id>` - so a knob move arrives in your app as
-just another message, `cutoff 0.42`.
+just another message, `cutoff 280`.
 
 | Declaration | What it becomes |
 |---|---|
 | `dial` / `toggle` / `menu` | `live.dial` / `live.toggle` / `live.menu` |
 | the key (`cutoff`) | `parameter_longname`, and the selector the app binds |
 | `short` | `parameter_shortname` - Push's label, ~8 characters |
-| `range`, or `step: 1` | `parameter_range`; `parameter_type` 0 (float) or 1 (int) |
-| `options` (menu) | `parameter_enum` |
+| `range` | `parameter_mmin` / `parameter_mmax` |
+| `step: 1` | `parameter_type` 1 (int) rather than 0 (float) |
+| `unit` | `parameter_unitstyle` - **how Live prints the value** |
+| `exponent` | `parameter_exponent` - the knob's travel, not the value |
+| `options` (menu) | `parameter_enum`, with the top index in `parameter_mmax` |
 | `default` | `parameter_initial` **plus** `parameter_initial_enable: 1` |
+
+Three of those rows are scars, and each one cost a device:
+
+**The range is `parameter_mmin`/`parameter_mmax`.** We emitted `parameter_range`
+for a long time. It is not a key Max writes - it appears in zero of the patchers
+Ableton ships - so every range was silently ignored and every dial kept its
+default. Attribute names come from Max's own reference, shipped inside Live
+(`resources/docs/refpages/m4l-ref/parameters.maxref.xml`), never from memory.
+
+**No `unit` means Live prints a float as an integer.** The value is fine; the
+readout is not. A perfectly smooth 0-1 cutoff reads "0" or "1" under a Push
+encoder, because unit style 0 rounds. Declare the unit, and ranges belong in
+**real units** - `[40, 18000]` Hz with an `exponent`, not `[0, 1]` with the curve
+hidden inside a chain, which lies to the automation lane, to Push and to the app
+at once. (This is why chains do no arithmetic on a parameter: the curve is on the
+parameter.)
 
 **`default` is not cosmetic, and its two attributes are a trap.** Without it a
 `live.*` object loads at the *bottom* of its range - and for many parameters the
-bottom of the range is a broken device (a filter cutoff of 0 loads as a device
+bottom of the range is a broken device (a filter cutoff of 40 Hz loads as a device
 that eats the signal, and it looks exactly like a bug in your DSP). And
 `parameter_initial` without `parameter_initial_enable` is silently inert: it
 stores the value and never applies it. The compiler always emits both.
+
+### What the declaration is checked for
+
+- **`banks` may only name params that exist** - in the type system
+  (`keyof typeof params`), so a renamed parameter breaks at the typo.
+- A bank holds **at most 8** params. Push has eight encoders; a ninth is a silent
+  truncation.
+- A `dial`'s `default` is inside its `range`; a `menu`'s is one of its `options`.
+- `short` is at most 8 characters, because Push truncates rather than complains.
+- A chain that drives DSP from a parameter (`lowpass` wants `cutoff`) fails the
+  build if the surface does not declare it.
+
+The last four throw at declaration time rather than in the type system. That is not
+a weaker guarantee - the build imports `surface.ts` to generate the patcher, so a
+violation fails `pnpm build` and fails CI. It is only a less pretty error message.
 
 ### Writing a parameter from the app
 
@@ -267,10 +348,60 @@ automation *while the user is dragging* cannot yank the control out from under
 them. (The device does not echo our own writes back: the patcher writes with
 `set`. This is the defence against the other case.)
 
-**What is still to build:** Push banks, which need patcher-JSON archaeology (3.3).
-Until then Live falls back to declaration order and Push shows every parameter.
-See [SURFACE.md](SURFACE.md) for the design and [TODO.md](TODO.md) for the
-sequence.
+### What that actually looks like in Max
+
+`hello-audio`, opened in the Max editor. **Nobody drew any of this** - it is the
+patcher the build emits from a few lines of `surface.ts`, and the only reason to
+open it is to check the generator's work:
+
+![The generated hello-audio patcher, in the Max editor](screenshot-patcher-view.png)
+
+Read it from the three dials on the right - `Cutoff`, `Drive`, `Gain` - and every
+claim above is visible as a cord:
+
+- **Three `[live.dial]`s**, `parameter_enable` on. They are the entire reason Push
+  can see the device, and they are generated; nothing in the app points at them.
+  Note what they read: **803 Hz**, **8.20 x**, **0.25** - real units, not normalised
+  0-1. The range, the unit and the curve are *on the parameter*, so Live, Push and
+  the app all speak Hertz, and there is no mapping object anywhere in the patcher.
+  (Those are the listening-test settings from [LISTENING.md](LISTENING.md), caught
+  mid-experiment.)
+- **`[prepend cutoff]` / `[prepend drive]` / `[prepend gain]` -> `[jweb]`** - the
+  read direction, one per parameter. A knob turn, an automation lane or a Push
+  encoder arrives in React as `cutoff 803`.
+- **`[route set_cutoff set_drive set_gain]` -> `[prepend set]` -> the dial** - the
+  write direction. One route for every parameter the app can write, and the `set`
+  message that updates the dial without making it echo back at the app.
+- **The fan-out.** Follow the cords *out of* that route: each parameter's outlet
+  goes to its `[prepend set]` **and**, in parallel, straight to the signal objects.
+  That second cord is the whole of the `set` trap - without it the dial moves and
+  the DSP hears nothing.
+- **The signal path** - `plugin~` -> `onepole~` -> `overdrive~` -> `*~` ->
+  `plugout~`, in pairs, because the endpoints hand us a stereo pair and each signal
+  object handles one signal. Three chains, three stages, in the order the manifest
+  lists them. It never touches `[jweb]`: the browser can stall and the audio keeps
+  running.
+
+Two boxes per stage and none of them drawn: that is the argument. To change this
+device you edit a list of three words.
+
+### Protocol, and Push banks
+
+The Surface generates **its own selectors**: one in per param (`cutoff`), one out
+per param (`set_cutoff`). They are appended to the protocol the existing lint
+already checks, so a parameter declared but never wired fails CI exactly as a
+hand-written selector would - and re-declaring one by hand in `protocol.ts` fails
+too, because two sources of truth for one string is the drift this whole thing
+deletes.
+
+**What is still to build:** Push banks, which need patcher-JSON archaeology. Max
+stores bank definitions in the patcher and the key is not known; it is discoverable
+the way the container format was - configure banks once in the Max editor, save,
+and diff the JSON. Until then Live falls back to declaration order and Push shows
+**every** parameter, so banks are a refinement, not a blocker: shipping the
+parameters is what makes Push work at all. (The dev harness's Push preview already
+renders the declared banks; only Live does not read them yet.) Sequence in
+[TODO.md](TODO.md).
 
 ## Developing without Live: the mocked harness
 
@@ -281,11 +412,43 @@ and to see what your device was *saying* you had nothing.
 `@m4l-jweb/surface/dev` renders the other half of the device, mocked, beside the
 app:
 
+```
++---------------------------+  +--------------------------------------+
+|  LIVE (mocked)            |  |  [jweb] - your app, hot-reloading    |
+|                           |  |                                      |
+|  Transport                |  |                                      |
+|   [>] play   120.0 BPM    |  |                                      |
+|   bar 3 | beat 2.75       |  |        <App />                       |
+|                           |  |                                      |
+|  Device parameters        |  |                                      |
+|   Cutoff  (o)  7.3 kHz    |  |                                      |
+|   Drive   (o)  3.2x       |  |                                      |
+|   Gain    (o)  1.00x      |  +--------------------------------------+
+|                           |
+|  PUSH preview  (bank 1/1) |     Message log
+|  +------+------+------+   |      -> tick 1 10.25
+|  |Cutoff| Drive| Gain |   |      <- set_cutoff 7300
+|  | 7.3k | 3.2x | 1.00x|   |      -> cutoff 7300
+|  +------+------+------+   |
++---------------------------+
+```
+
 - **A transport.** Play/stop and a BPM field driving a real clock that emits
   `tick <playing> <beats>` and `tempo <bpm>` at the same 50 ms cadence the
   wrapper polls Live at. A sequencer becomes developable without a DAW.
+- **The Surface, rendered as HTML controls**, from the same declaration the Max
+  objects come from. Moving one sends a real `set_<id>` across the bridge, exactly
+  as `[live.dial]` would.
+- **A Push preview** - the banks, eight cells at a time, with `short` names and
+  `format`ted values. What a Push user will see is normally a
+  hardware-in-the-loop discovery; here it is a browser tab.
 - **A message log**, off `tapMessages` - every selector crossing the bridge, both
   directions. The best debugging tool in the stack, and nearly free.
+
+(`format` is the one part of a declaration that does not reach Max: it is a
+*function*, and functions do not serialize into a patcher. It survives the build's
+import - this is a module, not JSON - and is used app-side only, by the harness and
+the Push preview. Do not try to ship it into `[js]`.)
 
 The device keeps its **real 169 px box** in the harness, deliberately: a UI that
 clips in Live must clip here too, or the harness is lying about the one
@@ -326,7 +489,8 @@ m4l-jweb/
         protocol.ts       #   this device's selectors
         surface.ts        #   its Live parameters, declared
       hello-audio/        # ...and another device, entirely separate
-      spike/              # the Stage 1 instrument (doc/SPIKES.md)
+      hello-audio-rev/    # (none - it SHARES hello-audio's folder, via `ui`)
+      spike/              # the spike instrument (doc/TODO.md - the open spikes)
       shared/
         device.ts         # useDevice(): mode, build, tempo, transport, handshake
         Frame.tsx         # the chrome + the build-stamp footer
@@ -359,8 +523,10 @@ m4l-jweb/
   tests/
     protocol.test.mjs     # every selector is routed, per device
     surface.test.mjs      # the Surface's validation rules
+    chains.test.mjs       # the signal path: stages compose, ids are unique
     bundle.test.mjs       # no harness ships, and no device ships a sibling's UI
-  doc/SPIKES.md           # the three unanswered questions about Max
+  doc/TODO.md             # the sequenced plan, the open spikes, and what is done
+  doc/LISTENING.md        # the one test you run with your ears
   CLAUDE.md               # agent guardrails
 ```
 
@@ -535,103 +701,177 @@ parameter simply never appears; a shipped harness just sits there; a device
 wearing its sibling's UI looks like a mystery, not a build bug. Those are exactly
 the bugs worth spending a test on.
 
-## Next: the Surface, a component model for the Max side
+## The pattern, and where it goes next
 
-The Push section above ends with three manual chores: add `live.*` objects, wire
-them into your protocol, group them into banks. That is the one place this
-project still says "go do it by hand" - and it means the same control lives in
-four places (the Max object, the patcher wiring, the protocol, the app state),
-free to drift apart.
+Notice what the Surface actually is. It is not really a parameters feature - it is
+one instance of a rule this project keeps rediscovering:
 
-**The Surface** fixes that the way generated patchers fixed patch cords: declare
-the parameters **once, as code**.
+> **You declare *what* the Max side has. The build derives everything else.**
 
-```ts
-// src/app/surface.ts
-export default defineSurface({
-	params: {
-		density: dial({ range: [0, 1], default: 0.5, short: "Dens" }),
-		running: toggle({ default: false, short: "Run" }),
-	},
-	banks: [{ name: "Perform", params: ["density", "running"] }],
-});
-```
+A declaration compiles to the same five artifacts every time: the **Max objects**,
+their **patcher wiring**, the **protocol selectors** (so the existing lint covers
+them for free), a **typed React hook**, and a **mock** for the dev harness. That
+held for `defineSurface()`, and it is why the next two contracts - a `defineSamples()`
+for `buffer~` slots, a `defineWatch()` for LiveAPI observers - are worth writing as
+declarations rather than as code.
 
-From that one declaration the build derives the `live.*` objects, their wiring in
-both directions, the Push bank layout, the protocol selectors, and a typed React
-hook:
+`defineWatch()` is the interesting one, because it would eliminate this project's
+nastiest footgun *by construction*: a LiveAPI object created during `loadbang` is
+**dead** - it constructs without error and observes nothing, forever - and today
+that lifecycle rule is enforced by a comment and a code review. Declare what to
+observe, and the codegen emits the observers into `bang()`, unconditionally, because
+that is the only place it ever emits them.
 
-```tsx
-const [density, setDensity] = useParam(surface, "density");
-```
+**The warning that goes with it:** do not build the generic contract compiler first
+and then express the Surface in terms of it. An abstraction extracted from one
+example is a guess. Two working instances, then lift. The sequence is in
+[TODO.md](TODO.md) (Stage 4).
 
-`useParam` is a two-way binding to a **real Live parameter**. Turn the Push
-encoder and React state moves; drag the React slider and the Live parameter moves
-- so it is automatable and MIDI-mappable for free.
-
-A device then has two surfaces, both from one source: the **parameter surface**
-(the only thing Push can see) and the **web UI** (the deep editor on the laptop).
-And because the build now knows what the Max side *is*, `pnpm dev` can render a
-**mocked Live** beside your app - transport, the parameter panel, a Push preview
-showing exactly what the hardware will show, and a log of every message crossing
-the bridge. Both halves of the device, in a browser, with hot reload.
-
-This is a component model in the React sense - declarative, composable, code, not
-pixels - that compiles to Max objects instead of DOM.
-
-**Not implemented yet.** The full design, including the feedback-loop trap that
-makes the naive wiring oscillate, is specified in
-**[SURFACE.md](SURFACE.md)**.
+And not everything fits: **fetch-to-disk is a service, not a declaration.** You call
+`fetchToFile(url, path)` and await it. Resist inventing `defineFetch()` for symmetry.
 
 ## Roadmap
 
-The library carve-out described above is **done**: bridge, wrapper and build are
-separate packages in a pnpm workspace, and the device repo at the root consumes
-them like any other dependency.
+**The sequenced plan lives in [TODO.md](TODO.md)** - what to build, in what order,
+and which unknowns are gated behind a spike first. In outline:
 
-**The sequenced plan lives in [TODO.md](TODO.md)** - what to build, in what
-order, and which unknowns are gated behind a spike first.
+**Done.** The library carve-out (bridge, wrapper, surface and build as packages in a
+pnpm workspace, consumed by the device repo at the root, published to npm);
+`m4l-jweb init` with a drift test; one bundle per device; the mocked-Live harness;
+the library-owned selector contracts; **the Surface** (parameters declared once and
+generated into objects, wiring, selectors, hooks and mocks - confirmed in Live, on a
+Push); and **composable audio chains** (the build owns `plugin~`/`plugout~`, a chain
+claims a stage, and the order of the list is the signal path - confirmed by ear).
 
-**Stage 0 is done** (this section, the two above it, and the chain contract): the
-message tap and the mocked-Live harness, the MIDI contract promoted into
-`@m4l-jweb/bridge`, and `defineSurface()`'s declaration and types.
+**Every Stage 1 spike has been run, in Live** - `set` semantics, `[buffer~]` driven
+from `[js]`, and `[maxurl]` streaming a URL to disk, including both of its failure
+modes. What they measured is at the end of this document. Nothing downstream is gated
+on an unknown any more.
 
-**Stage 1 is built but not run, and it is the next thing to do.** Three questions
-about Max's actual behaviour gate everything after it - `[buffer~]` driven from
-`[js]`, whether a `set`-written parameter still reaches the automation lane, and
-which HTTP object downloads to disk inside Live. The apparatus ships as the
-`spike` device; the procedure and the results table are in
-**[SPIKES.md](SPIKES.md)**. Nothing downstream should be built until those rows
-are filled in.
+**What remains:**
 
-In outline, what remains:
-
-- **The Surface codegen.** The declaration ships; compiling it into `live.*`
-  objects and wiring does not. The biggest single win left; see
-  [SURFACE.md](SURFACE.md).
-- **A fetch-to-disk primitive that eliminates `[node.script]`** - lets any device
-  pull a real file from the internet through Max-native objects alone.
+- **Fetch-to-disk, which deletes `[node.script]`** - the least reliable
+  infrastructure in the project, replaced by Max-native objects alone.
 - **`buffer~`/`poly~` sample playback** - instrument devices, and the route to the
-  first M4L-JWEB device that makes sound from samples.
+  first device here that makes sound from samples.
 - **Push banks.** Needs patcher-JSON archaeology. Parameters reach Push without
   them; banks make the pages read like a performance surface.
-- **Port a real device onto the template** as the proof. The pattern came out of
-  a working Strudel device; folding that back onto the packages is what will find
-  the leaks.
+- **Modulating a parameter**, gated on one cheap spike: Live parameters have a value
+  *and* a modulation amount, and only value is modelled today.
+- **Port a real device onto the template** as the proof. The pattern came out of a
+  working Strudel device; folding that back onto the packages is what will find the
+  leaks.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
-- **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running
-  in every DAW instead of only Live. Assessed in **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of
-  this architecture is not actually about Max, but the LiveAPI wrapper does not
-  port and the headless build is the price. Not started.
-
-Done: the packages on npm, `m4l-jweb init` (with a drift test), one bundle per
-device, the mocked-Live harness, the library-owned selector contracts, an audio
-effect that is audible (`lowpass`), and a parameter the app can write. See the
-DONE section at the bottom of [TODO.md](TODO.md).
+- **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
+  every DAW instead of only Live. Assessed in
+  **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of this architecture is not
+  actually about Max, but the LiveAPI wrapper does not port and the headless build is
+  the price. Not started.
 
 
 ---
+
+## What Max actually does: the measured facts
+
+Every claim below was **measured in Live**, on hardware, by a spike device built for
+the purpose - not read in a manual and not inferred from a name. They are here rather
+than in [TODO.md](TODO.md) because they are no longer *plans*: they are the ground
+this architecture stands on, and the next thing built on top of them needs them
+intact.
+
+The method is worth as much as the results: **gate every unknown behind a cheap spike
+that can fail early**. A wrong guess about `set` semantics, discovered after the
+Surface codegen was written, would have cost a week; discovered in a spike, it cost an
+afternoon and would have cost a fallback design. Run it in Live, one thing at a time,
+and *look* - never predict an answer from an attribute's name.
+
+### `set` on a `live.*` object
+
+**It suppresses the outlet, and it still writes the parameter.** A bare value into the
+inlet sets the object *and* makes it output - straight back to the app, which may set
+it again. `set <value>` does not. Confirmed with an echo counter: `raw_param` raises
+it, `set_param` does not.
+
+And the write is real: a **Push** knob's readout follows a `set_param` while the echo
+counter stays frozen. So the silence is scoped to the outlet, not to the parameter.
+That is what makes the whole app -> parameter path possible.
+
+**But the silence reaches further than the app.** It cuts every cord the object drives
+*inside the patcher* - which is why a parameter's value is **fanned out** rather than
+chained behind the object (see "Writing a parameter from the app" above). This was
+found the hard way, in a shipped device whose filter never moved.
+
+A `parameter_enable`d dial also reaches Push with **no extra wiring at all**, in both
+directions, named from `parameter_shortname`. "Generated parameters get Push and MIDI
+mapping for free" is confirmed on hardware, not assumed.
+
+### `[buffer~]`, driven from `[js]`: disk *is* the audio transport
+
+An empty `buffer~` went to **124439 frames** after `[js]` sent it `replace
+jongly.aif`. Audio never has to cross the Max message bridge as data: the file lands
+on disk, `buffer~` reads it, MSP plays it, and `[js]` sends only control messages.
+`Buffer`'s `send`, `framecount`, `channelcount` and `peek` are all real.
+
+**Two traps, both silent:**
+
+- **`replace` on a file `buffer~` cannot decode is a no-op.** No error, and the buffer
+  keeps whatever it held. **A frame count means nothing on its own** - only next to
+  what the count was *before*. (The first run of this spike was a false pass for
+  exactly this reason: a `buffer~` declared *with* a size reports that size whether or
+  not the read ever happened. Declare no size.)
+- **The channel count comes from the FILE, not the declaration.** `replace` adopted a
+  stereo file's layout on its own. Anything reading a buffer asks `channelcount()`.
+
+### `[maxurl]`: a URL, streamed straight to disk, with no `[node.script]`
+
+**1,210,892 bytes of `.wav` over HTTPS, to a file, no truncation, no Jitter runtime**
+- and `[js]` then opened that file and counted the same 1,210,892 bytes. (`[maxurl]`
+reporting its own success is not evidence; the file on disk is. They agreed.) Then the
+two spikes met: that file loaded into the `buffer~` gave **302712 frames, 2 channels**,
+from empty. Network -> disk -> decode -> audio, in one device, in Live.
+
+The request is a **dict**, so `[js]` builds it (`new Dict()`, `set`, `clear`,
+`stringify` all confirmed):
+
+```json
+{ "url": "https://...", "http_method": "get",
+  "filename_out": "C:/.../sample.wav",
+  "overwrite_output_file": 1, "response_dict": "m4ljweb_res", "timeout": 30 }
+```
+
+| Outlet | Carries | Shape |
+|---|---|---|
+| **1** | **progress**, continuously, while the transfer runs | `<tag> <total> <sofar> 0 0` |
+| **0** | **completion**, once - success *or* failure | `dictionary <responseDictName>` |
+
+Outlet 1 gives a real download a progress bar for free. The completion dict carries
+`status`, `header`, `content_type`, `size_download`, `content_length_download`,
+`total_time`, `url` and `filename_out` (`body` is empty when `filename_out` is set).
+Outlet 2 has never fired.
+
+### ...and both of `[maxurl]`'s failure modes defeat the obvious check
+
+| Outcome | `status` | `error` key | The file |
+|---|---|---|---|
+| **Success** | 2xx | absent | complete |
+| **HTTP failure** (404) | 404 | absent | **the error page, written over whatever was there** |
+| **Filesystem failure** | **200** | **present** | none |
+
+**A 404 does not decline to write.** `[maxurl]` wrote the 355-byte Apache error page
+to `filename_out` and **destroyed the good 1.2 MB `.wav` already cached there** -
+`overwrite_output_file` does not care what the status was. **And an unwritable path
+comes back as `status 200`**, because the *server* was perfectly happy; the only sign
+is an `error` key that is simply absent on success.
+
+Chain that with `replace` being a silent no-op on an undecodable file and the naive
+implementation is a device that plays nothing, reports nothing, and has an HTML page
+sitting where its sample should be. So anything built on this **checks `status` AND
+the `error` key**, and **downloads to a temp path, moving it into place only on
+success**, so a failure cannot destroy a good cached file.
+
+(Do not add `size_download` vs `content_length_download` as a third check: it flags
+the truncation, but a chunked response reports `content_length_download: -1`.)
 
 ## License
 

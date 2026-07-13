@@ -4,7 +4,7 @@
  * Importing this file is enough: registerChain() mutates the shared vocabulary
  * that @m4l-jweb/build reads when it generates the patchers.
  *
- * Everything here serves the Stage 1 SPIKES (doc/SPIKES.md). These are not
+ * Everything here served the Stage 1 spikes (doc/TODO.md). These are not
  * production chains and they are not part of the library - they exist to answer
  * three questions about Max's actual behaviour that the rest of the plan is
  * gated on, and they should be deleted once the answers are recorded.

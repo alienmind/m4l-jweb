@@ -10,12 +10,12 @@
  * and refuses to package on failure - so you cannot ship this bug, but you can
  * waste an afternoon on it. Use `var` and `function`.
  *
- * Everything below serves the Stage 1 SPIKES (doc/SPIKES.md). Delete it once
+ * Everything below served the Stage 1 spikes (doc/TODO.md). Delete it once
  * the answers are recorded.
  */
 
 /**
- * The spike device's UI asks for a buffer~ load. See doc/SPIKES.md, spike 1.2.
+ * The spike device's UI asks for a buffer~ load. See doc/TODO.md, spike 1.2.
  *
  * The question: can [js] tell a [buffer~] to read a real file off disk, and
  * confirm it actually landed? If yes, "disk is the audio transport" holds, and
@@ -89,7 +89,7 @@ function buffer_probe_path(): void {
 }
 
 /**
- * Send raw words to [maxurl] on the spare outlet. See doc/SPIKES.md, spike 1.3.
+ * Send raw words to [maxurl] on the spare outlet. See doc/TODO.md, spike 1.3.
  *
  * Deliberately NOT a typed helper. Nobody here has confirmed maxurl's message
  * vocabulary inside Live, so guessing one in code would just bake the guess in.
@@ -107,7 +107,7 @@ function url_send(): void {
 }
 
 /**
- * Download a URL to a FILE on disk. See doc/SPIKES.md, spike 1.3.
+ * Download a URL to a FILE on disk. See doc/TODO.md, spike 1.3.
  *
  * `url_send` above forwards raw words, and raw words turn out not to be enough:
  * per the maxurl reference, `get <url>` hands the BODY back through an outlet,
@@ -189,7 +189,7 @@ function url_check(): void {
 /**
  * Whatever [maxurl] replied, from WHICHEVER outlet - the chain prefixes the
  * outlet index, because "which outlet does completion arrive on" is one of the
- * things SPIKES.md says to find out and one of the things CLAUDE.md says never
+ * things the spikes had to find out and one of the things CLAUDE.md says never
  * to trust from memory.
  *
  * If the reply names a dictionary, dump it: maxurl's answer to a `dictionary`

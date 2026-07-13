@@ -1,6 +1,6 @@
 /**
  * spike - not a device. An instrument for answering the three Stage 1 questions
- * in doc/SPIKES.md.
+ * in doc/TODO.md.
  *
  * Every button fires ONE message and the answer arrives as another. Watch the Max
  * console, and (in `pnpm dev:spike`) the harness message log - for spike 1.1
@@ -70,7 +70,7 @@ export default function Spike() {
   // The device view is a fixed ~169 px and CLIPS SILENTLY - which this spike
   // proved on itself: the `-> buffer~` button spent a session below the fold,
   // where it could not be pressed and did not look missing. So: no hint text, no
-  // spare rows, short labels. doc/SPIKES.md has the procedure and the Max console
+  // spare rows, short labels. doc/TODO.md has the procedure and the Max console
   // has the findings; this UI only has to be pressable.
   return (
     <Frame title="SPIKE" device={device}>

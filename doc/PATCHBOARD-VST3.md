@@ -435,7 +435,7 @@ second target written against an interface that was guessed.
 
 Structured the way this repo already works: **spikes before stages**, because the
 questions below are answered by running a plugin in a host, not by reading a header.
-[SPIKES.md](SPIKES.md) is the precedent, and a good one - every Stage 1 spike there
+The Stage 1 spikes ([TODO.md](TODO.md)) are the precedent, and a good one - every one of them
 was run in Live, and two of them changed the design.
 
 ### Stage 0 - the spikes (nothing downstream is worth building first)
@@ -450,7 +450,7 @@ was run in Live, and two of them changed the design.
 | V0.6 | Does the `vite-plugin-singlefile` bundle load from `withResourceProvider()` without CORS complaints? | Point it at `dist/ui/<device>/index.html`. | Decides whether the existing UI build is reused verbatim. |
 | V0.7 | Can CI build, sign and notarize on both platforms? | One trivial plugin, all the way to a Gatekeeper-clean download. | This is the property being traded away. Prove the replacement works *before* betting on it. |
 
-Fill in a results table, exactly as `SPIKES.md` does. If V0.2 or V0.4 come back
+Fill in a results table, exactly as the Stage 1 spikes did. If V0.2 or V0.4 come back
 wrong, the design changes; there is no point generating code against a guess.
 
 ### Stage 1 - the `Target` seam, extracted with one target

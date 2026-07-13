@@ -62,7 +62,7 @@ declared.
 A device's Live parameters are declared **once**, in `src/app/<device>/surface.ts`,
 and everything else is generated from that declaration: the `live.*` objects, their
 patcher wiring in both directions, the protocol selectors the lint checks, and a
-typed React binding. See [doc/SURFACE.md](doc/SURFACE.md).
+typed React binding. See [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
 ```ts
 // src/app/<device>/surface.ts
