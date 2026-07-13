@@ -244,6 +244,26 @@ be sliced.
 did the downloading. `maxurl` reporting its own success is not evidence; the file
 on disk is. They agree.
 
+### And then the two spikes meet: the whole path, end to end
+
+Pressing `-> buffer~` on the freshly downloaded file, from an empty buffer:
+
+```
+buffer before replace frames=0
+buffer frames=302712 channels=2 midsample=-0.033477783203125
+```
+
+**Network -> disk -> decode -> audio, in one device, in Live, with no
+`[node.script]` in it.** That is the entire premise of Stage 3 demonstrated in a
+single click, and it is why 1.2 and 1.3 were worth running before anything was
+built on them.
+
+**Note `channels=2`.** The `buffer~` is declared with no size *and no channel
+count*, and `replace` adopted the file's stereo layout on its own. Convenient - but
+it means a device's channel count is decided at runtime by whatever file it loads.
+The `samples` chain in Stage 3.2 must not assume mono, and anything reading the
+buffer should ask `channelcount()` rather than remember an answer.
+
 **`Dict` is confirmed** along with it - `new Dict()`, `set`, `clear`, `stringify`
 are all real. `max.d.ts` updated; `get`, `parse` and `freepeer` remain unexercised.
 
