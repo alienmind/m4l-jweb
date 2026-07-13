@@ -48,20 +48,22 @@ declare class Task {
  * something has to build that dict, and [js] is the only thing in the patcher
  * that can.
  *
- * UNVERIFIED. Same status `Buffer` had before spike 1.2: this is written from
- * the docs, and doc/SPIKES.md spike 1.3 is what confirms it. If a member here is
- * not what Max's [js] actually exposes, the exception IS the finding.
+ * VERIFIED in Live (doc/SPIKES.md spike 1.3): [js] built a maxurl request dict
+ * and read the response dict back. `constructor`, `set`, `clear` and `stringify`
+ * all behave as declared. `get`, `parse` and `freepeer` were not exercised.
  */
 declare class Dict {
   constructor(name?: string);
   name: string;
   set(key: string, value: unknown): void;
+  /** UNVERIFIED - the spike only ever wrote, and read back via stringify(). */
   get(key: string): unknown;
   /** The whole dict as JSON - the cheapest way to see what maxurl replied. */
   stringify(): string;
+  /** UNVERIFIED. */
   parse(json: string): void;
   clear(): void;
-  /** Release the dict's reference. Max dictionaries are refcounted. */
+  /** Release the dict's reference. Max dictionaries are refcounted. UNVERIFIED. */
   freepeer(): void;
 }
 

@@ -20,18 +20,28 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: 1.3, then build Stage 2
+# NEXT: build Stage 2
 
-The two spikes the plan actually rested on are answered in Live, on hardware.
-**Only 1.3 is still open, and it gates only Stage 3.1.**
+**Every spike passed.** Stage 1 is done, in Live, on hardware - nothing below is
+gated on an unknown any more, and the only outstanding item is a formality (1.1a).
 
 | Spike | Question | Status |
 |---|---|---|
-| **1.3** | `[maxurl]` or `[jit.uldl]` - which downloads to disk inside Live? | **not run - the last one** |
-| 1.1a | Does a `set`-written parameter still reach Live's automation lane? | not run - but 1.1b makes it near-certain |
 | ~~1.1~~ | Does `set` on a `live.*` suppress its outlet? | **YES, measured in Live** |
 | ~~1.1b~~ | ...and does the `set` write still reach the parameter? | **YES, on a Push** |
 | ~~1.2~~ | Can `[js]` drive a `[buffer~]` to read a file off disk? | **YES - 124439 frames off disk** |
+| ~~1.3~~ | `[maxurl]` or `[jit.uldl]` - which downloads to disk inside Live? | **YES - `[maxurl]`, 1.2 MB streamed, no truncation** |
+| 1.1a | Does a `set`-written parameter still reach Live's automation lane? | not run - but 1.1b makes it near-certain |
+
+**Stage 3.1 is unblocked, and `[node.script]` can go.** `[maxurl]` streamed
+1,210,892 bytes of `.wav` over HTTPS straight to a file: `status 200`, size
+matching `Content-Length`, no truncation, and no Jitter runtime dragged in. The
+shape, read from the outlets rather than assumed: **outlet 1 is progress**
+(`<tag> <total> <sofar> 0 0`, continuously - a progress bar for free), **outlet 0
+is completion** (`dictionary <name>`), and the response dict carries `status`,
+`header`, `content_type`, `size_download`, `total_time` and `filename_out`. The
+request is a dict too, so `[js]` builds it - `Dict` is confirmed in `max.d.ts`.
+Full detail in [SPIKES.md](SPIKES.md).
 
 **Stage 2 is no longer gated.** `set` suppresses the outlet (the echo counter
 stays frozen) *and* still writes the parameter itself (a Push knob's readout
@@ -142,7 +152,11 @@ do not, the API is wrong. This is the acceptance test for the whole stage.
 
 ## 3.1 Fetch-to-disk: eliminate `[node.script]`
 
-**Gated on spike 1.3.**
+**Spike 1.3 passed: `[maxurl]` is the answer.** It streamed 1.2 MB to a file in
+Live with no truncation. Build against the shape recorded in
+[SPIKES.md](SPIKES.md) - a `dictionary` request built in `[js]`, progress on
+outlet 1, the completion dict on outlet 0 - and note the progress stream means
+`fetchToFile` can report bytes as they land, not just when it finishes.
 
 `[jweb]` is a sandboxed Chromium view: it can `fetch()`, but cannot write
 arbitrary files to disk. The only current escape hatch is `[node.script]`, whose
