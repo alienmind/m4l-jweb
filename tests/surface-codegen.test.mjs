@@ -28,7 +28,7 @@ import { expect, test } from "vitest";
 import { composePatcher } from "@m4l-jweb/build";
 import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
 import { SURFACE_ROUTE } from "@m4l-jweb/build/surface";
-import { defineSurface, dial, menu, toggle } from "@m4l-jweb/surface";
+import { defineSurface, dial, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
 const BASE = path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "templates", "base.json");
@@ -292,4 +292,46 @@ test("a chain whose parameter is not declared fails the build, loudly", () => {
   // Max opens as a patcher with a missing object and no explanation.
   const s = defineSurface({ params: { brightness: dial({ range: [0, 1], default: 1, short: "Bright" }) } });
   expect(() => compile(s, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } })).toThrow(/needs a parameter "cutoff"/);
+});
+
+/* ------------------------------------------------------------------ *
+ * Windows and Persistence
+ * ------------------------------------------------------------------ */
+
+test("applyWindows generates [pcontrol] and subpatcher with [jweb]", () => {
+  const s = defineSurface({
+    params: {},
+    windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) }
+  });
+  const c = compile(s);
+
+  // route
+  expect(c.box("obj-windows-route").text).toBe("route window_map_open window_map_close");
+  
+  // pcontrol
+  expect(c.box("obj-window-map-pcontrol").maxclass).toBe("pcontrol");
+  
+  // subpatcher
+  const sub = c.box("obj-window-map-sub");
+  expect(sub.maxclass).toBe("newobj");
+  expect(sub.text).toBe("p Map");
+  
+  // inner patcher
+  const innerBoxes = sub.patcher.boxes.map(b => b.box.maxclass);
+  expect(innerBoxes).toContain("jweb");
+});
+
+test("applyPersistence generates [dict] and [pattr]", () => {
+  const s = defineSurface({
+    params: {},
+    state: { config: state({ default: { voices: 4 } }) }
+  });
+  const c = compile(s);
+
+  expect(c.box("obj-state-config").maxclass).toBe("dict");
+  
+  const pattr = c.box("obj-pattr-config");
+  expect(pattr.maxclass).toBe("newobj");
+  expect(pattr.text).toContain("pattr obj-pattr-config");
+  expect(pattr.text).toContain("@bindto obj-state-config");
 });
