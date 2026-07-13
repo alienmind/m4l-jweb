@@ -222,7 +222,7 @@ export async function generatePatchers(root) {
         `device "${d.name}" still declares \`parameters\` in patcher/devices.mjs. ` +
           `That field is gone: declare them in src/app/${d.ui ?? d.name}/surface.ts with defineSurface(), ` +
           `which generates the live.* objects, both wiring directions and the protocol selectors. ` +
-          `See doc/SURFACE.md.`,
+          `See doc/ARCHITECTURE.md - "Parameters: the Surface Push reads".`,
       );
     }
 

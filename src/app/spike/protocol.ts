@@ -2,7 +2,7 @@
  * protocol.ts (spike) - selectors for the Stage 1 spike device.
  *
  * Not a device: an instrument for answering the three questions in
- * doc/SPIKES.md. Delete this folder, patcher/chains.mjs, wrapper/device.ts and
+ * doc/TODO.md. Delete this folder, patcher/chains.mjs, wrapper/device.ts and
  * the `spike` entry in patcher/devices.mjs once the answers are recorded.
  */
 import { DEVICE_IN } from "@m4l-jweb/bridge";
