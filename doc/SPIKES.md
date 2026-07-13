@@ -239,6 +239,11 @@ url, filename_out, body ""   <- body is EMPTY when filename_out is set
 silently past ~16 KB is *this project's* scar, not `maxurl`'s: nothing here has to
 be sliced.
 
+**And the file is really there.** `url_check` opens the path from `[js]` and reads
+**1,210,892 bytes** - the same number, from something other than the object that
+did the downloading. `maxurl` reporting its own success is not evidence; the file
+on disk is. They agree.
+
 **`Dict` is confirmed** along with it - `new Dict()`, `set`, `clear`, `stringify`
 are all real. `max.d.ts` updated; `get`, `parse` and `freepeer` remain unexercised.
 
@@ -263,7 +268,7 @@ Fill this in as they are run. An unrun spike is not a "probably fine".
 | 1.1a | ...and a `set` write still reaches automation | **not run** | Arm the track, write the dial with `set_param`, confirm Live records it. |
 | 1.1b | ...and a `set` write still reaches Push | **YES, on hardware** | `set_param` moves the Push knob's value **while the echo counter stays frozen**. So `set` writes the parameter itself, and the suppression is scoped to the outlet (and the cords it drives). This is the result Stage 2 was gated on. |
 | 1.1c | a `parameter_enable`d dial reaches Push at all | **YES, on hardware** | Push banked it automatically - no extra wiring, named from `parameter_shortname`, over `parameter_range`. Turning the Push knob moves the on-screen value. That is the parameter -> app direction; 1.1b is the untested one. |
-| 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **YES, measured in Live** | `[maxurl]` streamed 1,210,892 bytes of `.wav` over HTTPS to a file. `status 200`, no truncation, progress on outlet 1, completion dict on outlet 0. `[jit.uldl]` not needed. `[node.script]` can go. |
+| 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **YES, measured in Live** | `[maxurl]` streamed 1,210,892 bytes of `.wav` over HTTPS to a file - and `[js]` then opened that file and counted the same 1,210,892 bytes. `status 200`, no truncation, progress on outlet 1, completion dict on outlet 0. `[jit.uldl]` not needed. `[node.script]` can go. |
 
 ### Field evidence for 1.1, from hello-audio
 
