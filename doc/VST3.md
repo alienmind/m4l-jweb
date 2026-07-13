@@ -254,12 +254,68 @@ Four candidates. This is a judgement call, and I will make one rather than surve
 | **Raw VST3 SDK** | C++ | you write it | VST3 | Only if you want to own every line |
 
 **Recommendation: JUCE 8.** Not because C++ is pleasant, but because JUCE 8 shipped
-exactly the primitive this architecture is built on - a WebView editor with a
-message bridge to the processor and typed parameter relays - and it is documented,
-maintained and used in shipping products. Everything this repo invented for
-`[jweb]` (the bridge, the handshake, the payload extraction) has a supported
-equivalent there, and one of them (the payload) becomes unnecessary. JUCE's own
-licence terms are their own question, and belong next to the SDK one above.
+exactly the primitive this architecture is built on. Checked against JUCE's own
+docs rather than taken on trust:
+
+- **`WebBrowserComponent::Options::withNativeIntegrationEnabled()`** injects a JS
+  shim with bidirectional event passing. That *is* `bindInlet`/`outlet`, supported
+  by the framework instead of invented by us.
+- **`withResourceProvider()`** serves the UI from memory. **The base64
+  self-extracting payload hack disappears entirely** - no `File.writebytes`, no
+  4 KB slicing, no cache-busted `file://` URL, no build-stamp mismatch check.
+- **The relays map 1:1 onto `surface.ts`'s three kinds.** `WebSliderRelay`,
+  `WebToggleButtonRelay`, `WebComboBoxRelay` - which is `dial`, `toggle`, `menu`,
+  exactly. And `WebSliderParameterAttachment` binds a relay to a
+  `RangedAudioParameter` **and performs the begin/end gestures for you**, which
+  means the V0.2 trap is *handled by the framework* rather than by our codegen -
+  provided we go through the relays instead of around them.
+
+Two known JUCE issues to walk into with eyes open, both of which are already
+spikes below: **the WebView has an open bug report about crashing after repeated
+reloads** (that is V0.1, and it is not hypothetical), and
+**`WebSliderParameterAttachment` has reported `numSteps` as `INT_MAX`**, which is
+precisely the path a `dial({ step: 1 })` takes. Check both before building on them.
+
+JUCE's own licence terms are a separate question, and belong next to the SDK one
+above.
+
+Sources: [JUCE 8 WebView UIs](https://juce.com/blog/juce-8-feature-overview-webview-uis/),
+[WebSliderRelay](https://docs.juce.com/master/classjuce_1_1WebSliderRelay.html),
+[WebSliderParameterAttachment](https://docs.juce.com/master/classWebSliderParameterAttachment.html),
+[WebView reload crash](https://github.com/juce-framework/JUCE/issues/1415),
+[numSteps INT_MAX](https://github.com/juce-framework/JUCE/issues/1390).
+
+### The timing hazard, stated correctly
+
+The obvious worry is **clock drift between the browser thread and the audio
+thread**. That worry is aimed at the wrong thing, and getting it right changes the
+design.
+
+**While the transport runs, the app has no clock of its own to drift with.** It is
+message-driven: the processor derives musical time from `ProcessContext` and pushes
+it in as `tick`; the app answers with notes. Nothing in the browser is counting
+time, so there is nothing to accumulate error. That is not luck - it is the same
+property that makes the Max version work, and it is why hard rule "no `setTimeout`"
+has a browser-side twin.
+
+What *is* dangerous is narrower, and worth writing down before anyone codes it:
+
+1. **The message hop has latency, and it must fit inside the lookahead.** A note
+   whose `delayMs` is smaller than the round trip arrives after the block it
+   belonged in. The lookahead window is not a comfort margin; it is a deadline.
+2. **`delayMs` must resolve against the tick's host position, not the processor's
+   "now".** If the queue timestamps a note when it *receives* it, every scheduling
+   wobble in the browser becomes audible jitter. Timestamp it against the sample
+   position of the tick the app was answering - which the app already echoes back
+   implicitly by responding to a specific `beats`. Carry that reference explicitly.
+3. **The free-running fallback clock is the one thing that genuinely drifts.** With
+   the transport stopped, `hello-midi` pulses off its own clock (the README
+   screenshot says "free-running"). *There* the second opinion's warning lands
+   exactly: a JS timer against an audio clock will separate. It does not matter -
+   nothing is synchronised to anything when the transport is stopped - but do not
+   let that code path quietly become the running one.
+4. **The queue must be lock-free.** A message from the UI must never allocate or
+   block on the audio thread. Max's `[js]` did this for us; nothing does now.
 
 ---
 
@@ -358,27 +414,58 @@ should be renamed - but **renaming is not urgent and should not be bundled with
 anything else**, because it is mechanical, touches every file, and would bury a
 real change in the diff.
 
-What the thing actually is: *plugin UIs and parameters, declared in TypeScript,
-compiled to whatever host you are targeting*. So the name wants to say **web UI +
-plugin**, and to say nothing about Max or Ableton.
+The naming brief, in one line: *a declaration is compiled into the wiring of a
+device, for whatever host you target.* The name should carry **that**, not the
+technologies of the moment - and this is the trap most of the candidates fall into.
 
-| Candidate | Reads as | Against |
-|---|---|---|
-| **`plugweb`** | plugin + web. Says exactly what it is. | dull, and possibly taken |
-| **`webplug`** | same, worse | reads like a WordPress plugin |
-| **`cabinet`** | the box a device lives in; a name, not a description | says nothing on its own |
-| **`patchbay`** | the thing that routes between hosts and devices | already means something in audio |
-| **`hostage`** | the device is *hosted*; memorable | too cute for a README |
+**Two rules, learned from the names we are replacing:**
 
-I would take **`plugweb`**, and I hold that loosely - it is descriptive, it
-survives a third target, and the scope reads well (`@plugweb/bridge`,
-`@plugweb/surface`, `@plugweb/target-m4l`). Check the npm scope and the GitHub org
-are free before committing; I have not.
+1. **Never name it after a dependency.** `m4l-jweb` names Max for Live and
+   `[jweb]`, and both are about to stop being true. `AURA` ("Audio User *React*
+   Architecture") makes exactly the same mistake one layer up - `@m4l-jweb/bridge`
+   is zero-dependency and framework-agnostic by deliberate design, and burning
+   React into the product name would be a lie the day someone ships a Svelte
+   device.
+2. **Never name it after something it explicitly is not.** `SurfaceDSP` is
+   attractive until you remember the project's own rule: *"Audio is Max's job; the
+   UI is a view of it - and that is the general rule, not a detail."* The framework
+   does not do DSP. It also already uses "Surface" as a load-bearing noun, so
+   reusing it as the product name makes every sentence ambiguous. `HostKit` is
+   backwards for a similar reason - we do not build hosts, we build things that are
+   hosted.
 
-**Keep `m4l-jweb` alive as the target name.** `--target m4l-jweb` is a good
-name for what it now is: one backend, the original one, the one that talks to
-Live. And publish the old `@m4l-jweb/*` packages one last time as deprecated
-aliases that re-export the new scope, so nobody's `init` breaks.
+| Candidate | Reads as | Against | npm (checked) |
+|---|---|---|---|
+| **`jacquard`** | the loom programmed by punched cards - a *declaration* compiled into woven wiring. And a "wiring loom" is the cable bundle in a rig. | long-ish, and a little precious | **free** |
+| **`outboard`** | studio gear you route through; sounds like equipment | outboard means *outside* the box, and this lives entirely inside it | **free** |
+| **`plugweb`** | plugin + web | dull, and names a dependency (rule 1) | **free** |
+| `faceplate` | the front panel - the two-surfaces idea, exactly | UI-only; says nothing about codegen | **taken** |
+| `loom` | see `jacquard`, minus the punched cards | **taken**, and squatted hard by the video company | **taken** |
+| `weave` | pretty | generic; says nothing specific | (crowded) |
+
+**Recommendation: `jacquard`.** The Jacquard loom is the original machine whose
+*behaviour is a declaration* - punched cards in, woven pattern out - which is this
+project's entire thesis, and it was a compiler before compilers. The second meaning
+is better still: **a wiring loom is a bundle of cords**, and the thing this
+framework does, in one sentence, is *generate the cords so nobody has to drag
+them*. It is unclaimed on npm, no company squats it, it survives a third and fourth
+target, and it names no dependency and no technology.
+
+`jacquard build --target vst3`. `@jacquard/bridge`, `@jacquard/surface`,
+`@jacquard/target-m4l`. It reads like a piece of studio equipment and it means
+something.
+
+If that is too clever for you - a fair objection - **`outboard`** is the safe pick,
+it is also free, and it sounds like gear. Just know that a purist will point out
+that outboard means *not in the box*, and everything here is in the box.
+
+**Whichever wins, keep `m4l-jweb` alive as the target name.** `--target m4l-jweb`
+is an honest description of what it becomes: one backend, the original one, the one
+that talks to Live. And publish the old `@m4l-jweb/*` packages one last time as
+deprecated aliases that re-export the new scope, so nobody's `init` breaks.
+
+*(npm checked for the unscoped names; the scopes and the GitHub org are not
+verifiable without claiming them. Do that before the rename lands.)*
 
 ### The decision, stated plainly
 

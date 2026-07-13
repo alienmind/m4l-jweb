@@ -20,7 +20,7 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: Stage 3.1 - fetch-to-disk, and the end of `[node.script]`
+# NEXT: Stage 2.6 - composable audio chains
 
 **Stage 2 is done.** A device's parameters are declared once, in its own
 `surface.ts`, and everything else is derived: the `live.*` objects, their wiring in
@@ -32,6 +32,9 @@ parameter selector are gone. Confirmed in Live, on a Push.
 The only piece deferred is **Push banks** (3.3), which needs patcher-JSON
 archaeology and blocks nothing: Live falls back to declaration order and shows
 every parameter.
+
+**But building the third device found a bug in the chain vocabulary**, and it is a
+silent one, so it goes before Stage 3. See 2.6.
 
 **Every spike passed.** Stage 1 is done, in Live, on hardware - nothing below is
 gated on an unknown any more, and the only outstanding item is a formality (1.1a).
@@ -214,6 +217,94 @@ parameter meant hand-rolling `set_rate`. The binding is symmetric by default now
 
 ---
 
+# Stage 2.6 - composable audio chains - **NEXT**
+
+**An audio chain cannot be combined with another audio chain, and the failure is
+silent.** Found by the third device built on this library (m4l-strudel's Strudel
+Audio FX, which wants `.lpf(800).gain(1.2)` to select two chains) and reproduced
+here.
+
+## The bug, measured
+
+`chains: ["lowpass", "gain"]` today emits:
+
+```
+duplicate box ids: obj-plugin, obj-plugout
+plugin~ boxes: 2   plugout~ boxes: 2
+what reaches plugout~: obj-lpf-l, obj-lpf-r, obj-gain-l, obj-gain-r
+```
+
+Two boxes **sharing an id**, which is a malformed patcher Max will interpret
+however it likes - and *four* sources summing into `plugout~`: the filtered pair
+**and** the gain pair, in parallel. So the effects do not stack, they mix, and the
+un-filtered signal is summed back over the filtered one. No error at build time, no
+error in Live. The device just sounds wrong in a way you would blame on your DSP.
+
+## The cause
+
+**An audio chain OWNS the signal path instead of occupying a stage in it.** Every
+one of `passthrough`, `gain` and `lowpass` does the same three things: create
+`plugin~`, create `plugout~`, and wire itself between them. That makes each of them
+a terminal, not a stage - so two of them are two devices fighting over one patcher.
+
+It is the same shape as the bug the Surface hit with `[jweb]`'s outlet, one layer
+down. There, several routes each wanted the app's message stream, and the fix was to
+chain them in SERIES with an explicit hand-off (`claimAppMessages()`). Audio needs
+its twin.
+
+## The fix
+
+**The build owns the endpoints; a chain claims a stage.** `plugin~` and `plugout~`
+are created once, by the build, for any device whose type is `audio` (or
+`instrument`), and a chain inserts itself into the signal path the way a route
+inserts itself into the message stream:
+
+```js
+const [srcId, srcOutlet] = ctx.audioIn(channel);  // whatever the last stage left
+// ...create your DSP, wire srcId -> yours...
+ctx.setAudioOut(channel, myId, 0);                // you are the tail now
+```
+
+Then `chains: ["lowpass", "gain"]` is `plugin~ -> onepole~ -> *~ -> plugout~`, in
+declaration order, and it is the ORDER that composes them - which is what a device
+author already expects from a list.
+
+**Ship the guard first.** A duplicate box id is a malformed patcher and nothing
+rejects it: make `box()`/the build **throw** on a second box with an existing id.
+That is minutes of work, it converts today's silent mis-wiring into a build error,
+and it stands on its own even if the seam takes longer. (It would also have told
+m4l-strudel what was wrong instead of leaving them to infer it from the sound.)
+
+## What it unblocks, and what it teaches
+
+- **m4l-strudel's Phase 7.2.** Their `strudelfx` chain exists only because the
+  canned chains cannot be composed; it can be deleted, and one line of Strudel maps
+  onto a list of chains.
+- **The chain vocabulary becomes portable.** A chain that creates the device's audio
+  I/O is not a stage, and a stage is the only thing that could ever be retargeted to
+  a VST3 (see [VST3.md](VST3.md)): there, `plugin~`/`plugout~` are the plugin's own
+  I/O, never something a DSP block conjures. Fixing this makes the vocabulary
+  target-shaped almost as a side effect, which is an argument for doing it BEFORE
+  Stage 3 rather than after.
+- **State the contract while you are in there.** A chain that takes a parameter takes
+  it **in real units and does no arithmetic** - the range, the unit and the curve
+  live on the parameter (`range: [40, 18000]`, `unit: "Hz"`, `exponent`). m4l-strudel
+  hit the corollary: passing a real-Hz parameter to a chain that still had the old
+  `[expr 40 * pow(450, x)]` mapping inside would double-map it. Our `lowpass` no
+  longer has that expr; a future chain must not reintroduce one.
+
+## Acceptance
+
+1. `chains: ["lowpass", "gain"]` builds, and the generated patcher is a **series**:
+   one `plugin~`, one `plugout~`, the filter feeding the gain.
+2. A duplicate box id fails the build.
+3. `hello-audio` (one chain) emits a patcher equivalent to today's - the seam is not
+   allowed to change a working device.
+4. The fan-out invariant still holds for every parameter in a composed chain: the
+   object's outlet **and** the route's outlet reach the DSP (`fanParamInto()`).
+
+---
+
 # Stage 3 - sound, and the last unknowns
 
 ## 3.1 Fetch-to-disk: eliminate `[node.script]`
@@ -316,6 +407,41 @@ the escape hatch is identical: write a WAV to disk, then `buffer~ read` it. Neve
 round-trip PCM through Max messages.
 
 **Unlocks** the first M4L-JWEB device that makes sound from samples.
+
+## 3.2b Modulating a parameter, and the spike that decides how
+
+**Gated on a spike, and the spike is cheap.** Raised by m4l-strudel's Phase 7.2:
+Strudel can write `.lpf(sine.range(200, 2000))`, and the obvious implementation -
+the app writing `set_cutoff` at the wrapper's 20 Hz - is wrong twice over. It
+**steps audibly** on a filter sweep (20 Hz is a control rate, not a modulation
+rate), and it **fights Live's automation lane**, because value is exactly what an
+automation lane also writes. Their device correctly refuses to do it rather than
+applying a wrong constant.
+
+**There is a third option nobody here has tested, and there is real evidence for
+it.** Every `live.dial` dumped out of Ableton's own factory devices carries a
+`parameter_modmode` key, and at least one of them has `modmode: 1`. Live's
+parameter model has **a value AND a modulation amount**, separately - which is the
+"Modulation vs. value" open question at the bottom of this file, now with a device
+that needs the answer.
+
+| Spike | Question | Why it decides the design |
+|---|---|---|
+| 3.2b | Can a device write a parameter's **modulation** rather than its **value** - and does that leave the user's automation lane alone? | If yes, a generated LFO moves a parameter without fighting automation, which is exactly `.lpf(sine.range(...))`'s semantics. If no, the app must never modulate: the only honest fast modulation is Max-native. |
+
+Run it the way the Stage 1 spikes were run: one dial, both write paths, an armed
+automation lane, and *look*. Do not guess `parameter_modmode` from its name.
+
+**Either answer produces a feature, so this is not a fork in the road:**
+
+- **A generated `lfo` / modulation-source chain.** The app configures a shape and a
+  rate ONCE; a Max-native `cycle~`/`phasor~` runs at audio rate and reaches the
+  parameter's consumers through `fanParamInto()`, exactly like the dial and the route
+  do. The app never sends a stream of values. This is the honest version of fast
+  modulation whatever the spike says, and it needs 2.6 (an LFO is a stage).
+- **If modulation is writable**, the same chain can drive the *parameter* instead of
+  only its consumers - so the modulation is visible in Live, and the user's own
+  automation still wins on the value.
 
 ## 3.3 Push banks
 
@@ -425,8 +551,11 @@ to say than it did.
 
 - **Live's per-device parameter budget.** A Surface with 60 declared params may
   hit a wall. Unchecked.
-- **Modulation vs. value.** Live parameters have both. The Surface models only
-  value. Whether that is a real limitation depends on devices nobody has written.
+- ~~**Modulation vs. value.**~~ **Now owned, and it has a device that needs it.**
+  Live parameters have both a value and a modulation amount; the Surface models only
+  value. m4l-strudel's `.lpf(sine.range(200, 2000))` is the device that makes it
+  real, and the evidence that the seam exists is `parameter_modmode` in Ableton's own
+  factory patchers. See the spike in 3.2b.
 
 ---
 ---

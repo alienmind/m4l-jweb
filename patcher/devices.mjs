@@ -13,6 +13,13 @@
  *                               it computes WHEN, Max places it precisely.
  *                 "passthrough" plugin~ -> plugout~ (an audio effect that
  *                               passes its input through untouched).
+ *
+ *               TWO AUDIO CHAINS CANNOT BE COMBINED TODAY. Each one creates its
+ *               own plugin~/plugout~ and owns the whole signal path, so
+ *               `["lowpass", "gain"]` emits duplicate boxes and SUMS the two
+ *               paths instead of stacking them - silently. Stage 2.6 of
+ *               doc/TODO.md fixes this (the build owns the endpoints; a chain
+ *               claims a stage). Until then: one audio chain per device.
  *   unmatchedTo where messages the chains did not consume go. "js" sends them
  *               to the wrapper (ui_ready, write_clip, read_notes, ...).
  *

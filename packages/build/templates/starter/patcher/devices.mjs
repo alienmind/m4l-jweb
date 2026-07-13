@@ -19,6 +19,10 @@
  *                               parameter. An audio effect you can hear.
  *                 "gain"        plugin~ -> *~ -> plugout~, with a `gain` parameter.
  *                 "passthrough" plugin~ -> plugout~. Does nothing to the audio.
+ *
+ *               One AUDIO chain per device, for now: each creates its own
+ *               plugin~/plugout~ and owns the signal path, so two of them sum
+ *               their outputs instead of stacking. Fix in flight.
  *   unmatchedTo where messages the chains did not consume go. "js" sends them to
  *               the wrapper (ui_ready, ...).
  *
