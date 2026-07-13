@@ -20,12 +20,18 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: Stage 2.2 (the generated protocol), then 2.3 (the React binding)
+# NEXT: Stage 3.1 - fetch-to-disk, and the end of `[node.script]`
 
-**Stage 2.1 has shipped**: a device's parameters are declared once, in its own
-`surface.ts`, and the Max side is generated from that declaration - objects,
-wiring, both directions, fan-out included. The manifest's `parameters` field is
-gone. What remains of Stage 2 is the app's half.
+**Stage 2 is done.** A device's parameters are declared once, in its own
+`surface.ts`, and everything else is derived: the `live.*` objects, their wiring in
+both directions, the protocol selectors the lint checks, a typed React binding
+(`useParam`), and the harness's parameter panel and Push preview. The manifest's
+`parameters` field, `addParameters()`, `writableParams()` and every hand-written
+parameter selector are gone. Confirmed in Live, on a Push.
+
+The only piece deferred is **Push banks** (3.3), which needs patcher-JSON
+archaeology and blocks nothing: Live falls back to declaration order and shows
+every parameter.
 
 **Every spike passed.** Stage 1 is done, in Live, on hardware - nothing below is
 gated on an unknown any more, and the only outstanding item is a formality (1.1a).
@@ -104,20 +110,20 @@ confirmed on hardware, not assumed.
 
 ---
 
-# Stage 2 - the Surface
+# Stage 2 - the Surface - **DONE**
 
 The one place the stack said "maintain it by hand in four places": the Max
 object, the patcher wiring, the app's protocol, and the app's state. Change a
 range and three of the four silently disagree.
 
-The project deleted the visual editor by making patchers generated. This does the
+The project deleted the visual editor by making patchers generated. This did the
 same for parameters. Design: **[SURFACE.md](SURFACE.md)**.
 
-**Two of the four are done.** The declaration ships, and so does the codegen for
-the Max side: `surface.ts` is now the only place a parameter is declared, and the
-`live.*` objects and their wiring are generated from it (2.1). What is left is the
-app's half - the protocol selectors (2.2) and the React binding (2.3) - which is
-why a device still names its own parameters in `protocol.ts`.
+**All four now come from one declaration.** `src/app/<device>/surface.ts` is the
+only place a parameter exists; the objects, the wiring, the selectors and the app's
+state are derived from it. The sections below record what each step turned out to
+involve - and the three silent bugs the work exposed, which are the part worth
+reading.
 
 ## ~~2.1 Codegen~~ - **DONE**
 
@@ -151,40 +157,60 @@ Three bugs found on the way, all silent, all now pinned by tests:
 Confirmed in Live, on a Push. The attribute names came from Max's own reference
 shipped inside Live, not from memory - see CLAUDE.md for where it is.
 
-## 2.2 Protocol, generated
+## ~~2.2 Protocol, generated~~ - **DONE**
 
-One `IN` selector per param, one `OUT` (`set_<id>`), appended to the protocol the
-lint already checks - so a param declared but never wired fails CI, exactly like
-a hand-written selector.
+A parameter's selectors are no longer written anywhere by hand. `protocol.ts` holds
+only what is genuinely the device's own; the lint reads the parameters from
+`surface.ts` and checks the **generated patcher** carries both directions -
+`[prepend <id>]` out and `[route ... set_<id>]` back - because one without the
+other is a control that reads but cannot be moved, or moves but never reports.
 
-## 2.3 React hooks
+It also fails if a parameter is **re-declared by hand** in `protocol.ts`. Two
+sources of truth for one string is precisely the drift this stage deletes: rename
+it in `surface.ts` and the stale copy would keep type-checking while binding a
+message nothing sends any more.
 
-`useParam(surface, "density")` / `useSurface(surface)`, with echo suppression at
-the destination as well as the source: a value arriving from automation *while*
-the user drags a slider must not fight them.
+## ~~2.3 React hooks~~ - **DONE**
 
-## 2.4 The dev harness, part 2
+`useParam(surface, "cutoff")` / `useSurface(surface)` in
+`@m4l-jweb/surface/react`, typed from the declaration.
 
-With a declaration to render from, the harness gains the parameter panel and the
-**Push preview** - the banks, eight cells at a time, with short names and
-formatted values. What is normally a hardware-in-the-loop discovery becomes a
-browser tab.
+Backed by ONE STORE PER SURFACE, and that is not an implementation detail: the
+bridge holds **one handler per selector**, so a second `bindInlet("cutoff", ...)`
+silently replaces the first, and two components reading one parameter would leave
+one of them permanently stale with no error anywhere. The store binds each
+parameter once and fans out.
 
-## 2.5 Port the hello-world devices, and delete what they replace
+Echo suppression at the destination, as designed: for ~120 ms after a local write,
+an inbound value is dropped, so automation arriving mid-drag cannot yank the
+control out from under the user. (The source-side defence is the patcher's `set`,
+which means our own writes never come back at all.)
 
-**Mostly done, with 2.1.** Both devices' parameters now come from their own
-`surface.ts`, the manifest's `parameters` field is deleted, and
-`writableParams()` / `addParameters()` are gone. The examples did get shorter.
+## ~~2.4 The dev harness, part 2~~ - **DONE**
 
-What is left is the *app* half, and it waits on 2.3: `hello-audio` still sends
-`set_cutoff` by hand through the bridge and names both selectors in its
-`protocol.ts`. When `useParam()` and the generated protocol land, those go too -
-and that is the real acceptance test for the stage.
+The harness renders the parameter panel and the **Push preview** - banks, eight
+cells at a time, with `short` names and `format`ted values - from the same
+declaration the Max objects come from, driven through the same store the app uses.
+Moving a control there sends a real `set_<id>` across the bridge. What a Push user
+will see is now a browser tab.
+
+## ~~2.5 Port the hello-world devices~~ - **DONE**
+
+Both devices' parameters come from their own `surface.ts`. `writableParams()`,
+`addParameters()` and the manifest's `parameters` field are gone; so are the
+hand-written parameter selectors in both `protocol.ts` files and the hand-rolled
+`bindInlet`/`outlet` pairs in both apps.
+
+The examples got shorter, which was the acceptance test for the stage. One
+behaviour changed on the way: `hello-midi`'s rate slider used to be a one-way
+readout - the app followed the dial but could not move it, because writing a
+parameter meant hand-rolling `set_rate`. The binding is symmetric by default now.
 
 > **Push banks are deliberately deferred to 3.3.** They need patcher-JSON
 > archaeology, and nothing is blocked on them: until banks exist, Live falls back
 > to declaration order and Push still shows every parameter. Shipping the
-> parameters is what makes Push work at all.
+> parameters is what makes Push work at all. (The harness's Push preview already
+> renders the declared banks - only Live does not read them yet.)
 
 ---
 
@@ -307,6 +333,12 @@ first; do not guess the shape.
 - **Delete the spike device** once SPIKES.md's results table is filled in -
   `src/app/spike/`, `patcher/chains.mjs`, `wrapper/device.ts`, and the manifest
   entry.
+- **A VST3 backend**, so a device runs outside Live. Assessed in
+  [VST3.md](VST3.md): the app, the bridge, the surface and the harness port; the
+  LiveAPI wrapper does not, and the headless build is what you trade away. Two of
+  its stages (the bridge's transport seam, a second backend for the Surface
+  compiler) are worth doing on their own merits, before anyone commits to the
+  runtime.
 
 ---
 

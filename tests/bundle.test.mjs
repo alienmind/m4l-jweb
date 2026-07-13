@@ -62,6 +62,19 @@ describe.skipIf(!built)("each device's shipped UI", () => {
     expect(html).toContain("HELLO AUDIO");
     expect(html).not.toContain("HELLO MIDI");
   });
+
+  test("no device ships another device's PARAMETERS", () => {
+    // src/main.tsx reaches each device's surface.ts through import.meta.glob, so
+    // the harness can render the parameter panel. The glob must stay LAZY: an
+    // eager one resolves every match at build time and inlines all of them into
+    // every bundle, so hello-midi would carry hello-audio's cutoff declaration.
+    // It would still build, install and run - it would just quietly stop being one
+    // device per bundle.
+    const midi = readFileSync(shipped(devices.find((d) => d.name === "hello-midi")), "utf8");
+    const audio = readFileSync(shipped(devices.find((d) => d.name === "hello-audio")), "utf8");
+    expect(midi).not.toContain("Cutoff"); // hello-audio's parameter short name
+    expect(audio).not.toContain("Dens"); // hello-midi's
+  });
 });
 
 test.skipIf(built)("SKIPPED: run `pnpm build` first to check the shipped bundles", () => {});

@@ -27,6 +27,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { simulate, tapMessages, type BridgeMessage } from "@m4l-jweb/bridge";
+import { BANK_SIZE, formatValue, type ParamSpec, type Surface } from "./index";
+import { useSurface } from "./react";
 
 /**
  * A string that must never reach a production bundle. The build test greps the
@@ -39,7 +41,9 @@ export const HARNESS_MARKER = "m4l-jweb:dev-harness:do-not-ship";
 const TICK_MS = 50;
 const LOG_LIMIT = 200;
 
-export function DevHarness() {
+type AnySurface = Surface<Record<string, ParamSpec>>;
+
+export function DevHarness({ surface }: { surface?: AnySurface | null }) {
   const [playing, setPlaying] = useState(false);
   const [bpm, setBpm] = useState(120);
   const [beats, setBeats] = useState(0);
@@ -102,6 +106,13 @@ export function DevHarness() {
         </div>
       </section>
 
+      {surface && surface.ids.length > 0 && (
+        <>
+          <Params surface={surface} />
+          <PushPreview surface={surface} />
+        </>
+      )}
+
       <section style={S.section}>
         <div style={S.row}>
           <h2 style={S.h2}>messages</h2>
@@ -127,6 +138,122 @@ export function DevHarness() {
     </aside>
   );
 }
+
+/**
+ * THE DEVICE PARAMETERS - the half of the device that is real to Push.
+ *
+ * Rendered from the SAME declaration the Max objects are generated from, and
+ * driven through the SAME store the app's `useParam` uses. So moving a control
+ * here is not a simulation of a parameter change: it goes through the bridge as
+ * `set_<id>`, exactly as the app's own controls do, and the app sees it come back
+ * as a parameter change. What a `[live.dial]` would do, minus Live.
+ */
+function Params({ surface }: { surface: AnySurface }) {
+  const [values, set] = useSurface(surface);
+
+  return (
+    <section style={S.section}>
+      <h2 style={S.h2}>device parameters</h2>
+      {surface.ids.map((id) => {
+        const spec = surface.params[id];
+        const value = values[id];
+        return (
+          <div key={id} style={S.paramRow}>
+            <span style={S.paramName} title={id}>
+              {spec.short}
+            </span>
+
+            {spec.kind === "dial" && (
+              <input
+                style={S.range}
+                type="range"
+                min={spec.range[0]}
+                max={spec.range[1]}
+                // A float parameter needs a fine grain, or the harness quantises
+                // what Live would not. `step` on the declaration means the
+                // parameter is genuinely stepped.
+                step={spec.step ?? (spec.range[1] - spec.range[0]) / 1000}
+                value={Number(value)}
+                onChange={(e) => set(id, Number(e.target.value))}
+              />
+            )}
+
+            {spec.kind === "toggle" && <input style={S.check} type="checkbox" checked={Boolean(value)} onChange={(e) => set(id, e.target.checked)} />}
+
+            {spec.kind === "menu" && (
+              <select style={S.select} value={String(value)} onChange={(e) => set(id, e.target.value)}>
+                {spec.options.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <span style={S.paramValue}>{formatValue(spec, value)}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/**
+ * THE PUSH PREVIEW - what a performer will actually be looking at.
+ *
+ * Eight encoders to a page, `short` names above, `format`ted values below. Push
+ * shows Live parameters and nothing else, so this is the whole of your device as
+ * far as the hardware is concerned. Getting it wrong - a label truncated to
+ * gibberish, a value that reads "0" when it means 280 Hz - is normally a
+ * hardware-in-the-loop discovery. Here it is a browser tab.
+ *
+ * With no banks declared, Live falls back to declaration order, and so does this.
+ */
+function PushPreview({ surface }: { surface: AnySurface }) {
+  const [values] = useSurface(surface);
+  const [page, setPage] = useState(0);
+
+  const banks = surface.banks?.length
+    ? surface.banks.map((b) => ({ name: b.name, ids: [...b.params] }))
+    : chunk(surface.ids, BANK_SIZE).map((ids, i) => ({ name: `Bank ${i + 1}`, ids }));
+
+  const bank = banks[Math.min(page, banks.length - 1)];
+
+  return (
+    <section style={S.section}>
+      <div style={S.row}>
+        <h2 style={S.h2}>push preview</h2>
+        <span style={S.bankName}>
+          {bank.name} ({Math.min(page, banks.length - 1) + 1}/{banks.length})
+        </span>
+        {banks.length > 1 && (
+          <button style={S.btn} onClick={() => setPage((p) => (p + 1) % banks.length)}>
+            next
+          </button>
+        )}
+      </div>
+      <div style={S.push}>
+        {bank.ids.map((id) => {
+          const spec = surface.params[id];
+          return (
+            <div key={id} style={S.cell}>
+              {/* Push gives an encoder ~8 characters. defineSurface() rejects a
+                  longer `short` outright, so this cannot silently truncate. */}
+              <div style={S.cellName}>{spec.short}</div>
+              <div style={S.cellValue}>{formatValue(spec, values[id])}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const chunk = <T,>(xs: readonly T[], n: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n) as T[]);
+  return out;
+};
 
 const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
@@ -166,6 +293,24 @@ const S: Record<string, React.CSSProperties> = {
     font: `11px ${mono}`,
   },
   readout: { color: "#7d8694" },
+  paramRow: { display: "grid", gridTemplateColumns: "52px 1fr 64px", gap: 6, alignItems: "center" },
+  paramName: { color: "#7d8694", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  paramValue: { color: "#8fd0a4", textAlign: "right", overflow: "hidden", whiteSpace: "nowrap" },
+  range: { width: "100%", accentColor: "#8fd0a4" },
+  check: { justifySelf: "start", accentColor: "#8fd0a4" },
+  select: {
+    background: "#0e1013",
+    color: "#c8ccd4",
+    border: "1px solid #333a45",
+    borderRadius: 3,
+    padding: "2px 4px",
+    font: `11px ${mono}`,
+  },
+  bankName: { color: "#7d8694", marginLeft: "auto" },
+  push: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 },
+  cell: { background: "#0e1013", border: "1px solid #262a31", borderRadius: 2, padding: "4px 5px", overflow: "hidden" },
+  cellName: { color: "#7d8694", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  cellValue: { color: "#8fd0a4", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   log: { listStyle: "none", margin: 0, padding: 0, overflowY: "auto", maxHeight: 260, display: "flex", flexDirection: "column", gap: 1 },
   line: { display: "flex", gap: 6, whiteSpace: "nowrap" },
   arrowIn: { color: "#5aa9e6" },

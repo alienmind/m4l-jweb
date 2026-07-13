@@ -142,9 +142,15 @@ console.
 `tests/protocol.test.mjs` checks that every selector is sent, handled or routed
 somewhere on the Max side. "The Max side" is four things, and a lint that reads
 only some of them quietly stops checking: the packaged wrapper, the packaged
-chains, **this repo's own** `patcher/chains.mjs` and `wrapper/device.ts`, and the
-manifest's `parameters` - a `live.dial` reaches the UI as `<id> <value>`, so a
-parameter id *is* a selector.
+chains, **this repo's own** `patcher/chains.mjs` and `wrapper/device.ts`, and -
+above all - the **generated patchers**, which are what actually ships.
+
+Parameters get the same lint, from `surface.ts` rather than from `protocol.ts`. A
+parameter is two selectors (`<id>` out of the object, `set_<id>` back into it) and
+the patcher must carry **both**: one without the other is a control that reads but
+cannot be moved, or moves but never reports, and neither raises an error. The lint
+also fails if a parameter is *re-declared by hand* in `protocol.ts` - two sources
+of truth for one string is the drift the Surface exists to delete.
 
 ### Reading from Live (events in)
 
@@ -242,15 +248,29 @@ filter nothing. So a chain never wires a parameter by hand - it calls
 `fanParamInto()`, which wires *both* sources or neither. The fan-out is not a
 thing you have to remember; it is the only thing on offer.
 
-### What is left to build
+### Binding it in the app
 
-The declaration now drives the Max side. It does not yet drive the *app* side:
-`useParam()` / `useSurface()` (Stage 2.3) and the generated protocol selectors
-(2.2) are still to come, so a device's `protocol.ts` still names its parameters
-by hand and the app still sends `set_<id>` through the bridge itself. Push banks
-need patcher-JSON archaeology and are deferred (3.3); until then Live falls back
-to declaration order and Push shows every parameter. See [SURFACE.md](SURFACE.md)
-for the design and [TODO.md](TODO.md) for the sequence.
+```tsx
+const [cutoff, setCutoff] = useParam(surface, "cutoff"); // number, typed
+```
+
+`useParam` is a two-way binding to the real Live parameter, typed from the
+declaration (`number` for a dial, `boolean` for a toggle, the union of the options
+for a menu). No selector appears in the component: `cutoff` and `set_cutoff` are
+derived from the same file the Max objects are.
+
+It is backed by one store per surface, not by `bindInlet` in a component - the
+bridge holds **one handler per selector**, so two components reading the same
+parameter would silently leave one of them permanently stale. The store also drops
+an inbound value for ~120 ms after a local write, so a value arriving from
+automation *while the user is dragging* cannot yank the control out from under
+them. (The device does not echo our own writes back: the patcher writes with
+`set`. This is the defence against the other case.)
+
+**What is still to build:** Push banks, which need patcher-JSON archaeology (3.3).
+Until then Live falls back to declaration order and Push shows every parameter.
+See [SURFACE.md](SURFACE.md) for the design and [TODO.md](TODO.md) for the
+sequence.
 
 ## Developing without Live: the mocked harness
 
@@ -558,6 +578,10 @@ In outline, what remains:
   the leaks.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
+- **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running
+  in every DAW instead of only Live. Assessed in **[VST3.md](VST3.md)**: most of
+  this architecture is not actually about Max, but the LiveAPI wrapper does not
+  port and the headless build is the price. Not started.
 
 Done: the packages on npm, `m4l-jweb init` (with a drift test), one bundle per
 device, the mocked-Live harness, the library-owned selector contracts, an audio

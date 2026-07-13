@@ -17,11 +17,10 @@
  *
  *   pnpm dev:hello-audio
  */
-import { useEffect, useState } from "react";
-import { bindInlet, outlet } from "@m4l-jweb/bridge";
+import { useParam } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
-import { IN, OUT } from "./protocol";
+import surface from "./surface";
 
 /**
  * The cutoff crosses the bridge in HERTZ, because that is what the Live parameter
@@ -34,38 +33,28 @@ import { IN, OUT } from "./protocol";
  * 0-1 and maps exponentially onto the Hz it sends. The Live dial does the same
  * thing with `exponent`, which is why the two knobs feel alike.
  */
-const MIN = 40;
-const MAX = 18000;
+const [MIN, MAX] = surface.params.cutoff.range;
 const posToHz = (p: number) => MIN * Math.pow(MAX / MIN, p);
 const hzToPos = (hz: number) => Math.log(hz / MIN) / Math.log(MAX / MIN);
 
 export default function HelloAudio() {
-  const [hz, setHz] = useState(MAX);
+  /**
+   * A two-way binding to the REAL Live parameter, typed `number` from the
+   * declaration. No selector appears in this file: `cutoff` and `set_cutoff` are
+   * derived from surface.ts, the same place the Max objects come from.
+   *
+   * Reading it follows a knob turn, an automation lane and a Push encoder.
+   * Writing it moves all three.
+   */
+  const [hz, setHz] = useParam(surface, "cutoff");
   const device = useDevice();
-
-  useEffect(() => {
-    // The parameter's value coming back, in Hz: a knob turn, an automation lane,
-    // or a Push encoder. The slider follows all three.
-    bindInlet(IN.cutoff, (c) => setHz(Number(c)));
-  }, []);
 
   return (
     <Frame title="HELLO AUDIO" device={device}>
       <dt>cutoff</dt>
       <dd>
         <label className="slider">
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.001}
-            value={hzToPos(hz)}
-            onChange={(e) => {
-              const v = posToHz(Number(e.target.value));
-              setHz(v); // optimistic - do not wait for Live to echo it back
-              outlet(OUT.set_cutoff, v);
-            }}
-          />
+          <input type="range" min={0} max={1} step={0.001} value={hzToPos(hz)} onChange={(e) => setHz(posToHz(Number(e.target.value)))} />
           <strong>{hz < 1000 ? `${hz.toFixed(0)} Hz` : `${(hz / 1000).toFixed(1)} kHz`}</strong>
         </label>
       </dd>

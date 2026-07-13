@@ -1,10 +1,11 @@
 # The Surface - parameters, declared
 
-*Status: the declaration and the **Max-side codegen** ship - `defineSurface()` in
-`@m4l-jweb/surface`, compiled by `applySurface()` in `@m4l-jweb/build`. The
-**app-side** derivations - `useParam()`, the generated protocol selectors, the
-harness's parameter panel and Push preview - do not, and neither do banks. This
-file is the design; **[TODO.md](TODO.md)** is the order, and says what is left.*
+*Status: **built**, and in Live. `defineSurface()` in `@m4l-jweb/surface`, compiled
+by `applySurface()` in `@m4l-jweb/build`; `useParam()` / `useSurface()` in
+`@m4l-jweb/surface/react`; the parameter panel and Push preview in the dev harness;
+the protocol selectors linted from the declaration. The one part still missing is
+**Push banks** - Live falls back to declaration order until then, and shows every
+parameter. This file is the design; **[TODO.md](TODO.md)** is the order.*
 
 ---
 
@@ -247,25 +248,25 @@ visible as a cord:
 
 - **`[live.dial]` (Cutoff)** - the parameter object, `parameter_enable` on. This is
   the entire reason Push can see the device. It is generated; nothing in the app
-  points at it.
+  points at it. Note what it reads: **280 Hz** - not a normalised 0-1. The range,
+  the unit and the curve are *on the parameter*, so Live, Push and the app all
+  speak Hertz, and there is no mapping object anywhere in the patcher.
 - **`[prepend cutoff]` -> `[jweb]`** - the read direction. A knob turn, an
-  automation lane or a Push encoder arrives in React as `cutoff <value>`.
+  automation lane or a Push encoder arrives in React as `cutoff 280`.
 - **`[route set_cutoff]` -> `[prepend set]` -> `[live.dial]`** - the write
   direction, with the `set` message that updates the dial without making it echo
   back at the app.
 - **The fan-out.** Follow the cords *out of* `[route set_cutoff]`: one goes to
-  `[prepend set]`, and another goes straight to the filter. That second cord is
+  `[prepend set]`, and another goes straight to the filters. That second cord is
   the whole of the `set` trap - without it the dial moves and the DSP hears
   nothing.
-- **`plugin~ -> onepole~ -> plugout~`** - the audio path. It never touches
-  `[jweb]`: the browser can stall and the filter keeps filtering.
+- **`plugin~ -> onepole~ -> plugout~`** - the audio path, one filter per channel,
+  each taking the cutoff on its right inlet. It never touches `[jweb]`: the browser
+  can stall and the filter keeps filtering.
 
-> **This screenshot predates the real-units change.** It still shows
-> `[expr 40. * pow(450., $f1)]` sitting between the parameter and the filters, and
-> a dial that reads `1`. That box no longer exists - the cutoff is now a
-> `[40, 18000]` Hz parameter with the curve on it (`exponent`), so the value goes
-> from the route and the dial *directly* into `onepole~`'s right inlet. Everything
-> else in the picture is current.
+The device window at the top is the same device's other surface - the jweb UI,
+reading 18.0 kHz because the screenshot caught it before the dial was moved. Two
+faces, one parameter.
 
 ### 4. Push banks
 
