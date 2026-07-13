@@ -1,11 +1,17 @@
 /**
  * shared/Frame.tsx - the chrome every device wears: a title, a where-am-I badge,
- * and a footer carrying the two build stamps.
+ * and the two build stamps.
  *
- * The footer is not decoration. Live embeds a COPY of a device into the set, so
+ * The stamps are not decoration. Live embeds a COPY of a device into the set, so
  * reinstalling does not update instances already on tracks - and a stale device
  * behaves like a bug in code you have already fixed. The stamps make that
  * visible instead of mysterious.
+ *
+ * They live in the HEADER, top right, and that placement is load-bearing: the
+ * device view is a fixed ~169 px and overgrown UI clips silently at the BOTTOM.
+ * A stamp in a footer is a staleness check that disappears exactly when the
+ * device has grown enough to be worth checking. Anchored to the header, it
+ * survives whatever the device does below it.
  */
 import type { ReactNode } from "react";
 import { inJweb } from "@m4l-jweb/bridge";
@@ -19,15 +25,19 @@ export function Frame({ title, device, children }: { title: string; device: Devi
       <header>
         <h1>{title}</h1>
         <span className={`badge ${inJweb ? "live" : "dev"}`}>{inJweb ? "in Max" : "browser dev"}</span>
+        <span className="stamp" title={`ui ${__APP_VERSION__} / wrapper ${device.build ?? "-"}`}>
+          {device.stale ? (
+            <span className="warn">stale - delete and re-drag the device</span>
+          ) : (
+            <>
+              <span>ui {__APP_VERSION__}</span>
+              <span>wrapper {device.build ?? "-"}</span>
+            </>
+          )}
+        </span>
       </header>
 
       <dl>{children}</dl>
-
-      <footer>
-        <span>ui {__APP_VERSION__}</span>
-        <span>wrapper {device.build ?? "-"}</span>
-        {device.stale && <span className="warn">stale install - delete and re-drag the device</span>}
-      </footer>
     </main>
   );
 }
