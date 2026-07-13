@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.5.0 - composable audio chains
+
+**Audio chains stack.** `chains: ["lowpass", "drive", "gain"]` is a series -
+`plugin~ -> onepole~ -> overdrive~ -> *~ -> plugout~` - and the **order of the list
+is the signal path**. Confirmed by ear, in Live.
+
+Before this, they did not stack: they **mixed**, silently. Every audio chain created
+its own `plugin~` and `plugout~` and wired itself between them, so two of them were
+two devices fighting over one patcher - duplicate box ids, and the dry signal summed
+back over the wet one. No error at build time, none in Live; the device just sounded
+wrong in a way you would blame on your own DSP.
+
+The endpoints now belong to the **device**, created once by the build for any `audio`
+or `instrument` type, and a chain claims one **stage** between them. It is the twin
+of `claimAppMessages()`: one stream, several claimants, chained in series with an
+explicit hand-off rather than hung off the source in parallel.
+
+New chain: **`drive`** (`overdrive~`, soft-clipping distortion, 1 = clean to 10 =
+filthy). It is in the vocabulary for testability as much as for sound - `lowpass` and
+`gain` are both linear and therefore *commute*, so a composition built only from
+those two sounds identical whichever way round it goes, and cannot be verified by
+ear.
+
+### Breaking
+
+**A chain must not create `plugin~` / `plugout~`.** Take the stage before you and
+hand yours on:
+
+```js
+const [srcId, srcOutlet] = ctx.audioIn(channel);   // whatever the last stage left
+// ...create your DSP, wire srcId -> yours...
+ctx.setAudioOut(channel, myId, 0);                 // you are the tail now
+```
+
+A chain that still creates the endpoints now **fails the build**: a second box with
+an existing id throws (`assertUniqueBoxIds()`), because a patcher with two boxes
+sharing an id is one Max resolves however it likes. That guard is the error message
+this bug never had.
+
+**An audio chain on a `type: "midi"` device fails the build** too, instead of
+conjuring endpoints and quietly making the device something the manifest never
+declared.
+
+### Also
+
+- **`composePatcher()`** is exported from `@m4l-jweb/build`: the build's own
+  per-device pipeline (endpoints, chains, surface, close, validate), so a test can
+  generate a patcher exactly as the build does rather than re-implementing the order
+  of its steps.
+- **A chain takes a parameter in REAL units and does no arithmetic on it.** The range,
+  the unit and the curve live on the parameter (`range: [40, 18000]`, `unit: "Hz"`,
+  `exponent`). A chain that re-introduces an `[expr]` mapping double-maps a parameter
+  that already carries its own curve.
+- **`hello-audio` is now three chains** (`lowpass`, `drive`, `gain`), and
+  **`hello-audio-rev`** is the same app and the same parameters with the *opposite*
+  order - the pair that proves the series is real. See below.
+
 ## 0.4.0 - the Surface
 
 A device's Live parameters are declared **once**, in `src/app/<device>/surface.ts`,

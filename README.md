@@ -27,9 +27,12 @@ The repo builds two devices out of the box, and they are the examples:
 |---|---|---|
 | **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
 | **hello-audio** | audio effect | Three effects in series - a lowpass, a soft-clipping drive and a level - each one a *chain* named in the manifest, each with its own Live parameter. |
+| **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/LISTENING.md](doc/LISTENING.md)**. |
 
 Each lives in its own folder under `src/app/`, and each builds into its own
-`.amxd` carrying its own UI bundle.
+`.amxd` carrying its own UI bundle. (`hello-audio-rev` is the exception that
+proves it: it *shares* `hello-audio`'s folder, via the manifest's `ui` field, so
+that the order of its chains is the only thing about it that differs.)
 
 ### Both of them, in a real chain
 

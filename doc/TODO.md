@@ -30,8 +30,9 @@ in both directions, the protocol selectors the lint checks, a typed React bindin
 parameter selector are gone. Confirmed in Live, on a Push.
 
 **Audio chains compose now** (2.6): the build owns `plugin~`/`plugout~`, a chain
-claims a stage, and `chains: ["lowpass", "gain"]` is a series in declaration order.
-A duplicate box id fails the build.
+claims a stage, and `chains: ["lowpass", "drive", "gain"]` is a series in declaration
+order. A duplicate box id fails the build. Confirmed in Live, by ear, against a
+reversed twin of the same device ([LISTENING.md](LISTENING.md)).
 
 The only piece deferred is **Push banks** (3.3), which needs patcher-JSON
 archaeology and blocks nothing: Live falls back to declaration order and shows
@@ -538,10 +539,17 @@ sliders. It stays the smallest audio effect that does something, and it is now t
 device that demonstrates what the library just learned to do. A fourth example device
 would have bought a one-chain case that the starter template already is.
 
-**Still not heard in Live.** The composition is proven in the generated patcher and
-in `tests/chains.test.mjs`, not on a track. The check that remains is exactly one
-thing: load `hello-audio`, push Drive up, and swap `drive`/`gain` in the manifest to
-hear the order change.
+**Heard in Live, and it is right.** All three stages sound, and the A/B pair settles
+it: `hello-audio-rev` is `hello-audio`'s app, surface and dials with the chain order
+reversed - the only difference in the whole build - and the two devices sound
+unmistakably different. Stages stack, in declaration order.
+
+That pair is **kept, as a test case**, because composition is the one claim the test
+suite cannot close: a patcher that stacks in series and one that sums in parallel
+both build, both load and both make sound. The protocol is
+**[LISTENING.md](LISTENING.md)**, and it exists mostly to record the trap - at
+Drive = 1 and Gain = 1 both stages are pass-throughs and the two devices are
+*supposed* to sound alike, which is indistinguishable from the bug.
 
 **What it unblocks.** m4l-strudel's `strudelfx` chain exists only because the canned
 chains could not be composed; it can be deleted. And a chain that does not conjure

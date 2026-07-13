@@ -65,28 +65,32 @@ export default [
   },
   {
     /**
-     * NOT AN EXAMPLE - AN EXPERIMENT. Delete this entry once you have listened to it.
+     * NOT AN EXAMPLE - A TEST CASE, and the only one in this repo whose assertion is
+     * made with your EARS. Keep it. doc/LISTENING.md is how to run it.
      *
      * hello-audio's signal path, backwards. It shares hello-audio's app folder
      * (`ui`), its surface and its three dials, so the ONLY difference between the two
      * devices in the whole build is the order of three words below. That is what
-     * makes it evidence: put both on a track, match the dials, push Drive up, and
-     * A/B them.
+     * makes it evidence rather than a demo.
      *
-     *   hello-audio      filter -> distort -> level    smooth: the distortion's
-     *                                                  harmonics are then filtered off
-     *   hello-audio-rev  level -> distort -> filter    gritty: a quiet signal barely
-     *                                                  clips, and what does clip is
-     *                                                  left bright
+     *   hello-audio      filter -> distort -> level    loud and dirty: it distorts at
+     *                                                  full level, and no filter comes
+     *                                                  after to tame the harshness
+     *   hello-audio-rev  level -> distort -> filter    quiet and clean: the level is
+     *                                                  cut BEFORE the distortion, so
+     *                                                  it barely clips, and the filter
+     *                                                  smooths what does
      *
-     * If they sound the SAME, the generated series is a lie and the chains are still
-     * summing in parallel - which is exactly the bug this was built to catch, and the
-     * one that shipped silently before Stage 2.6.
+     * If they sound the SAME, the generated series is a lie and the stages are summing
+     * in parallel - the bug Stage 2.6 fixed, which shipped silently before it. (They
+     * DID sound different, in Live, which is what closed 2.6.)
      *
-     * Note the pair only proves anything because `drive` is NONLINEAR. Reversing two
-     * linear stages (a filter and a level) generates a different patcher and sounds
+     * The pair only proves anything because `drive` is NONLINEAR. Reversing two linear
+     * stages (a filter and a level) generates a different patcher and sounds
      * identical, so an A/B built from `lowpass` and `gain` alone would "fail" in
-     * exactly the way a broken build does.
+     * exactly the way a broken build does. Same trap inside the test: at Drive = 1 and
+     * Gain = 1 both stages are pass-throughs and the two devices are SUPPOSED to sound
+     * alike. Push Drive up and pull Gain well below 1, or you are testing nothing.
      */
     name: "hello-audio-rev",
     type: "audio",
