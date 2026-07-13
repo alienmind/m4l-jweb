@@ -110,6 +110,15 @@ infrastructure carved into `packages/`.
   for many parameters that is a broken device (a cutoff of 0 eats the signal).
   Every parameter declares `default` in `surface.ts`. Note `parameter_initial` is
   inert without `parameter_initial_enable`.
+- **An audio chain claims a STAGE; it must not create `plugin~`/`plugout~`.** The
+  build creates the endpoints once, for any `audio` or `instrument` device. A chain
+  takes what the previous stage left (`ctx.audioIn(ch)`) and says what it leaves
+  (`ctx.setAudioOut(ch, id, outlet)`), so `chains: ["lowpass", "gain"]` is a series.
+  Chains that each conjured their own endpoints produced duplicate box ids and
+  *summed* their outputs in parallel - the dry signal mixed back over the filtered
+  one, silently. `assertUniqueBoxIds()` now fails the build on a duplicate id.
+  A chain also takes a parameter in REAL units and does no arithmetic on it: the
+  range, the unit and the curve live on the parameter, not in an `[expr]`.
 - **Only one thing may route `[jweb]`'s output.** Routes are chained in SERIES,
   each passing its unmatched outlet to the next (`claimAppMessages()`); two in
   parallel means the wrapper sees every unrouted message twice. And do not find

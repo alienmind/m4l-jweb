@@ -26,7 +26,7 @@ The repo builds two devices out of the box, and they are the examples:
 | Device | Type | What it is |
 |---|---|---|
 | **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
-| **hello-audio** | audio effect | A lowpass filter. A Cutoff slider in the device window drives a real filter in the signal path. |
+| **hello-audio** | audio effect | Three effects in series - a lowpass, a soft-clipping drive and a level - each one a *chain* named in the manifest, each with its own Live parameter. |
 
 Each lives in its own folder under `src/app/`, and each builds into its own
 `.amxd` carrying its own UI bundle.
@@ -248,12 +248,47 @@ A **chain** is a small function that adds boxes and cords. Shipped today:
 | `midiin` | Notes played into the device arrive in your app. |
 | `midiout` | Notes your app generates are placed by Max, with sample-accurate timing. |
 | `lowpass` | An audio effect you can hear: a filter with a Cutoff parameter. |
+| `drive` | Soft-clipping distortion (`overdrive~`), with a Drive parameter. |
 | `gain` | An audio effect with a Live parameter on the level. |
 | `passthrough` | A straight wire. It does *nothing* to the audio - a scaffold, not a feature. |
 
+**The order of the list is the signal path.** An audio device's `plugin~` and
+`plugout~` come from the build, and each audio chain claims one *stage* between
+them - so `hello-audio`'s `chains: ["lowpass", "drive", "gain"]` is
+`plugin~ -> onepole~ -> overdrive~ -> *~ -> plugout~`. Reorder those three words and
+the device is rewired: no patcher is opened, no cord is drawn, and no line of the
+app changes.
+
+That reordering is *audible*, which is worth knowing before you test it. Move
+`gain` before `drive` and a quiet signal barely clips; leave it after and the
+distortion happens at full level and is then turned down. Swapping `lowpass` and
+`gain`, on the other hand, would generate a different patcher and sound **identical** -
+they are both linear, so they commute. If you reorder two linear stages and hear
+nothing, the build is not broken.
+
+Adding an effect to a device is therefore a one-word diff, and this is the whole
+argument for generating patchers rather than drawing them:
+
+```diff
+-    chains: ["lowpass"],
++    chains: ["lowpass", "drive"],
+```
+
+```diff
+     cutoff: dial({ range: [40, 18000], unit: "Hz", exponent: 4, default: 18000, short: "Cutoff" }),
++    drive:  dial({ range: [1, 10], unit: "x", default: 1, short: "Drive" }),
+```
+
+`pnpm build`, and the device has an `overdrive~` in its signal path, a Drive dial in
+Live, an automation lane, a Push encoder and a typed `useParam(surface, "drive")` in
+the app. Nothing was wired by hand, and if you forget the second diff the **build
+fails**: a chain that drives DSP from a parameter says which one it needs, and no
+device ships a distortion with no drive control.
+
 Write your own in `patcher/chains.mjs`. A chain that drives DSP from a parameter
 (`lowpass` wants `cutoff`, `gain` wants `gain`) fails the build if the device's
-surface does not declare it.
+surface does not declare it - and it takes that parameter in **real units**, doing
+no arithmetic on it: the range, the unit and the curve belong to the parameter.
 
 ### 3. Define the protocol - `src/app/<device>/protocol.ts`
 

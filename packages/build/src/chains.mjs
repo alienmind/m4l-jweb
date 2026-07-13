@@ -5,9 +5,17 @@
  * `lines` (cords: [sourceBox, outlet] -> [destBox, inlet]). So we never draw
  * one - we generate it. Patch cords become code review.
  *
- * A chain is a small function that claims [jweb]'s outlet, routes the selectors
- * it owns, and passes everything else on to `unmatchedTo`. Add your own with
- * `registerChain()`; keep them small and named after what they do.
+ * A chain is a small function that claims a STAGE and hands the rest on. There
+ * are two streams to claim a stage in, and both work the same way:
+ *
+ *   the app's messages  `claimAppMessages(ctx, myRoute, unmatchedOutlet)`
+ *   the signal path     `ctx.audioIn(ch)` / `ctx.setAudioOut(ch, id, outlet)`
+ *
+ * A chain never OWNS either stream. It takes what the stage before it left, and
+ * says what it leaves for the stage after it - which is what makes
+ * `chains: ["lowpass", "gain"]` a series rather than two devices fighting over one
+ * patcher. Add your own with `registerChain()`; keep them small and named after
+ * what they do.
  */
 
 let y = 300; // stack generated objects below the hand-made ones
@@ -96,6 +104,108 @@ export function claimAppMessages(ctx, routeId, unmatchedOutlet) {
   ctx.appOut = [routeId, unmatchedOutlet];
 }
 
+/* ------------------------------------------------------------------ *
+ * The signal path
+ * ------------------------------------------------------------------ */
+
+/** The device's audio endpoints. Created by the BUILD, never by a chain. */
+export const AUDIO_IN = "obj-plugin";
+export const AUDIO_OUT = "obj-plugout";
+
+/** plugin~ hands us a stereo pair, so every stage is a pair of signal objects. */
+export const AUDIO_CHANNELS = 2;
+
+/**
+ * Create the device's audio endpoints, once, before any chain runs.
+ *
+ * THIS IS THE FIX FOR A SILENT BUG. Every audio chain used to create `plugin~` and
+ * `plugout~` for itself and wire itself between them - so each one was a whole
+ * device, not a stage in one. `chains: ["lowpass", "gain"]` emitted two boxes
+ * sharing the id `obj-plugin`, two sharing `obj-plugout`, and FOUR sources summing
+ * into the output: the filtered pair and the unfiltered gain pair, in parallel. The
+ * effects did not stack, they mixed - with no error at build time and none in Live.
+ * It just sounded wrong in a way you would blame on your DSP.
+ *
+ * So the endpoints belong to the device, and a chain occupies a STAGE between them:
+ *
+ *   [plugin~] -> [onepole~] -> [*~] -> [plugout~]
+ *                 "lowpass"   "gain"
+ *
+ * `ctx.audioIn(ch)` is whatever the last stage left on that channel - `plugin~` if
+ * you are the first. `ctx.setAudioOut(ch, id, outlet)` says you are the tail now.
+ * `closeAudio()` wires the final tail into `plugout~` once every chain has run.
+ *
+ * It is the same shape as `claimAppMessages()` one layer down: several things want
+ * one stream, so they are chained in SERIES with an explicit hand-off rather than
+ * hung off the source in parallel.
+ */
+export function openAudio(ctx) {
+  const { boxes, lines, device } = ctx;
+  const type = device?.type;
+
+  if (type !== "audio" && type !== "instrument") {
+    // A MIDI effect has no signal path at all. Say so when a chain asks for one,
+    // rather than emitting a cord from a box that does not exist - which Max opens
+    // as a patcher with a missing object and no explanation.
+    const refuse = () => {
+      throw new Error(
+        `a chain on device "${device?.name}" asked for the signal path, but the device is type "${type}". ` +
+          `plugin~/plugout~ exist only in an audio-effect or instrument device: set \`type: "audio"\` in patcher/devices.mjs.`,
+      );
+    };
+    ctx.audioIn = refuse;
+    ctx.setAudioOut = refuse;
+    return;
+  }
+
+  // An audio effect has no MIDI ports. An instrument keeps them: MIDI in is how it
+  // is played.
+  if (type === "audio") {
+    removeBox(boxes, lines, "obj-midiin");
+    removeBox(boxes, lines, "obj-midiout");
+  }
+
+  boxes.push(box(AUDIO_IN, "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
+  boxes.push(box(AUDIO_OUT, "plugout~", { numinlets: 2, numoutlets: 0 }));
+
+  // The tail of the signal path, per channel. Nothing has claimed a stage yet, so
+  // it is the input: a device with no audio chain at all is a straight wire.
+  ctx.audioTail = Array.from({ length: AUDIO_CHANNELS }, (_, ch) => [AUDIO_IN, ch]);
+  ctx.audioIn = (ch) => ctx.audioTail[ch];
+  ctx.setAudioOut = (ch, id, outlet = 0) => {
+    ctx.audioTail[ch] = [id, outlet];
+  };
+}
+
+/** Wire whatever the last stage left into `plugout~`. The build calls this last. */
+export function closeAudio(ctx) {
+  if (!ctx.audioTail) return; // not an audio device
+  ctx.audioTail.forEach(([srcId, srcOut], ch) => ctx.lines.push(line(srcId, srcOut, AUDIO_OUT, ch)));
+}
+
+/**
+ * Two boxes with one id is a MALFORMED patcher, and Max resolves it however it
+ * likes - so the device loads, and the cords go somewhere nobody chose. That was
+ * the visible half of the audio-chain bug, and nothing rejected it. This does.
+ *
+ * The build calls it after every chain and the Surface have run, on the patcher
+ * that is about to be written, so it covers the canned chains, a device repo's own
+ * `patcher/chains.mjs`, and the template underneath both.
+ */
+export function assertUniqueBoxIds(boxes, deviceName) {
+  const seen = new Set();
+  const dupes = new Set();
+  for (const { box: b } of boxes) (seen.has(b.id) ? dupes : seen).add(b.id);
+  if (dupes.size) {
+    throw new Error(
+      `device "${deviceName}" generated duplicate box ids: ${[...dupes].join(", ")}. ` +
+        `Two boxes with one id is a patcher Max will interpret however it likes. ` +
+        `A chain that creates a box another chain also creates is not a stage - it is claiming to be the whole device. ` +
+        `Take the stage before you (ctx.audioIn / ctx.appOut) and hand yours on, or name your boxes after your chain.`,
+    );
+  }
+}
+
 /**
  * "midiin" - feed incoming MIDI notes to the app as `notein <pitch> <velocity>`.
  *
@@ -172,25 +282,23 @@ function midiOutChain(ctx) {
 /**
  * "passthrough" - an audio effect that passes its input through UNTOUCHED.
  *
- * It is a straight wire: `plugin~ -> plugout~`. Removing it from a track sounds
+ * It claims no stage, so the signal path stays what the build left it:
+ * `plugin~ -> plugout~`, a straight wire. Removing the device from a track sounds
  * identical, because it does nothing to the audio - it exists to prove that an
  * audio-effect container builds and that the UI runs inside one.
  *
- * It is a scaffold, not a feature. If you want an audio effect that is audible,
- * you want `gain` below, or your own chain shaped like it.
+ * It is a scaffold, not a feature, and since the build now creates the endpoints it
+ * is also a NO-OP: `type: "audio"` with no chains at all does exactly this. It
+ * survives because `chains: ["passthrough"]` says out loud what an empty list only
+ * implies. If you want an audio effect that is audible, you want `gain` below, or
+ * your own chain shaped like it.
  */
-function passthroughChain({ boxes, lines }) {
-  // An audio effect has no MIDI ports.
-  removeBox(boxes, lines, "obj-midiin");
-  removeBox(boxes, lines, "obj-midiout");
-  boxes.push(box("obj-plugin", "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
-  boxes.push(box("obj-plugout", "plugout~", { numinlets: 2, numoutlets: 0 }));
-  lines.push(line("obj-plugin", 0, "obj-plugout", 0));
-  lines.push(line("obj-plugin", 1, "obj-plugout", 1));
+function passthroughChain(ctx) {
+  ctx.audioIn(0); // ...and hand it straight on. Also asserts the device HAS audio.
 }
 
 /**
- * "gain" - an audio effect that actually DOES something: `plugin~ -> *~ -> plugout~`,
+ * "gain" - an audio effect that actually DOES something: `*~` in the signal path,
  * with a Live parameter riding the multiplier. Turn the dial, hear the level move.
  *
  * The smallest honest example of the shape every audio effect has - your DSP goes
@@ -208,23 +316,18 @@ function passthroughChain({ boxes, lines }) {
  */
 function gainChain(ctx) {
   const { boxes, lines, device } = ctx;
-  removeBox(boxes, lines, "obj-midiin");
-  removeBox(boxes, lines, "obj-midiout");
-
   const paramId = requireParam(ctx, "gain", device?.gainParam ?? "gain", "gainParam");
-
-  boxes.push(box("obj-plugin", "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
-  boxes.push(box("obj-plugout", "plugout~", { numinlets: 2, numoutlets: 0 }));
 
   // One *~ per channel: a signal object handles ONE signal, and plugin~ hands us
   // a stereo pair. `1.` (a float, not an int) keeps the right inlet in float mode.
-  for (const [i, id] of [
+  for (const [ch, id] of [
     [0, "obj-gain-l"],
     [1, "obj-gain-r"],
   ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch); // whatever the last stage left
     boxes.push(box(id, "*~ 1.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
-    lines.push(line("obj-plugin", i, id, 0));
-    lines.push(line(id, 0, "obj-plugout", i));
+    lines.push(line(srcId, srcOut, id, 0));
+    ctx.setAudioOut(ch, id, 0); // we are the tail now
     fanParamInto(ctx, paramId, id, 1);
   }
 }
@@ -243,6 +346,14 @@ function gainChain(ctx) {
  *
  * The boxes named here are created LATER, by applySurface(). A patchline may name a
  * box further down the array: a patcher is a graph, not a script.
+ *
+ * THE VALUE ARRIVES IN REAL UNITS, AND A CHAIN DOES NO ARITHMETIC ON IT. The range,
+ * the unit and the curve live on the PARAMETER (`range: [40, 18000]`, `unit: "Hz"`,
+ * `exponent`) - which is where Live wants them: the automation lane reads Hz, Push
+ * reads "7.3 kHz", and the number drops straight into the DSP object. `lowpass`
+ * used to take a 0-1 parameter and map it with `[expr 40. * pow(450., $f1)]`; a
+ * chain that reintroduces a mapping like that DOUBLE-MAPS a parameter that already
+ * carries its own curve, and lies to every readout while it does it.
  */
 function fanParamInto(ctx, paramId, dstId, dstInlet) {
   const [objId, objOut] = ctx.paramObject(paramId);
@@ -273,7 +384,7 @@ function requireParam(ctx, chainName, paramId, overrideField) {
  * parameter via `set_cutoff` - so moving it moves the dial, the automation lane
  * and the filter together. It is one control, with two faces.
  *
- * `plugin~ -> onepole~ -> plugout~`, one filter per channel.
+ * `onepole~` in the signal path, one filter per channel.
  *
  * WHY onepole~ and not lores~/svf~/biquad~: a one-pole is a 6 dB/octave slope -
  * the gentlest filter there is. It cannot self-oscillate, cannot blow up, and
@@ -293,26 +404,60 @@ function requireParam(ctx, chainName, paramId, overrideField) {
  */
 function lowpassChain(ctx) {
   const { boxes, lines, device } = ctx;
-  removeBox(boxes, lines, "obj-midiin");
-  removeBox(boxes, lines, "obj-midiout");
-
   const paramId = requireParam(ctx, "lowpass", device?.cutoffParam ?? "cutoff", "cutoffParam");
-
-  boxes.push(box("obj-plugin", "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
-  boxes.push(box("obj-plugout", "plugout~", { numinlets: 2, numoutlets: 0 }));
 
   // One filter per channel: a signal object handles ONE signal, and plugin~ hands
   // us a stereo pair. Both take the same cutoff, so the image does not shift.
-  for (const [i, id] of [
+  for (const [ch, id] of [
     [0, "obj-lpf-l"],
     [1, "obj-lpf-r"],
   ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
     boxes.push(box(id, "onepole~ 18000.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
-    lines.push(line("obj-plugin", i, id, 0));
-    lines.push(line(id, 0, "obj-plugout", i));
+    lines.push(line(srcId, srcOut, id, 0));
+    ctx.setAudioOut(ch, id, 0);
     // The cutoff, in Hz, into the RIGHT inlet - from both of its sources: the dial
     // (a knob turn, an automation lane, a Push encoder) and the route (the app's
     // write, which the dial will not re-emit because it arrives as `set`).
+    fanParamInto(ctx, paramId, id, 1);
+  }
+}
+
+/**
+ * "drive" - soft-clipping distortion: an `overdrive~` in the signal path, with a
+ * Live parameter on the drive factor.
+ *
+ * THE CHAIN WHOSE PLACE IN THE LIST YOU CAN HEAR, and it is in the vocabulary for
+ * that reason as much as for the sound. `lowpass` and `gain` are both LINEAR, so
+ * they commute: `["lowpass", "gain"]` and `["gain", "lowpass"]` generate different
+ * patchers and produce identical audio. A composition built only from those two
+ * cannot be verified by ear - you would reorder them, hear nothing change, and
+ * reasonably conclude the build was broken.
+ *
+ * Distortion does not commute with a level change. `["gain", "drive"]` turns the
+ * signal down and THEN distorts it, so a quiet input barely clips; `["drive",
+ * "gain"]` distorts at full level and turns the result down, so it stays dirty and
+ * gets quieter. Same two chains, same parameters, unmistakably different sound -
+ * which is what makes the series real rather than a claim in a test.
+ *
+ * `overdrive~` limits to +/- 1 and takes its drive factor (1 = clean, 10 = filthy)
+ * in the RIGHT inlet, per Max's own reference. Below 1 it distorts violently; the
+ * parameter's range starts at 1, which is where a user would expect "off" to be.
+ *
+ * Requires a parameter named `drive` (or pass `device.driveParam`).
+ */
+function driveChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const paramId = requireParam(ctx, "drive", device?.driveParam ?? "drive", "driveParam");
+
+  for (const [ch, id] of [
+    [0, "obj-drive-l"],
+    [1, "obj-drive-r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    boxes.push(box(id, "overdrive~ 1.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, id, 0));
+    ctx.setAudioOut(ch, id, 0);
     fanParamInto(ctx, paramId, id, 1);
   }
 }
@@ -323,6 +468,7 @@ export const CHAINS = {
   passthrough: passthroughChain,
   gain: gainChain,
   lowpass: lowpassChain,
+  drive: driveChain,
 };
 
 /** Add a chain to the vocabulary. Called before generatePatchers(). */

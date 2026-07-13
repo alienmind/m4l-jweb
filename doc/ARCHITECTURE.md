@@ -423,9 +423,43 @@ small function that adds boxes and cords. Shipped today:
 |---|---|
 | `midiin` | `midiin` -> `midiparse` -> the app, as `notein <pitch> <velocity>` (`onNote`). Also cuts the template's direct MIDI thru cord so a device that transforms notes does not also leak the untransformed ones. |
 | `midiout` | The app emits `midinote <pitch> <vel> <durMs> <chan> <delayMs>` (`sendNote`) and `flush` (`flushNotes`); `pipe` + `makenote` + `midiformat` place it precisely and handle note-offs. |
-| `passthrough` | `plugin~` -> `plugout~`. A straight wire: it does **nothing** to the audio. A scaffold proving the container builds, not a feature. |
-| `gain` | `plugin~` -> `*~` -> `plugout~`, with a Live parameter on the multiplier. The smallest audio effect that does something. |
-| `lowpass` | `plugin~` -> `onepole~` -> `plugout~`, with a Cutoff parameter mapped logarithmically to 40 Hz - 18 kHz. Audible: sweep it and the top end goes. |
+| `passthrough` | Nothing: it claims no stage, so the signal path stays the straight wire the build left. A scaffold proving the container builds, not a feature. |
+| `gain` | A `*~` in the signal path, with a Live parameter on the multiplier. The smallest audio effect that does something. |
+| `lowpass` | A `onepole~` in the signal path, with a Cutoff parameter in Hz (the 40 Hz - 18 kHz range and its curve live on the *parameter*). Audible: sweep it and the top end goes. |
+| `drive` | An `overdrive~` in the signal path, with a Drive parameter (1 = clean, 10 = filthy). The chain whose *place in the list* you can hear - see below. |
+
+### An audio chain claims a stage; it does not own the signal path
+
+`plugin~` and `plugout~` are created **once, by the build**, for any device whose
+type is `audio` or `instrument`. A chain inserts itself between them the way a
+`route` inserts itself into the message stream:
+
+```js
+const [srcId, srcOutlet] = ctx.audioIn(channel);   // whatever the last stage left
+// ...create your DSP, wire srcId -> yours...
+ctx.setAudioOut(channel, myId, 0);                 // you are the tail now
+```
+
+So `hello-audio`'s `chains: ["lowpass", "drive", "gain"]` is
+`plugin~ -> onepole~ -> overdrive~ -> *~ -> plugout~`, in declaration order, and it
+is the **order that composes them**. This is the twin of `claimAppMessages()`:
+several things want one stream, so they are chained in series with an explicit
+hand-off rather than hung off the source in parallel.
+
+**A linear stage's position is inaudible, and that is not a bug.** `lowpass` and
+`gain` commute: reorder them and the patcher changes, the sound does not. Only a
+*nonlinear* stage makes the order audible - which is why `drive` is in the
+vocabulary, and why `hello-audio` uses it. `["gain", "drive"]` turns the signal down
+and then distorts it; `["drive", "gain"]` distorts at full level and turns the
+result down. Same chains, same parameters, unmistakably different sound. Verify a
+reordering with `drive` in it, or you are testing a no-op.
+
+Each audio chain used to create its own `plugin~`/`plugout~`, which made it a whole
+device rather than a stage. Two of them emitted duplicate box ids and *summed* their
+outputs - the unfiltered signal mixed back over the filtered one, with no error at
+build time and none in Live. `assertUniqueBoxIds()` now fails the build on a
+duplicate id, because a patcher with two boxes sharing one is one Max resolves
+however it likes.
 
 Note what the audio chains do **not** do: the parameter is wired straight into the
 signal object, in the patcher. It does not travel through `[jweb]` and back, so

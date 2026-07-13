@@ -20,21 +20,25 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: Stage 2.6 - composable audio chains
+# NEXT: Stage 3 - sound, and the last unknowns
 
-**Stage 2 is done.** A device's parameters are declared once, in its own
-`surface.ts`, and everything else is derived: the `live.*` objects, their wiring in
-both directions, the protocol selectors the lint checks, a typed React binding
+**Stage 2 is done, and so is 2.6.** A device's parameters are declared once, in its
+own `surface.ts`, and everything else is derived: the `live.*` objects, their wiring
+in both directions, the protocol selectors the lint checks, a typed React binding
 (`useParam`), and the harness's parameter panel and Push preview. The manifest's
 `parameters` field, `addParameters()`, `writableParams()` and every hand-written
 parameter selector are gone. Confirmed in Live, on a Push.
+
+**Audio chains compose now** (2.6): the build owns `plugin~`/`plugout~`, a chain
+claims a stage, and `chains: ["lowpass", "gain"]` is a series in declaration order.
+A duplicate box id fails the build.
 
 The only piece deferred is **Push banks** (3.3), which needs patcher-JSON
 archaeology and blocks nothing: Live falls back to declaration order and shows
 every parameter.
 
-**But building the third device found a bug in the chain vocabulary**, and it is a
-silent one, so it goes before Stage 3. See 2.6.
+Next up is **3.1** (fetch-to-disk, which deletes `[node.script]`) and **3.2** (the
+`samples` chain). Both spikes passed; neither is gated on an unknown.
 
 **Every spike passed.** Stage 1 is done, in Live, on hardware - nothing below is
 gated on an unknown any more, and the only outstanding item is a formality (1.1a).
@@ -214,94 +218,6 @@ parameter meant hand-rolling `set_rate`. The binding is symmetric by default now
 > to declaration order and Push still shows every parameter. Shipping the
 > parameters is what makes Push work at all. (The harness's Push preview already
 > renders the declared banks - only Live does not read them yet.)
-
----
-
-# Stage 2.6 - composable audio chains - **NEXT**
-
-**An audio chain cannot be combined with another audio chain, and the failure is
-silent.** Found by the third device built on this library (m4l-strudel's Strudel
-Audio FX, which wants `.lpf(800).gain(1.2)` to select two chains) and reproduced
-here.
-
-## The bug, measured
-
-`chains: ["lowpass", "gain"]` today emits:
-
-```
-duplicate box ids: obj-plugin, obj-plugout
-plugin~ boxes: 2   plugout~ boxes: 2
-what reaches plugout~: obj-lpf-l, obj-lpf-r, obj-gain-l, obj-gain-r
-```
-
-Two boxes **sharing an id**, which is a malformed patcher Max will interpret
-however it likes - and *four* sources summing into `plugout~`: the filtered pair
-**and** the gain pair, in parallel. So the effects do not stack, they mix, and the
-un-filtered signal is summed back over the filtered one. No error at build time, no
-error in Live. The device just sounds wrong in a way you would blame on your DSP.
-
-## The cause
-
-**An audio chain OWNS the signal path instead of occupying a stage in it.** Every
-one of `passthrough`, `gain` and `lowpass` does the same three things: create
-`plugin~`, create `plugout~`, and wire itself between them. That makes each of them
-a terminal, not a stage - so two of them are two devices fighting over one patcher.
-
-It is the same shape as the bug the Surface hit with `[jweb]`'s outlet, one layer
-down. There, several routes each wanted the app's message stream, and the fix was to
-chain them in SERIES with an explicit hand-off (`claimAppMessages()`). Audio needs
-its twin.
-
-## The fix
-
-**The build owns the endpoints; a chain claims a stage.** `plugin~` and `plugout~`
-are created once, by the build, for any device whose type is `audio` (or
-`instrument`), and a chain inserts itself into the signal path the way a route
-inserts itself into the message stream:
-
-```js
-const [srcId, srcOutlet] = ctx.audioIn(channel);  // whatever the last stage left
-// ...create your DSP, wire srcId -> yours...
-ctx.setAudioOut(channel, myId, 0);                // you are the tail now
-```
-
-Then `chains: ["lowpass", "gain"]` is `plugin~ -> onepole~ -> *~ -> plugout~`, in
-declaration order, and it is the ORDER that composes them - which is what a device
-author already expects from a list.
-
-**Ship the guard first.** A duplicate box id is a malformed patcher and nothing
-rejects it: make `box()`/the build **throw** on a second box with an existing id.
-That is minutes of work, it converts today's silent mis-wiring into a build error,
-and it stands on its own even if the seam takes longer. (It would also have told
-m4l-strudel what was wrong instead of leaving them to infer it from the sound.)
-
-## What it unblocks, and what it teaches
-
-- **m4l-strudel's Phase 7.2.** Their `strudelfx` chain exists only because the
-  canned chains cannot be composed; it can be deleted, and one line of Strudel maps
-  onto a list of chains.
-- **The chain vocabulary becomes portable.** A chain that creates the device's audio
-  I/O is not a stage, and a stage is the only thing that could ever be retargeted to
-  a VST3 (see [VST3.md](VST3.md)): there, `plugin~`/`plugout~` are the plugin's own
-  I/O, never something a DSP block conjures. Fixing this makes the vocabulary
-  target-shaped almost as a side effect, which is an argument for doing it BEFORE
-  Stage 3 rather than after.
-- **State the contract while you are in there.** A chain that takes a parameter takes
-  it **in real units and does no arithmetic** - the range, the unit and the curve
-  live on the parameter (`range: [40, 18000]`, `unit: "Hz"`, `exponent`). m4l-strudel
-  hit the corollary: passing a real-Hz parameter to a chain that still had the old
-  `[expr 40 * pow(450, x)]` mapping inside would double-map it. Our `lowpass` no
-  longer has that expr; a future chain must not reintroduce one.
-
-## Acceptance
-
-1. `chains: ["lowpass", "gain"]` builds, and the generated patcher is a **series**:
-   one `plugin~`, one `plugout~`, the filter feeding the gain.
-2. A duplicate box id fails the build.
-3. `hello-audio` (one chain) emits a patcher equivalent to today's - the seam is not
-   allowed to change a working device.
-4. The fan-out invariant still holds for every parameter in a composed chain: the
-   object's outlet **and** the route's outlet reach the DSP (`fanParamInto()`).
 
 ---
 
@@ -561,6 +477,77 @@ to say than it did.
 ---
 
 # DONE
+
+## Stage 2.6 - composable audio chains - **DONE**
+
+**An audio chain could not be combined with another, and the failure was silent.**
+Found by the third device built on this library (m4l-strudel's Strudel Audio FX,
+which wants `.lpf(800).gain(1.2)` to select two chains). `chains: ["lowpass",
+"gain"]` emitted **two boxes sharing the id `obj-plugin`**, two sharing
+`obj-plugout`, and **four sources summing into `plugout~`** - the filtered pair and
+the *unfiltered* gain pair, in parallel. The effects did not stack, they mixed. No
+error at build time, none in Live; it just sounded wrong in a way you would blame on
+your own DSP.
+
+The cause was that an audio chain **owned the signal path** instead of occupying a
+stage in it: `passthrough`, `gain` and `lowpass` each created `plugin~`, created
+`plugout~`, and wired itself between them. Each one was a whole device.
+
+**The build owns the endpoints; a chain claims a stage.** `openAudio()` creates
+`plugin~`/`plugout~` once, for any `audio` or `instrument` device; a chain takes
+`ctx.audioIn(ch)` and declares `ctx.setAudioOut(ch, id, outlet)`; `closeAudio()`
+wires the final tail into `plugout~`. So the ORDER of the list is the signal path -
+`["lowpass", "gain"]` is `plugin~ -> onepole~ -> *~ -> plugout~`, and reversing the
+words reverses the effects. It is the exact twin of `claimAppMessages()` one layer
+down: one stream, several claimants, chained in series with an explicit hand-off.
+
+Three things came with it:
+
+- **A duplicate box id fails the build** (`assertUniqueBoxIds()`), which is what
+  would have told m4l-strudel what was wrong instead of leaving them to infer it from
+  the sound. It runs on the patcher that is about to be written, so it covers the
+  canned chains, a repo's own `patcher/chains.mjs`, and the template underneath both.
+- **An audio chain on a MIDI device now says so**, rather than conjuring endpoints
+  and quietly making the device something the manifest never declared.
+- **The build's pipeline is one exported function** (`composePatcher()`), and the
+  tests call it. A codegen test that re-implements the pipeline can pass while the
+  build wires something else.
+
+The seam was proven not to change a working device first: with `chains: ["lowpass"]`,
+`hello-audio` emitted a patcher **identical** to the old one, same boxes and same
+cords. It was only then grown into the composed example.
+
+## Stage 2.6b - the examples, and the chain you can hear - **DONE**
+
+**`lowpass` + `gain` cannot verify the fix by ear.** Both stages are LINEAR, so they
+commute: reorder them and the patcher changes and the sound does not. An example
+built from those two would demonstrate the series in the generated JSON and prove
+nothing on a track - and someone testing a reordering by ear would hear nothing,
+and reasonably conclude the build was broken.
+
+So the vocabulary gained a nonlinear stage: **`drive`** (`overdrive~`, soft clipping,
+1 = clean to 10 = filthy, the drive factor in the right inlet per Max's own
+reference). Distortion does not commute with a level change - `["gain", "drive"]`
+turns the signal down and then distorts it, `["drive", "gain"]` distorts at full
+level and turns the result down - so the order of the list is now something a human
+can confirm.
+
+**`hello-audio` is the composed device**: `chains: ["lowpass", "drive", "gain"]`,
+three parameters (one per stage, each named by the chain that requires it), three
+sliders. It stays the smallest audio effect that does something, and it is now the
+device that demonstrates what the library just learned to do. A fourth example device
+would have bought a one-chain case that the starter template already is.
+
+**Still not heard in Live.** The composition is proven in the generated patcher and
+in `tests/chains.test.mjs`, not on a track. The check that remains is exactly one
+thing: load `hello-audio`, push Drive up, and swap `drive`/`gain` in the manifest to
+hear the order change.
+
+**What it unblocks.** m4l-strudel's `strudelfx` chain exists only because the canned
+chains could not be composed; it can be deleted. And a chain that does not conjure
+the device's audio I/O is the only kind that could ever be retargeted to a VST3
+([VST3.md](VST3.md)), where `plugin~`/`plugout~` are the plugin's own I/O - so the
+vocabulary came out target-shaped as a side effect.
 
 ## Stage 0.1 - the mocked-Live dev harness (part 1)
 

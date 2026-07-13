@@ -25,27 +25,26 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { expect, test } from "vitest";
 
-import { CHAINS, box, line, registerChain, removeLine, resetLayout } from "@m4l-jweb/build/chains";
-import { SURFACE_ROUTE, applySurface, surfaceContext } from "@m4l-jweb/build/surface";
+import { composePatcher } from "@m4l-jweb/build";
+import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
+import { SURFACE_ROUTE } from "@m4l-jweb/build/surface";
 import { defineSurface, dial, menu, toggle } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
 const BASE = path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "templates", "base.json");
 
 /**
- * Generate a device's patcher exactly as the build does: the real template, the
- * real chains, then the Surface interposing on what feeds the wrapper. The build
- * hands a chain its context through `surfaceContext()`, and so does this - a test
- * that assembled its own context could pass while the build wired nothing.
+ * Generate a device's patcher exactly as the build does - by calling the build.
+ *
+ * `composePatcher()` IS the pipeline: the real template, the audio endpoints, the
+ * real chains, then the Surface interposing on what feeds the wrapper. A test that
+ * assembled that pipeline itself could pass while the build wired something else,
+ * which is the one failure a codegen test must not have.
  */
 function compile(surface, { chains = [], device = {} } = {}) {
-  const { patcher } = JSON.parse(readFileSync(BASE, "utf8"));
+  const base = JSON.parse(readFileSync(BASE, "utf8"));
+  const { patcher } = composePatcher(base, { name: "test", type: "midi", chains, ...device }, surface);
   const { boxes, lines } = patcher;
-  resetLayout();
-
-  const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId: "obj-js", device, ...surfaceContext(surface) };
-  for (const name of chains) CHAINS[name](ctx);
-  applySurface(ctx);
 
   const cords = lines.map(({ patchline: pl }) => ({ src: pl.source[0], out: pl.source[1], dst: pl.destination[0], in: pl.destination[1] }));
   return {
@@ -199,7 +198,7 @@ test("HALF TWO: and the parameter's consumers still receive what the app wrote",
   //
   // The cutoff is in Hz, so it lands on the filter's right inlet directly - there
   // is no mapping object in between any more. The curve is on the parameter.
-  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio" } });
+  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } });
 
   for (const filter of ["obj-lpf-l", "obj-lpf-r"]) {
     const into = c.feeding(filter, 1).map((x) => `${x.src}:${x.out}`);
@@ -232,7 +231,7 @@ test("what the Surface does not own still reaches the wrapper - exactly once", (
   // everything else has to come out of its unmatched outlet. TWO cords carrying
   // the app's messages into [js] would mean the wrapper saw every unrouted message
   // twice - which is what routing [jweb] into two routes in parallel would do.
-  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio" } });
+  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } });
   expect(appFeeds(c)).toEqual([{ src: SURFACE_ROUTE, out: 1, dst: "obj-js", in: 0, text: "route set_cutoff" }]);
 });
 
@@ -241,7 +240,7 @@ test("live.thisdevice keeps its cord into the wrapper", () => {
   // (CLAUDE.md, hard rule 4: one created during loadbang is dead, forever, with no
   // error). It also lands on [js]'s inlet 0, so anything that goes looking for
   // "the cord that feeds the wrapper" can cut it by mistake. Nothing here may.
-  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio" } });
+  const c = compile(oneDial, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } });
   expect(c.cords).toContainEqual({ src: "obj-thisdevice", out: 0, dst: "obj-js", in: 0 });
 });
 
@@ -292,5 +291,5 @@ test("a chain whose parameter is not declared fails the build, loudly", () => {
   // and the chain would generate a cord from a box that does not exist - which
   // Max opens as a patcher with a missing object and no explanation.
   const s = defineSurface({ params: { brightness: dial({ range: [0, 1], default: 1, short: "Bright" }) } });
-  expect(() => compile(s, { chains: ["lowpass"], device: { name: "hello-audio" } })).toThrow(/needs a parameter "cutoff"/);
+  expect(() => compile(s, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } })).toThrow(/needs a parameter "cutoff"/);
 });
