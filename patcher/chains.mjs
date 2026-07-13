@@ -9,7 +9,7 @@
  * three questions about Max's actual behaviour that the rest of the plan is
  * gated on, and they should be deleted once the answers are recorded.
  */
-import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
+import { box, claimAppMessages, line, registerChain } from "@m4l-jweb/build/chains";
 
 /**
  * "spike" - the instrumentation for all three Stage 1 spikes in one device.
@@ -46,14 +46,13 @@ import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
  *   instrument for exploration rather than a guess at a message vocabulary
  *   nobody here has confirmed.
  */
-function spikeChain({ boxes, lines, jwebId, unmatchedId }) {
-  // This chain consumes jweb's output, so the template's direct jweb -> js cord
-  // is replaced by the route's unmatched outlet.
-  removeLine(lines, jwebId, unmatchedId);
+function spikeChain(ctx) {
+  const { boxes, lines, jwebId, unmatchedId } = ctx;
 
   boxes.push(box("obj-spike-route", "route set_param raw_param", { numoutlets: 3, outlettype: ["", "", ""] }));
-  lines.push(line(jwebId, 0, "obj-spike-route", 0));
-  lines.push(line("obj-spike-route", 2, unmatchedId, 0)); // everything else -> [js]
+  // Claim the app's messages and pass the rest on from outlet 2 - everything the
+  // spike does not own still has to reach [js].
+  claimAppMessages(ctx, "obj-spike-route", 2);
 
   // --- spike 1.1: the dial, and the two ways of writing to it ---
   boxes.push({

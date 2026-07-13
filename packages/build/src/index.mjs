@@ -16,7 +16,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
-import { CHAINS, addParameters, resetLayout } from "./chains.mjs";
+import { CHAINS, resetLayout } from "./chains.mjs";
+import { applySurface, loadSurface, surfaceContext } from "./surface.mjs";
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -164,17 +165,33 @@ export async function generatePatchers(root) {
 
     const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
 
+    /**
+     * The device's parameters, declared once in src/app/<ui>/surface.ts. A chain
+     * that drives DSP from a parameter needs two things from it, and needs BOTH:
+     *
+     *   paramObject(id)  the live.* object's outlet - a knob turn, an automation
+     *                    lane, a Push encoder.
+     *   paramValue(id)   the route outlet carrying what the APP wrote. Not
+     *                    redundant: the app's write reaches the object as `set`,
+     *                    which updates it WITHOUT output, so the object would
+     *                    never pass that value on. See surface.mjs.
+     */
+    const surface = await loadSurface(root, d.ui ?? d.name);
+    const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, ...surfaceContext(surface) };
+
     for (const name of d.chains ?? []) {
       const chain = CHAINS[name];
       if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
-      chain({ boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d });
+      chain(ctx);
     }
 
-    // Parameters feed the UI: a knob move arrives as just another inlet message.
-    addParameters(boxes, lines, d.parameters ?? [], "obj-jweb");
+    // AFTER the chains: the Surface routes every `set_<id>` off the app's message
+    // stream, and passes on what nobody claimed (ui_ready, ...) to the wrapper.
+    applySurface(ctx);
 
     writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
-    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${(d.chains ?? []).join(", ") || "none"})`);
+    const params = surface ? surface.ids.join(", ") : "none";
+    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${(d.chains ?? []).join(", ") || "none"}, params: ${params || "none"})`);
   }
   return devices;
 }

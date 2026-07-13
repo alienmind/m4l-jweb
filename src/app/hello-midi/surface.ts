@@ -4,10 +4,8 @@
  * Push cannot see your React UI. It reads Live parameters and nothing else, so
  * anything musically meaningful has to exist here as well as in the app.
  *
- * STATUS: this declaration is typechecked and validated, but the codegen that
- * compiles it into live.* objects is Stage 2 of doc/TODO.md and does not exist
- * yet. The parameters Live actually sees still come from `parameters` in
- * patcher/devices.mjs, and the two must be kept in step by hand until then.
+ * This is the only place they are declared: the build imports this file and
+ * generates the live.dial objects Live sees, wired in both directions.
  */
 import { defineSurface, dial } from "@m4l-jweb/surface";
 

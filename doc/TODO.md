@@ -20,7 +20,12 @@ that cost hours, so a wrong guess never sinks a week of building on top of it.
 
 ---
 
-# NEXT: build Stage 2
+# NEXT: Stage 2.2 (the generated protocol), then 2.3 (the React binding)
+
+**Stage 2.1 has shipped**: a device's parameters are declared once, in its own
+`surface.ts`, and the Max side is generated from that declaration - objects,
+wiring, both directions, fan-out included. The manifest's `parameters` field is
+gone. What remains of Stage 2 is the app's half.
 
 **Every spike passed.** Stage 1 is done, in Live, on hardware - nothing below is
 gated on an unknown any more, and the only outstanding item is a formality (1.1a).
@@ -82,12 +87,12 @@ was even run, and the answer is sharper than the spike was designed to find:
 app writing that dial with `set`. The slider appeared dead: the dial moved and the
 filter never heard. The fix is to **fan the value out** - to the object (so
 automation, MIDI mapping and Push stay right) and, in parallel, straight to
-whatever the parameter controls. `writableParams()` in `chains.mjs` does this
-today, for one parameter, by hand.
+whatever the parameter controls.
 
-**This changes Stage 2.** The Surface was designed around the `set` trick, so its
-generated wiring must fan out the same way or every generated parameter inherits
-this bug.
+**This changed Stage 2**, and 2.1 shipped with the fan-out generated rather than
+remembered: `fanParamInto()` is the only way a chain may wire a parameter, and it
+wires both sources or neither. Had the Surface been built to the original design,
+every generated parameter would have inherited this bug at once.
 
 The spike then confirmed the other side of it in Live, which is what makes the
 trick safe to build on: `set_param` leaves the echo counter frozen (the outlet
@@ -101,26 +106,50 @@ confirmed on hardware, not assumed.
 
 # Stage 2 - the Surface
 
-The one place the stack still says "maintain it by hand in four places": the Max
+The one place the stack said "maintain it by hand in four places": the Max
 object, the patcher wiring, the app's protocol, and the app's state. Change a
 range and three of the four silently disagree.
 
 The project deleted the visual editor by making patchers generated. This does the
 same for parameters. Design: **[SURFACE.md](SURFACE.md)**.
 
-The declaration already ships (`defineSurface()`, its types and its validation).
-What is missing is the codegen.
+**Two of the four are done.** The declaration ships, and so does the codegen for
+the Max side: `surface.ts` is now the only place a parameter is declared, and the
+`live.*` objects and their wiring are generated from it (2.1). What is left is the
+app's half - the protocol selectors (2.2) and the React binding (2.3) - which is
+why a device still names its own parameters in `protocol.ts`.
 
-## 2.1 Codegen
+## ~~2.1 Codegen~~ - **DONE**
 
-Replace `addParameters()` in `chains.mjs` with the Surface compiler: the `live.*`
-objects, both wiring directions, and `default` -> `parameter_initial` +
-`parameter_initial_enable`.
+`packages/build/src/surface.mjs`. The build imports `src/app/<ui>/surface.ts`
+(esbuild) and emits the `live.*` objects, both wiring directions, and `default` ->
+`parameter_initial` + `parameter_initial_enable`. `addParameters()` and
+`writableParams()` are gone, and so is the manifest's `parameters` field.
 
-**Generalise `writableParams()`, do not re-derive it.** It is the hand-rolled
-sliver of exactly this, and it already carries the fan-out the `set` behaviour
-forces (see above). Land the codegen with a test asserting the app-bound path
-stays silent *and* that the parameter's consumers still receive the write.
+The fan-out survived generalisation: a chain reaches a parameter only through
+`fanParamInto()`, which wires the object's outlet *and* the route's, or neither.
+`tests/surface-codegen.test.mjs` pins both halves of the `set` behaviour
+separately - break either one and exactly one test fails.
+
+Three bugs found on the way, all silent, all now pinned by tests:
+
+1. **The interposed cord.** The first version found the cord to interpose on by
+   searching for whatever fed `[js]`. `live.thisdevice` feeds `[js]` too, and
+   cutting *that* cord kills every LiveAPI observer in the device (hard rule 4)
+   with no error anywhere. Routes now hand off explicitly, in series
+   (`claimAppMessages()`).
+2. **`parameter_range` is not a key Max writes.** Ranges have to be
+   `parameter_mmin`/`parameter_mmax`; what we emitted was ignored, so every dial
+   silently kept its default range. `hello-midi`'s rate, declared `[0, 4]`, was
+   living as a 0-1 float in Live.
+3. **No unit style means Live prints a float as an integer.** A perfectly smooth
+   0-1 cutoff read "0" or "1" on a Push. Parameters now declare a `unit`, and
+   their range is in REAL units (`[40, 18000]` Hz with an `exponent`) - so the
+   `lowpass` chain's `[expr]` mapping is gone, and Live, Push and the app all read
+   the same number.
+
+Confirmed in Live, on a Push. The attribute names came from Max's own reference
+shipped inside Live, not from memory - see CLAUDE.md for where it is.
 
 ## 2.2 Protocol, generated
 
@@ -143,10 +172,14 @@ browser tab.
 
 ## 2.5 Port the hello-world devices, and delete what they replace
 
-`hello-midi`'s dials and `hello-audio`'s cutoff become a few lines of
-`surface.ts`; `writableParams()` and `addParameters()` in `chains.mjs` go away;
-the manifest's `parameters` field goes away. The examples get *shorter*. If they
-do not, the API is wrong. This is the acceptance test for the whole stage.
+**Mostly done, with 2.1.** Both devices' parameters now come from their own
+`surface.ts`, the manifest's `parameters` field is deleted, and
+`writableParams()` / `addParameters()` are gone. The examples did get shorter.
+
+What is left is the *app* half, and it waits on 2.3: `hello-audio` still sends
+`set_cutoff` by hand through the bridge and names both selectors in its
+`protocol.ts`. When `useParam()` and the generated protocol land, those go too -
+and that is the real acceptance test for the stage.
 
 > **Push banks are deliberately deferred to 3.3.** They need patcher-JSON
 > archaeology, and nothing is blocked on them: until banks exist, Live falls back
@@ -420,9 +453,10 @@ An audio effect that actually does something, which `passthrough` never was:
 - **One folder per device, one bundle per device.** `src/app/<device>/`, and each
   `.amxd` embeds its own UI - `hello-midi` carries no filter code, `hello-audio`
   no sequencer. A test asserts it.
-- **The app can write a Live parameter.** `writableParams()` generates
-  `set_<id>` -> `[prepend set]` -> `[live.*]`, fanned out to the parameter's
-  consumers. A prototype of Stage 2.1, to be subsumed by it.
+- **The app can write a Live parameter.** `set_<id>` -> `[prepend set]` ->
+  `[live.*]`, fanned out to the parameter's consumers. Prototyped by hand as
+  `writableParams()`; subsumed by the Surface codegen (2.1), which now generates
+  it for every declared parameter.
 - **`default` on a parameter** (`parameter_initial` + `parameter_initial_enable`).
   Without it a `live.*` loads at the bottom of its range - for a filter cutoff,
   a device that eats the signal on load.

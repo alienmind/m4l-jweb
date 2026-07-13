@@ -19,14 +19,13 @@
  *                               parameter. An audio effect you can hear.
  *                 "gain"        plugin~ -> *~ -> plugout~, with a `gain` parameter.
  *                 "passthrough" plugin~ -> plugout~. Does nothing to the audio.
- *   parameters  real Live parameters: automatable, MIDI-mappable, and what Push
- *               reads. Each becomes a live.* object, and reaches the app as
- *               `<id> <value>`.
- *
- *               Set `default`. Without it the object loads at the BOTTOM of its
- *               range, which for many parameters is a broken device.
  *   unmatchedTo where messages the chains did not consume go. "js" sends them to
  *               the wrapper (ui_ready, ...).
+ *
+ * Parameters are NOT here: they are declared in src/app/<ui>/surface.ts, and the
+ * build generates the live.* objects and their wiring from that one declaration.
+ * A chain that names a parameter (`lowpass` wants `cutoff`) fails the build if the
+ * surface does not declare it.
  *
  * Add a second device by adding an entry here and a folder at src/app/<name>/.
  */
@@ -35,7 +34,6 @@ export default [
     name: "{{name}}",
     type: "midi",
     chains: ["midiin", "midiout"],
-    parameters: [{ id: "density", object: "live.dial", range: [0, 1], default: 0.5 }],
     unmatchedTo: "js",
   },
 ];

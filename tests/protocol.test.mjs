@@ -9,9 +9,10 @@
  *
  * "The Max side" is several things, and a lint that reads only some of them
  * quietly stops checking: the packaged wrapper and chains, this repo's own
- * patcher/chains.mjs and wrapper/device.ts, the manifest's parameters (a
- * live.dial reaches the UI as `<id> <value>`, so a parameter id IS a selector),
- * and - above all - the GENERATED patchers, which are what actually ships.
+ * patcher/chains.mjs and wrapper/device.ts, the device's SURFACE (a live.dial
+ * reaches the UI as `<id> <value>` and takes `set_<id>` back, so a parameter id
+ * IS a selector, in both directions), and - above all - the GENERATED patchers,
+ * which are what actually ships.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -38,6 +39,22 @@ const chains = [require.resolve("@m4l-jweb/build/chains"), ...(existsSync(device
 const base = readFileSync(path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "templates", "base.json"), "utf8");
 
 const devices = (await import(pathToFileURL(path.join(root, "patcher/devices.mjs")).href)).default;
+
+/**
+ * A device's parameters, from its own surface.ts - the one declaration the Max
+ * objects are generated from. Vitest transforms the TypeScript, so this is the
+ * SAME module the build compiles, not a copy of it: a parameter renamed there is
+ * renamed here, and the lint below moves with it.
+ */
+const surfaces = Object.fromEntries(
+  await Promise.all(
+    devices.map(async (d) => {
+      const src = path.join(root, "src/app", d.ui ?? d.name, "surface.ts");
+      if (!existsSync(src)) return [d.name, null];
+      return [d.name, (await import(pathToFileURL(src).href)).default];
+    }),
+  ),
+);
 
 /**
  * The GENERATED patchers - the text of every box in the device the build emitted.
@@ -106,7 +123,7 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
 
   const IN = selectors(src, "IN", where);
   const OUT = selectors(src, "OUT", where);
-  const paramIds = new Set((d.parameters ?? []).map((p) => p.id));
+  const paramIds = new Set(surfaces[name]?.ids ?? []);
   const maxSide = `${chains}\n${patcherText(name)}`;
 
   test("declares selectors in both directions", () => {

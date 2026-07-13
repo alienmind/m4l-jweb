@@ -24,26 +24,30 @@ import { Frame, Transport } from "../shared/Frame";
 import { IN, OUT } from "./protocol";
 
 /**
- * 0-1 -> 40 Hz..18 kHz. The SAME curve the `lowpass` chain applies in the
- * patcher (`expr 40. * pow(450., $f1)`) - if these two ever disagree, the readout
- * is lying about what you are hearing.
+ * The cutoff crosses the bridge in HERTZ, because that is what the Live parameter
+ * is: `range: [40, 18000]`, `unit: "Hz"` in surface.ts. The app, the automation
+ * lane and Push all read the same number, and no conversion sits between them.
  *
- * It is logarithmic because pitch is: a linear sweep would spend nearly all its
- * travel in the top octave, where you hear nothing happening.
+ * The curve is still needed - HERE, and only for the slider's feel. Pitch is
+ * logarithmic: a linear 40..18000 slider spends nearly all its travel in the top
+ * octave, where a lowpass does nothing you can hear. So the slider's POSITION is
+ * 0-1 and maps exponentially onto the Hz it sends. The Live dial does the same
+ * thing with `exponent`, which is why the two knobs feel alike.
  */
-const toHz = (v: number) => 40 * Math.pow(450, v);
+const MIN = 40;
+const MAX = 18000;
+const posToHz = (p: number) => MIN * Math.pow(MAX / MIN, p);
+const hzToPos = (hz: number) => Math.log(hz / MIN) / Math.log(MAX / MIN);
 
 export default function HelloAudio() {
-  const [cutoff, setCutoff] = useState(1);
+  const [hz, setHz] = useState(MAX);
   const device = useDevice();
 
   useEffect(() => {
-    // The parameter's value coming back: a knob turn, an automation lane, or a
-    // Push encoder. The slider follows all three.
-    bindInlet(IN.cutoff, (c) => setCutoff(Number(c)));
+    // The parameter's value coming back, in Hz: a knob turn, an automation lane,
+    // or a Push encoder. The slider follows all three.
+    bindInlet(IN.cutoff, (c) => setHz(Number(c)));
   }, []);
-
-  const hz = toHz(cutoff);
 
   return (
     <Frame title="HELLO AUDIO" device={device}>
@@ -55,10 +59,10 @@ export default function HelloAudio() {
             min={0}
             max={1}
             step={0.001}
-            value={cutoff}
+            value={hzToPos(hz)}
             onChange={(e) => {
-              const v = Number(e.target.value);
-              setCutoff(v); // optimistic - do not wait for Live to echo it back
+              const v = posToHz(Number(e.target.value));
+              setHz(v); // optimistic - do not wait for Live to echo it back
               outlet(OUT.set_cutoff, v);
             }}
           />

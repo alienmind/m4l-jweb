@@ -53,6 +53,35 @@ export function removeLine(lines, srcId, dstId) {
 }
 
 /**
+ * Splice a `route` into the app's message stream and hand the rest on.
+ *
+ * More than one thing routes [jweb]'s output - `midiout` claims `midinote` and
+ * `flush`, the Surface claims every `set_<id>`, and whatever neither wanted must
+ * still reach the wrapper. They cannot hang off [jweb]'s outlet in parallel: each
+ * would pass the unmatched messages on to [js], and the wrapper would see
+ * `ui_ready` once per route. So they are chained in SERIES, each feeding the next
+ * from its unmatched outlet:
+ *
+ *   [jweb] -> [route midinote flush] -> [route set_density] -> [js]
+ *                        unmatched               unmatched
+ *
+ * `ctx.appOut` names the tail of that chain - the outlet currently carrying
+ * everything nobody has claimed. Claim from THAT, never from `jwebId` directly,
+ * or you steal the messages the chain before you was passing on.
+ *
+ * Do not go looking for the cord to cut by searching for whatever feeds [js]
+ * either: `live.thisdevice` feeds it too, and cutting that one is invisible here
+ * and fatal in Live - it is the bang every LiveAPI observer is created from.
+ */
+export function claimAppMessages(ctx, routeId, unmatchedOutlet) {
+  const [srcId, srcOutlet] = ctx.appOut ?? [ctx.jwebId, 0];
+  removeLine(ctx.lines, srcId, ctx.unmatchedId);
+  ctx.lines.push(line(srcId, srcOutlet, routeId, 0));
+  ctx.lines.push(line(routeId, unmatchedOutlet, ctx.unmatchedId, 0));
+  ctx.appOut = [routeId, unmatchedOutlet];
+}
+
+/**
  * "midiin" - feed incoming MIDI notes to the app as `notein <pitch> <velocity>`.
  *
  * Also CUTS the template's direct midiin -> midiout thru cord: a device that
@@ -77,10 +106,8 @@ function midiInChain({ boxes, lines, jwebId }) {
  * "midiout" - the app emits `midinote <pitch> <vel> <durMs> <chan> <delayMs>`
  * and `flush`. Compute WHEN in your app; let Max place the note precisely.
  */
-function midiOutChain({ boxes, lines, jwebId, unmatchedId }) {
-  // This chain consumes jweb's output, so the template's direct jweb -> js cord
-  // is replaced by the route's unmatched outlet.
-  removeLine(lines, jwebId, unmatchedId);
+function midiOutChain(ctx) {
+  const { boxes, lines } = ctx;
 
   boxes.push(box("obj-route", "route midinote flush", { numoutlets: 3, outlettype: ["", "", ""] }));
   // Explicit unpack instead of letting pipe spread the list: unpack fires
@@ -108,7 +135,11 @@ function midiOutChain({ boxes, lines, jwebId, unmatchedId }) {
   // makenote actually releases hanging notes.
   boxes.push(box("obj-flushmsg", "flush", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
 
-  lines.push(line(jwebId, 0, "obj-route", 0));
+  // Take the app's messages, and pass on what is not a note (ui_ready, set_<id>,
+  // ...) from outlet 2 - to the Surface's route if the device has parameters, and
+  // to the wrapper in the end.
+  claimAppMessages(ctx, "obj-route", 2);
+
   lines.push(line("obj-route", 0, "obj-unpack", 0));
   lines.push(line("obj-route", 1, "obj-flushmsg", 0));
   lines.push(line("obj-flushmsg", 0, "obj-makenote", 0));
@@ -121,8 +152,6 @@ function midiOutChain({ boxes, lines, jwebId, unmatchedId }) {
   lines.push(line("obj-makenote", 1, "obj-packnote", 1));
   lines.push(line("obj-packnote", 0, "obj-fmt", 0));
   lines.push(line("obj-fmt", 0, "obj-midiout", 0));
-  // Unmatched selectors (ui_ready, write_clip, read_notes...) carry on.
-  lines.push(line("obj-route", 2, unmatchedId, 0));
 }
 
 /**
@@ -154,22 +183,20 @@ function passthroughChain({ boxes, lines }) {
  * SIGNAL domain, not just the app.
  *
  * Note what does NOT happen here: the value does not travel through [jweb] and
- * back. The dial is wired straight into the `*~` right inlet, in the patcher, so
- * the audio path does not depend on the browser being alive or keeping up. The
- * app gets its own copy of the value (via addParameters) purely to DISPLAY it.
- * Audio is Max's job; the UI is a view of it.
+ * back. The parameter is wired straight into the `*~` right inlet, in the patcher,
+ * so the audio path does not depend on the browser being alive or keeping up. The
+ * app gets its own copy of the value purely to DISPLAY it. Audio is Max's job; the
+ * UI is a view of it.
  *
- * Requires a parameter named `gain` (or pass `device.gainParam`).
+ * Requires a parameter named `gain` in the device's surface.ts (or pass
+ * `device.gainParam`).
  */
-function gainChain({ boxes, lines, device }) {
+function gainChain(ctx) {
+  const { boxes, lines, device } = ctx;
   removeBox(boxes, lines, "obj-midiin");
   removeBox(boxes, lines, "obj-midiout");
 
-  const paramId = device?.gainParam ?? "gain";
-  const declared = (device?.parameters ?? []).some((p) => p.id === paramId);
-  if (!declared) {
-    throw new Error(`chain "gain" on device "${device?.name}" needs a parameter with id "${paramId}" (or set gainParam)`);
-  }
+  const paramId = requireParam(ctx, "gain", device?.gainParam ?? "gain", "gainParam");
 
   boxes.push(box("obj-plugin", "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
   boxes.push(box("obj-plugout", "plugout~", { numinlets: 2, numoutlets: 0 }));
@@ -183,83 +210,43 @@ function gainChain({ boxes, lines, device }) {
     boxes.push(box(id, "*~ 1.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
     lines.push(line("obj-plugin", i, id, 0));
     lines.push(line(id, 0, "obj-plugout", i));
-    // The live.dial box is created LATER, by addParameters(). A patchline may name
-    // a box that appears further down the boxes array - the patcher is a graph, not
-    // a script - so this cord is valid as long as the parameter is declared, which
-    // is what the check above guarantees.
-    lines.push(line(`obj-param-${paramId}`, 0, id, 1));
+    fanParamInto(ctx, paramId, id, 1);
   }
 }
 
 /**
- * Let the APP write to a Live parameter: `set_<id> <value>` from [jweb] lands on
- * the live.* object's inlet, and from there in the signal path and in Live's
- * automation, exactly as if the user had turned the dial.
+ * Wire a parameter into the thing it controls, from BOTH of its sources:
  *
- * This is the missing half of the parameter story. Reading one has always worked
- * (addParameters wires the object out to the app). Writing one did not exist, so
- * a control in the web UI could only ever be a readout of a knob you had to turn
- * somewhere else - useless.
+ *   the OBJECT's outlet - a knob turn, an automation lane, a Push encoder.
+ *   the ROUTE's outlet  - the value the app wrote.
  *
- * TWO TRAPS, and the whole design of this helper is about them:
+ * The second is not redundant, and leaving it out is the bug this helper exists to
+ * make unrepeatable. The app's write reaches the object as `set <value>`, which
+ * updates it WITHOUT producing output - so the object never passes the app's value
+ * on, and whatever it drives sits where it was while the UI's slider appears dead.
+ * It did exactly that. See packages/build/src/surface.mjs.
  *
- * 1. FEEDBACK. Sending a bare value into a live.dial's inlet SETS IT AND MAKES
- *    IT OUTPUT, which sends it straight back to the app - which could set it
- *    again. `set <value>` is the documented message that updates the value
- *    WITHOUT producing outlet output, so the loop never starts. (Spike 1.1 in
- *    doc/SPIKES.md confirms the behaviour properly; the field evidence is
- *    below.)
- *
- * 2. `set` SUPPRESSING THE OUTPUT IS NOT FREE. It silences the dial for
- *    EVERYONE, not just for the app - including whatever the dial drives inside
- *    the patcher. The first version of the lowpass chain fed its filter from the
- *    dial's OUTLET, so writing the parameter with `set` moved the dial and told
- *    the filter nothing: the slider appeared dead and the cutoff never budged.
- *
- *    So the value is FANNED OUT, not chained. The route outlet is the source of
- *    truth for the app's write, and the caller taps it directly (see
- *    `valueOutlet` below) to drive whatever the parameter controls. The dial is
- *    updated in parallel, so Live's automation, MIDI mapping and Push all stay
- *    correct - but nothing downstream *depends* on the dial re-emitting.
- *
- *    The dial's own outlet still feeds the same destination, because that is the
- *    path a real knob-turn, an automation lane or a Push encoder travels.
- *
- * Returns `{ valueOutlet(id) }`: the [route] outlet carrying the raw value the
- * app wrote, for the chain to wire wherever the parameter actually acts.
- *
- * This is a hand-rolled sliver of what the Surface will generate for every
- * parameter at once (Stage 2 of doc/TODO.md). It is here because "a slider in
- * the device window that actually does something" should not have to wait.
+ * The boxes named here are created LATER, by applySurface(). A patchline may name a
+ * box further down the array: a patcher is a graph, not a script.
  */
-function writableParams({ boxes, lines, jwebId, unmatchedId }, ids) {
-  removeLine(lines, jwebId, unmatchedId);
+function fanParamInto(ctx, paramId, dstId, dstInlet) {
+  const [objId, objOut] = ctx.paramObject(paramId);
+  const [routeId, routeOut] = ctx.paramValue(paramId);
+  ctx.lines.push(line(objId, objOut, dstId, dstInlet));
+  ctx.lines.push(line(routeId, routeOut, dstId, dstInlet));
+}
 
-  const selectors = ids.map((id) => `set_${id}`);
-  boxes.push(
-    box("obj-setparam-route", `route ${selectors.join(" ")}`, {
-      numoutlets: ids.length + 1,
-      outlettype: ids.map(() => "").concat(""),
-    }),
-  );
-  lines.push(line(jwebId, 0, "obj-setparam-route", 0));
-
-  ids.forEach((id, i) => {
-    // `route` STRIPS the selector, so what emerges is the bare value. Re-wrap it
-    // as `set <value>` - the set-without-output message - and feed the object, so
-    // the dial, the automation lane and Push all follow the app's slider.
-    boxes.push(box(`obj-set-${id}`, "prepend set"));
-    lines.push(line("obj-setparam-route", i, `obj-set-${id}`, 0));
-    lines.push(line(`obj-set-${id}`, 0, `obj-param-${id}`, 0));
-  });
-
-  // Unmatched (ui_ready, and anything the wrapper handles) carries on.
-  lines.push(line("obj-setparam-route", ids.length, unmatchedId, 0));
-
-  return {
-    /** The outlet carrying the value the APP wrote. Wire it where the parameter acts. */
-    valueOutlet: (id) => ["obj-setparam-route", ids.indexOf(id)],
-  };
+/** A chain that drives DSP from a parameter is broken without it - say so loudly. */
+function requireParam(ctx, chainName, paramId, overrideField) {
+  if (!ctx.surface?.params?.[paramId]) {
+    const declared = ctx.surface ? ctx.surface.ids.join(", ") || "none" : "no surface.ts at all";
+    throw new Error(
+      `chain "${chainName}" on device "${ctx.device?.name}" needs a parameter "${paramId}" in ` +
+        `src/app/${ctx.device?.ui ?? ctx.device?.name}/surface.ts (declared: ${declared}). ` +
+        `Rename it, or point the chain at another one with \`${overrideField}\`.`,
+    );
+  }
+  return paramId;
 }
 
 /**
@@ -279,52 +266,25 @@ function writableParams({ boxes, lines, jwebId, unmatchedId }, ids) {
  * effect is unmistakable when you sweep it, and there is no way to configure it
  * into silence or into a scream. Swap in `svf~` when you want a real filter.
  *
- * THE CUTOFF MAPPING is the interesting part. The dial is 0-1 (a Live parameter
- * wants a bounded, automatable range), but pitch is logarithmic: a linear sweep
- * from 20 Hz to 18 kHz spends almost all its travel in the top octave, where you
- * can hear nothing happening, and races through the bottom, where everything
- * happens. So the value goes through [expr] first:
+ * THE CUTOFF IS IN HERTZ, and no arithmetic happens here. The chain used to take a
+ * 0-1 parameter and map it through `[expr 40. * pow(450., $f1)]`, because pitch is
+ * logarithmic and a linear knob is useless on a filter. That mapping now lives on
+ * the PARAMETER (`range: [40, 18000]`, `unit: "Hz"`, `exponent`), which is where
+ * Live wants it: the automation lane reads Hz, Push reads "7.3 kHz", the app reads
+ * Hz, and the value drops straight into onepole~. A normalised parameter with the
+ * curve hidden in a chain lies to every one of those readouts.
  *
- *     40 * 450^x     x = 0 -> 40 Hz,  x = 0.5 -> ~850 Hz,  x = 1 -> 18 kHz
- *
- * which spreads the audible action evenly across the knob. This is exactly the
- * curve a filter knob on real hardware has.
- *
- * Requires a parameter named `cutoff` (or pass `device.cutoffParam`).
+ * Requires a parameter named `cutoff` (or pass `device.cutoffParam`), in Hz.
  */
 function lowpassChain(ctx) {
   const { boxes, lines, device } = ctx;
   removeBox(boxes, lines, "obj-midiin");
   removeBox(boxes, lines, "obj-midiout");
 
-  const paramId = device?.cutoffParam ?? "cutoff";
-  const declared = (device?.parameters ?? []).some((p) => p.id === paramId);
-  if (!declared) {
-    throw new Error(`chain "lowpass" on device "${device?.name}" needs a parameter with id "${paramId}" (or set cutoffParam)`);
-  }
-
-  // The slider in the device window writes the parameter: `set_cutoff <0-1>`.
-  const { valueOutlet } = writableParams(ctx, [paramId]);
-  const [routeId, routeOut] = valueOutlet(paramId);
+  const paramId = requireParam(ctx, "lowpass", device?.cutoffParam ?? "cutoff", "cutoffParam");
 
   boxes.push(box("obj-plugin", "plugin~", { numinlets: 1, numoutlets: 2, outlettype: ["signal", "signal"] }));
   boxes.push(box("obj-plugout", "plugout~", { numinlets: 2, numoutlets: 0 }));
-
-  // 0-1 -> 40..18000 Hz, logarithmically. Floats, not ints: `40.` and `450.` keep
-  // expr in float mode, and an int cutoff would quantise the sweep into steps.
-  boxes.push(box("obj-cutoff-hz", "expr 40. * pow(450., $f1)", { numinlets: 1, numoutlets: 1, outlettype: [""] }));
-
-  // TWO sources feed the filter, and it needs both:
-  //
-  //   the DIAL's outlet    - a knob turn, an automation lane, a Push encoder.
-  //   the ROUTE's outlet   - the app's slider.
-  //
-  // The second is not redundant. The app writes the dial with `set`, which
-  // updates it WITHOUT producing output - so the dial would never pass the app's
-  // value on, and the filter would sit wherever it was while the slider appeared
-  // to do nothing. (It did exactly that.) Tap the value where it enters.
-  lines.push(line(`obj-param-${paramId}`, 0, "obj-cutoff-hz", 0));
-  lines.push(line(routeId, routeOut, "obj-cutoff-hz", 0));
 
   // One filter per channel: a signal object handles ONE signal, and plugin~ hands
   // us a stereo pair. Both take the same cutoff, so the image does not shift.
@@ -335,10 +295,10 @@ function lowpassChain(ctx) {
     boxes.push(box(id, "onepole~ 18000.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
     lines.push(line("obj-plugin", i, id, 0));
     lines.push(line(id, 0, "obj-plugout", i));
-    // Cutoff into the RIGHT inlet. The dial box itself is created LATER, by
-    // addParameters() - a patchline may name a box further down the array,
-    // because a patcher is a graph, not a script.
-    lines.push(line("obj-cutoff-hz", 0, id, 1));
+    // The cutoff, in Hz, into the RIGHT inlet - from both of its sources: the dial
+    // (a knob turn, an automation lane, a Push encoder) and the route (the app's
+    // write, which the dial will not re-emit because it arrives as `set`).
+    fanParamInto(ctx, paramId, id, 1);
   }
 }
 
@@ -356,48 +316,12 @@ export function registerChain(name, fn) {
 }
 
 /**
- * Real Live parameters: automatable, MIDI-mappable, and the ONLY thing Push can
- * display. Each becomes a live.* object wired into the UI as `<id> <value>`, so
- * a parameter change is just another inlet message to your app.
+ * Parameters used to be declared in the manifest and generated here, by
+ * `addParameters()`, in ONE direction: object -> app. Writing one back was a
+ * per-chain hand-roll (`writableParams()`).
  *
- * `default` is not optional in practice, whatever the type says. A live.* object
- * with no initial value loads at the BOTTOM of its range, and for a great many
- * parameters the bottom of the range is a broken device: a filter cutoff of 0
- * loads as a device that eats the signal, and it looks exactly like a bug in your
- * DSP. Declare `default` and Max stores it as the object's initial value, which
- * Live restores on load and on "reset to default".
+ * Both are gone. A device's parameters are declared in `src/app/<ui>/surface.ts`
+ * and compiled by `applySurface()` in surface.mjs - objects, both directions, and
+ * the fan-out that the `set` behaviour forces. A chain reaches them through
+ * `fanParamInto()` above.
  */
-export function addParameters(boxes, lines, params, dstId) {
-  let x = 480;
-  for (const p of params) {
-    const objId = `obj-param-${p.id}`;
-    const prependId = `obj-prepend-${p.id}`;
-    boxes.push({
-      box: {
-        id: objId,
-        maxclass: p.object, // live.dial | live.toggle | live.menu
-        numinlets: 1,
-        numoutlets: 1,
-        outlettype: [""],
-        parameter_enable: 1,
-        patching_rect: [x, 300, 44, 48],
-        saved_attribute_attributes: {
-          valueof: {
-            parameter_longname: p.id,
-            parameter_shortname: p.id.slice(0, 8), // Push shows short names
-            parameter_type: p.object === "live.toggle" ? 2 : 0, // 2 = enum, 0 = float
-            ...(p.range ? { parameter_range: p.range } : {}),
-            // parameter_initial is a LIST, and it is inert without
-            // parameter_initial_enable - setting one without the other silently
-            // does nothing, which is the worst way for this to fail.
-            ...(p.default !== undefined ? { parameter_initial_enable: 1, parameter_initial: [p.default] } : {}),
-          },
-        },
-      },
-    });
-    boxes.push(box(prependId, `prepend ${p.id}`));
-    lines.push(line(objId, 0, prependId, 0));
-    lines.push(line(prependId, 0, dstId, 0));
-    x += 56;
-  }
-}

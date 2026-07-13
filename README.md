@@ -233,13 +233,13 @@ export default [
     name: "my-device",
     type: "midi",                    // midi | audio | instrument
     chains: ["midiin", "midiout"],   // canned wiring, applied in order
-    parameters: [                    // real Live parameters - see step 4
-      { id: "density", object: "live.dial", range: [0, 1], default: 0.5 },
-    ],
     unmatchedTo: "js",
   },
 ];
 ```
+
+Parameters are *not* here - they live in `src/app/<device>/surface.ts` (step 4),
+and the build generates the Max objects and their wiring from that declaration.
 
 A **chain** is a small function that adds boxes and cords. Shipped today:
 
@@ -251,10 +251,9 @@ A **chain** is a small function that adds boxes and cords. Shipped today:
 | `gain` | An audio effect with a Live parameter on the level. |
 | `passthrough` | A straight wire. It does *nothing* to the audio - a scaffold, not a feature. |
 
-Write your own in `patcher/chains.mjs`. And set `default` on every parameter:
-without it a `live.dial` loads at the *bottom* of its range, and for a filter
-cutoff that is a device which swallows the signal the moment you drop it on a
-track.
+Write your own in `patcher/chains.mjs`. A chain that drives DSP from a parameter
+(`lowpass` wants `cutoff`, `gain` wants `gain`) fails the build if the device's
+surface does not declare it.
 
 ### 3. Define the protocol - `src/app/<device>/protocol.ts`
 
@@ -318,17 +317,35 @@ coarse, and your app never touches a timer.
 into the signal path inside the patcher: your React code moves a *value*, never a
 sample, and the sound keeps working even if the browser stalls.
 
-### 5. Add parameters - `parameters`
+### 5. Add parameters - `src/app/<device>/surface.ts`
 
-Parameters in the manifest become Live parameters: automatable, MIDI-mappable,
-and readable by Push. Each one also arrives in your app as a message
-(`density 0.42`).
+Push shows Live *parameters*, not your UI - not yours, not anyone's. So every
+musically meaningful control has to exist as a real Live parameter as well as in
+your app. You declare it **once**:
 
-Push shows parameters, not your UI, so a control has to exist in both places.
-Declaring them once - in `src/app/<device>/surface.ts` - and generating the rest
-is planned but not built yet; for now the manifest is what Live reads. See
-[doc/SURFACE.md](doc/SURFACE.md) for the design and [doc/TODO.md](doc/TODO.md)
-for the plan.
+```ts
+import { defineSurface, dial } from "@m4l-jweb/surface";
+
+export default defineSurface({
+  params: {
+    cutoff: dial({ range: [0, 1], default: 1, short: "Cutoff" }),
+  },
+});
+```
+
+The build generates the rest: a `live.dial` that is automatable, MIDI-mappable
+and visible to Push, wired in **both** directions. A knob turn (or an automation
+lane, or a Push encoder) arrives in your app as `cutoff 0.42`; your app writes it
+back with `set_cutoff 0.42`, which moves the dial *and* the DSP the parameter
+drives.
+
+**Set `default`.** Without it a `live.*` object loads at the *bottom* of its
+range, and for a filter cutoff that is a device which swallows the signal the
+moment you drop it on a track.
+
+Still to come: `useParam()` in React, and the protocol selectors generated from
+the same declaration. See [doc/SURFACE.md](doc/SURFACE.md) for the design and
+[doc/TODO.md](doc/TODO.md) for the sequence.
 
 ### 6. One device, one bundle
 
