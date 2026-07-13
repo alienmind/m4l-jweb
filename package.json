@@ -10,7 +10,6 @@
 		"dev": "node scripts/dev.mjs hello-midi",
 		"dev:hello-midi": "node scripts/dev.mjs hello-midi",
 		"dev:hello-audio": "node scripts/dev.mjs hello-audio",
-		"dev:spike": "node scripts/dev.mjs spike",
 		"build": "tsc -b && node scripts/build-ui.mjs && m4l-jweb build",
 		"build:wrapper": "m4l-jweb wrapper",
 		"build:patchers": "m4l-jweb patchers",

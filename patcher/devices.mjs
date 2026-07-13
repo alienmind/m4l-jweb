@@ -98,19 +98,4 @@ export default [
     chains: ["gain", "drive", "lowpass"],
     unmatchedTo: "js",
   },
-  {
-    /**
-     * Not a device - an instrument for answering the three Stage 1 questions
-     * that the rest of the plan is gated on. Build it, drag it onto a MIDI
-     * track, open the Max console, and follow doc/TODO.md.
-     *
-     * Delete this entry (and patcher/chains.mjs, and wrapper/device.ts) once
-     * the answers are recorded.
-     */
-    name: "spike",
-    type: "midi",
-    mode: "spike", // the wrapper and the UI both switch on this
-    chains: ["spike"],
-    unmatchedTo: "js",
-  },
 ];
