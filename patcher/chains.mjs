@@ -89,8 +89,12 @@ function spikeChain({ boxes, lines, jwebId, unmatchedId }) {
   lines.push(line("obj-spike-dialout", 0, jwebId, 0));
 
   // --- spike 1.2: a named buffer~ for [js] to address ---
-  // 1000 ms, 1 channel. The wrapper does `new Buffer("m4ljweb_spike")`.
-  boxes.push(box("obj-spike-buffer", "buffer~ m4ljweb_spike 1000 1", { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
+  // NO size argument, deliberately. A declared size is indistinguishable from a
+  // successful read: `buffer~ m4ljweb_spike 1000 1` reports 48000 frames at 48k
+  // whether or not the file ever arrived, and the first run of this spike read
+  // exactly that and looked like a pass. Starting empty makes frames>0 mean one
+  // thing only. The wrapper does `new Buffer("m4ljweb_spike")`.
+  boxes.push(box("obj-spike-buffer", "buffer~ m4ljweb_spike", { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
 
   // --- spike 1.3: maxurl on the wrapper's spare outlet ---
   boxes.push(box("obj-spike-maxurl", "maxurl", { numinlets: 1, numoutlets: 3, outlettype: ["", "", ""] }));

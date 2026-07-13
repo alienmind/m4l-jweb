@@ -29,10 +29,19 @@ track, open the Max console, follow SPIKES.md.
 
 | Spike | Question | Status |
 |---|---|---|
-| **1.2** | Can `[js]` drive a `[buffer~]` to read a file off disk? | **not run - do this first** |
-| **1.1a** | Does a `set`-written parameter still reach Live's automation lane? | **not run** |
+| **1.2** | Can `[js]` drive a `[buffer~]` to read a file off disk? | **inconclusive - rerun, do this first** |
 | **1.3** | `[maxurl]` or `[jit.uldl]` - which downloads to disk inside Live? | **not run** |
-| ~~1.1~~ | Does `set` on a `live.*` suppress its outlet? | **answered in the field - see below** |
+| 1.1a | Does a `set`-written parameter still reach Live's automation lane? | not run - but 1.1b makes it near-certain |
+| ~~1.1~~ | Does `set` on a `live.*` suppress its outlet? | **YES, measured in Live** |
+| ~~1.1b~~ | ...and does the `set` write still reach the parameter? | **YES, on a Push** |
+
+**Stage 2 is no longer gated.** 1.1 and 1.1b are answered on hardware: `set`
+suppresses the outlet (the echo counter stays frozen) *and* still writes the
+parameter itself (a Push knob's readout follows a `set_param`). So the
+suppression is scoped to the outlet and the cords it drives - which is exactly
+the no-feedback behaviour the Surface was designed around, with the fan-out
+caveat below. 1.1a is the same question asked of the automation lane; it is worth
+confirming, but it is no longer a plausible blocker.
 
 **1.2 is the cheapest and de-risks the most.** No network, no download chain, no
 new protocol: a payload already lands on disk on every load. It is the
@@ -40,10 +49,10 @@ load-bearing claim under *"disk is the audio transport"*, which is what makes an
 instrument device possible at all. If `[js]` can point a `buffer~` at a real file
 and see the frames arrive, Stage 3.2 is mostly wiring.
 
-## What 1.1 already taught us, without being run
+## What 1.1 taught us
 
-Building `hello-audio` answered the main question by accident, and the answer is
-sharper than the spike was designed to find:
+Building `hello-audio` answered the main question by accident, before the spike
+was even run, and the answer is sharper than the spike was designed to find:
 
 > **`set` suppresses the object's outlet for EVERY consumer, not just for the
 > app.** It stops the app feeding itself back - and it also cuts every cord that
@@ -58,9 +67,15 @@ today, for one parameter, by hand.
 
 **This changes Stage 2.** The Surface was designed around the `set` trick, so its
 generated wiring must fan out the same way or every generated parameter inherits
-this bug. What is still unanswered is 1.1a: whether a `set`-written value reaches
-the automation lane. If it does not, `set` is worse than the feedback loop and
-the `[gate]` fallback comes back.
+this bug.
+
+The spike then confirmed the other side of it in Live, which is what makes the
+trick safe to build on: `set_param` leaves the echo counter frozen (the outlet
+really is suppressed) while a **Push** knob's readout still follows the value
+(the parameter really is written). The silence stops at the outlet. A
+`parameter_enable`d dial also reaches Push with no extra wiring at all, in both
+directions - so "generated parameters get Push and MIDI mapping for free" is
+confirmed on hardware, not assumed.
 
 ---
 

@@ -65,11 +65,27 @@ press `set_param`. Watch the counter.
   back to a `[gate]` around the app-bound path that the wrapper closes for one
   scheduler tick after a `set_param`. Uglier, but workable.
 
-**Also check, and it is easy to forget:** that the value still reaches **Live's
-automation lane**. `set` is supposed to silence the *outlet*, not the parameter
-change. Arm automation on the track, move the dial via `set_param`, and confirm
-Live records it. A `set` that also hides the change from automation would be
-worse than the feedback loop.
+**Also check, and it is easy to forget: how far does the silence reach?** `set` is
+supposed to silence the *outlet*, not the parameter change - and hello-audio
+already showed the silence reaching further than expected (it cuts every cord the
+object drives inside the patcher). So the counter not moving is necessary but not
+sufficient. The remaining question is whether `set` writes the **parameter** at
+all, or only the dial's on-screen appearance. Two ways to ask it, and they are
+the same question:
+
+- **1.1a, the automation lane.** Arm automation on the track, write the dial via
+  `set_param`, and confirm Live records it.
+- **1.1b, Push.** The dial is `parameter_enable`d, so Push banks it automatically
+  with no extra work - which is itself the confirmation that a generated
+  parameter gets Push, MIDI mapping and automation for free (**confirmed on
+  hardware: the knob appears, named from `parameter_shortname`, travelling over
+  `parameter_range`**). Now press `set_param` in the device UI and watch Push's
+  value readout. It is the ten-second version of 1.1a.
+
+If either says no - the lane stays empty, or Push's readout does not follow -
+then `set` is not setting the parameter and the Surface's whole app -> parameter
+path is writing to a picture of a knob. That would be worse than the feedback
+loop, and Stage 2 needs rethinking before a line of codegen is written.
 
 ## Spike 1.2 - can `[js]` drive a `[buffer~]` to read a file off disk?
 
@@ -82,12 +98,23 @@ cross the Max message bridge as data, and Stage 3.2 is mostly wiring.
 
 **The apparatus.** The spike chain puts a named `[buffer~ m4ljweb_spike]` in the
 patcher; `wrapper/device.ts` addresses it as `new Buffer("m4ljweb_spike")` and
-sends it `replace <path>`. The path it uses is the wrapper's **own extracted UI
-payload** (`spike.html`) - a real file that certainly exists on disk next to the
-`.amxd`, which sidesteps "did the file exist" as a confounder entirely.
+sends it `replace <path>`. The buffer is declared with **no size argument**, so
+it starts empty and **`frames > 0` is the finding** - see the first run below for
+why that matters more than it sounds.
 
-It is not audio, so it will not sound like anything. **`frames > 0` is the
-finding**, not the sound.
+The default path is `jongly.aif`, which ships with Max and lives on its search
+path, so a bare filename with no directory resolves. Any `.wav` on disk works
+too; type it in the field.
+
+**The first run of this spike was a false pass, and the fix is instructive.** The
+buffer was declared `buffer~ m4ljweb_spike 1000 1` and `replace` was pointed at
+the wrapper's own extracted `spike.html` - chosen because that file certainly
+exists, which seemed to remove "did the file exist" as a confounder. It reported
+`frames=48000 channels=1 midsample=0`, which is 1000 ms at 48 kHz: the buffer's
+**declared, empty size**, reported whether or not the read ever happened.
+`buffer~` decodes *audio*; an HTML file leaves it untouched. Hence: no declared
+size, a real audio file, a baseline `framecount()` posted before the `replace`,
+and a control button that loads the `.html` on purpose and must report 0.
 
 **Note the API surface is itself part of what is being tested.** `Buffer.send`,
 `framecount`, `peek` are declared in `packages/wrapper/src/max.d.ts` from the
@@ -95,17 +122,19 @@ docs, and marked UNVERIFIED there. If one of them is not what Max's `[js]`
 actually exposes, the exception in the Max console *is the result* - record it,
 do not paper over it.
 
-**Procedure.** Press `buffer_load`. The wrapper sends `replace`, waits 500 ms on
-a `Task` (the read is asynchronous - `framecount()` immediately after `replace`
-still reads the old size), then posts and returns `buffer_result <frames>
-<channels> <midsample>`.
+**Procedure.** Press `buffer_load`. The wrapper posts the baseline frame count,
+sends `replace`, waits 500 ms on a `Task` (the read is asynchronous -
+`framecount()` immediately after `replace` still reads the old size), then posts
+and returns `buffer_result <frames> <channels> <midsample>`.
 
 **What each outcome means:**
 
-- **frames > 0** -> the seam works. Stage 3.2 proceeds: the file goes to disk,
-  `buffer~` reads it, MSP plays it, `[js]` only ever sends control messages.
-- **frames = 0, no error** -> `replace` was accepted but read nothing. Try a real
-  `.wav`, and try `read` instead of `replace`.
+- **frames > 0 and midsample != 0** -> the seam works. Stage 3.2 proceeds: the
+  file goes to disk, `buffer~` reads it, MSP plays it, `[js]` only ever sends
+  control messages. (A midsample of exactly 0 is possible in real audio, but with
+  the buffer starting empty, `frames > 0` alone already carries the finding.)
+- **frames = 0, no error** -> `replace` was accepted but read nothing. Try a
+  `.wav` with an absolute path, and try `read` instead of `replace`.
 - **an exception** -> the `Buffer` binding is not what the docs say. Record what
   it actually is. This is the finding, and it changes `max.d.ts`.
 
@@ -151,9 +180,11 @@ Fill this in as they are run. An unrun spike is not a "probably fine".
 
 | Spike | Question | Status | Finding |
 |---|---|---|---|
-| 1.2 | `[js]` -> `[buffer~]` reads a file from disk | **not run** | - |
-| 1.1 | `set` on `live.*` suppresses outlet output | **field evidence: YES** | See below. Still worth running the spike properly - this was observed, not measured. |
-| 1.1a | ...and the change still reaches automation | **not run** | - |
+| 1.2 | `[js]` -> `[buffer~]` reads a file from disk | **inconclusive - rerun** | The first run was a false pass: it read back the buffer's own declared size (48000 frames = the 1000 ms it was created with) after a `replace` of a *non-audio* file. The apparatus is fixed; run it again with `jongly.aif`. |
+| 1.1 | `set` on `live.*` suppresses outlet output | **YES, measured in Live** | `raw_param` raises the echo counter; `set_param` does not. `set` suppresses the outlet. The Surface's no-feedback design holds - **provided** it also fans the value out to the parameter's consumers, per the field evidence below. |
+| 1.1a | ...and a `set` write still reaches automation | **not run** | Arm the track, write the dial with `set_param`, confirm Live records it. |
+| 1.1b | ...and a `set` write still reaches Push | **YES, on hardware** | `set_param` moves the Push knob's value **while the echo counter stays frozen**. So `set` writes the parameter itself, and the suppression is scoped to the outlet (and the cords it drives). This is the result Stage 2 was gated on. |
+| 1.1c | a `parameter_enable`d dial reaches Push at all | **YES, on hardware** | Push banked it automatically - no extra wiring, named from `parameter_shortname`, over `parameter_range`. Turning the Push knob moves the on-screen value. That is the parameter -> app direction; 1.1b is the untested one. |
 | 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **not run** | - |
 
 ### Field evidence for 1.1, from hello-audio
