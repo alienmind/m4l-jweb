@@ -454,6 +454,14 @@ and then distorts it; `["drive", "gain"]` distorts at full level and turns the
 result down. Same chains, same parameters, unmistakably different sound. Verify a
 reordering with `drive` in it, or you are testing a no-op.
 
+**And composition is the one thing the tests cannot close.** A patcher that stacks
+three effects in series and one that sums them in parallel both build, both load and
+both make sound; the difference is audible and nothing else. So `hello-audio` ships
+with a twin, `hello-audio-rev` - the same app folder, the same surface, the same
+three dials, and the *opposite* chain order, so that the order is the only thing in
+the build that differs. It is a test case, not an example, and you run it with your
+ears: **[LISTENING.md](LISTENING.md)**.
+
 Each audio chain used to create its own `plugin~`/`plugout~`, which made it a whole
 device rather than a stage. Two of them emitted duplicate box ids and *summed* their
 outputs - the unfiltered signal mixed back over the filtered one, with no error at
