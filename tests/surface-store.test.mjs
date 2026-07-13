@@ -13,8 +13,8 @@
  */
 import { expect, test, vi } from "vitest";
 import { simulate, tapMessages } from "@m4l-jweb/bridge";
-import { defineSurface, dial, menu, toggle } from "@m4l-jweb/surface";
-import { GUARD_MS, paramStore } from "@m4l-jweb/surface/store";
+import { defineSurface, dial, menu, toggle, state } from "@m4l-jweb/surface";
+import { GUARD_MS, paramStore, stateStore } from "@m4l-jweb/surface/store";
 
 /** A fresh surface per test: the store is keyed by the declaration and lives forever, by design. */
 const makeSurface = () =>
@@ -130,4 +130,47 @@ test("every subscriber sees every change - the bridge holds only ONE handler per
 test("one surface, one store - a second call does not rebind and lose the first", () => {
   const surface = makeSurface();
   expect(paramStore(surface)).toBe(paramStore(surface));
+});
+
+/* ------------------------------------------------------------------ *
+ * State Store
+ * ------------------------------------------------------------------ */
+
+const makeStateSurface = () =>
+  defineSurface({
+    params: {},
+    state: { config: state({ default: { voices: 4 } }) },
+  });
+
+test("stateStore starts at defaults and emits get_state", () => {
+  const { out, stop } = sent();
+  const store = stateStore(makeStateSurface());
+  
+  expect(store.get()).toEqual({ config: { voices: 4 } });
+  expect(out).toContainEqual(["get_state", "config"]);
+  stop();
+});
+
+test("stateStore parses inbound JSON and updates", () => {
+  const store = stateStore(makeStateSurface());
+  simulate("state_config", '{"voices": 8, "tuning": "drop-d"}');
+  expect(store.get()).toEqual({ config: { voices: 8, tuning: "drop-d" } });
+});
+
+test("stateStore ignores invalid JSON without crashing", () => {
+  const store = stateStore(makeStateSurface());
+  const before = store.get().config;
+  simulate("state_config", '{ invalid json }');
+  expect(store.get().config).toEqual(before);
+});
+
+test("stateStore writes state out as JSON string", () => {
+  const { out, stop } = sent();
+  const store = stateStore(makeStateSurface());
+  
+  store.write("config", { voices: 16 });
+  expect(out).toContainEqual(["sync_state_config", '{"voices":16}']);
+  expect(store.get().config).toEqual({ voices: 16 });
+  
+  stop();
 });

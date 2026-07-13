@@ -12,7 +12,7 @@
  * `pnpm build` and fails CI. It is only a less pretty error message.
  */
 import { expect, test } from "vitest";
-import { BANK_SIZE, defaults, defineSurface, dial, formatValue, menu, toggle } from "@m4l-jweb/surface";
+import { BANK_SIZE, defaults, defineSurface, dial, formatValue, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const ok = () =>
   defineSurface({
@@ -85,4 +85,14 @@ test("formatValue falls back sensibly when no format is given", () => {
   expect(formatValue(s.params.octave, 2)).toBe("2"); // step 1 -> integer
   expect(formatValue(s.params.running, true)).toBe("on");
   expect(formatValue(s.params.slot, "B")).toBe("B");
+});
+
+test("window and state definitions are kept on the surface", () => {
+  const s = defineSurface({
+    params: { mix: dial({ range: [0, 1], default: 0.5, short: "Mix" }) },
+    windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) },
+    state: { config: state({ default: { voices: 4 } }) }
+  });
+  expect(s.windows.map.title).toBe("Map");
+  expect(s.state.config.default.voices).toBe(4);
 });
