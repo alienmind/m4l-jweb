@@ -335,10 +335,11 @@ first; do not guess the shape.
   entry.
 - **A VST3 backend**, so a device runs outside Live. Assessed in
   [VST3.md](VST3.md): the app, the bridge, the surface and the harness port; the
-  LiveAPI wrapper does not, and the headless build is what you trade away. Two of
-  its stages (the bridge's transport seam, a second backend for the Surface
-  compiler) are worth doing on their own merits, before anyone commits to the
-  runtime.
+  LiveAPI wrapper does not, and the headless build is what you trade away. **One
+  repo, not a fork** - the shared traps *are* the product, and duplicating them is
+  how they drift. The first stage of it is a `Target` seam extracted from
+  `packages/build` **while there is still only one target**, and that is worth
+  doing on its own merits, before anyone commits to a C++ runtime.
 
 ---
 

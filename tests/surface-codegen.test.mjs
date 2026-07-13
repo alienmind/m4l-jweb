@@ -25,7 +25,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { expect, test } from "vitest";
 
-import { CHAINS, resetLayout } from "@m4l-jweb/build/chains";
+import { CHAINS, box, line, registerChain, removeLine, resetLayout } from "@m4l-jweb/build/chains";
 import { SURFACE_ROUTE, applySurface, surfaceContext } from "@m4l-jweb/build/surface";
 import { defineSurface, dial, menu, toggle } from "@m4l-jweb/surface";
 
@@ -268,6 +268,24 @@ test("a device with no surface is left alone", () => {
 /* ------------------------------------------------------------------ *
  * The failure that used to be silent
  * ------------------------------------------------------------------ */
+
+test("a chain that cuts jweb's cord by hand fails the build, instead of double-delivering", () => {
+  // The pre-0.4.0 idiom: removeLine(lines, jwebId, unmatchedId), then wire your own
+  // route from [jweb] and pass your unmatched outlet on to [js]. Two routes then
+  // hang off [jweb] IN PARALLEL, and each passes the unrouted messages on - so the
+  // wrapper sees `ui_ready` twice, the device works, and nothing reports anything.
+  // A chain must hand the stream on explicitly (claimAppMessages), or say why not.
+  const legacy = (ctx) => {
+    const { boxes, lines, jwebId, unmatchedId } = ctx;
+    removeLine(lines, jwebId, unmatchedId);
+    boxes.push(box("obj-legacy-route", "route foo", { numoutlets: 2, outlettype: ["", ""] }));
+    lines.push(line(jwebId, 0, "obj-legacy-route", 0));
+    lines.push(line("obj-legacy-route", 1, unmatchedId, 0));
+  };
+  registerChain("legacy-claim", legacy);
+
+  expect(() => compile(oneDial, { chains: ["legacy-claim"], device: { name: "legacy" } })).toThrow(/without claimAppMessages/);
+});
 
 test("a chain whose parameter is not declared fails the build, loudly", () => {
   // `lowpass` drives its filter from `cutoff`. Rename the parameter in surface.ts

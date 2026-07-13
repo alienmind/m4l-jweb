@@ -176,6 +176,19 @@ export async function generatePatchers(root) {
      *                    which updates it WITHOUT output, so the object would
      *                    never pass that value on. See surface.mjs.
      */
+    // The manifest carried `parameters` until 0.4.0. It is now declared in
+    // src/app/<ui>/surface.ts and generated from there - so a leftover field is not
+    // a harmless extra key, it is a device whose parameters have SILENTLY
+    // disappeared. Fail the build and say where they went.
+    if (d.parameters) {
+      throw new Error(
+        `device "${d.name}" still declares \`parameters\` in patcher/devices.mjs. ` +
+          `That field is gone: declare them in src/app/${d.ui ?? d.name}/surface.ts with defineSurface(), ` +
+          `which generates the live.* objects, both wiring directions and the protocol selectors. ` +
+          `See doc/SURFACE.md.`,
+      );
+    }
+
     const surface = await loadSurface(root, d.ui ?? d.name);
     const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, ...surfaceContext(surface) };
 
