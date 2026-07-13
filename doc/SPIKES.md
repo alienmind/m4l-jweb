@@ -138,6 +138,15 @@ and returns `buffer_result <frames> <channels> <midsample>`.
 - **an exception** -> the `Buffer` binding is not what the docs say. Record what
   it actually is. This is the finding, and it changes `max.d.ts`.
 
+**Reading the control button correctly.** It fires the same `replace` at the
+extracted `.html`, and what it proves is that a non-audio file **leaves the buffer
+exactly as it was** - it does not clear it, and it does not error. So the control
+only says something if you know the buffer's state going in: from empty it reads
+0, and *after a successful load it still reads the loaded file's frame count*.
+That is not a failure of the control; it is the whole reason the first run was a
+false pass. Read the `before replace` line, always. It is the only number that
+tells you what the reading you are about to see is being compared against.
+
 ## Spike 1.3 - which HTTP object downloads to disk inside Live?
 
 **Why it matters.** Stage 3.1 replaces `[node.script]` - the least reliable
@@ -180,7 +189,7 @@ Fill this in as they are run. An unrun spike is not a "probably fine".
 
 | Spike | Question | Status | Finding |
 |---|---|---|---|
-| 1.2 | `[js]` -> `[buffer~]` reads a file from disk | **inconclusive - rerun** | The first run was a false pass: it read back the buffer's own declared size (48000 frames = the 1000 ms it was created with) after a `replace` of a *non-audio* file. The apparatus is fixed; run it again with `jongly.aif`. |
+| 1.2 | `[js]` -> `[buffer~]` reads a file from disk | **YES, measured in Live** | `frames=0` -> `replace jongly.aif` -> **124439 frames, 1 ch, midsample -0.0319**. Bytes arrive. The `Buffer` binding is what the docs say: `send`, `framecount`, `channelcount`, `peek` all exist and work. "Disk is the audio transport" holds. |
 | 1.1 | `set` on `live.*` suppresses outlet output | **YES, measured in Live** | `raw_param` raises the echo counter; `set_param` does not. `set` suppresses the outlet. The Surface's no-feedback design holds - **provided** it also fans the value out to the parameter's consumers, per the field evidence below. |
 | 1.1a | ...and a `set` write still reaches automation | **not run** | Arm the track, write the dial with `set_param`, confirm Live records it. |
 | 1.1b | ...and a `set` write still reaches Push | **YES, on hardware** | `set_param` moves the Push knob's value **while the echo counter stays frozen**. So `set` writes the parameter itself, and the suppression is scoped to the outlet (and the cords it drives). This is the result Stage 2 was gated on. |
