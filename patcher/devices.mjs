@@ -11,15 +11,16 @@
  *                               -> midiformat -> midiout. The app emits
  *                               `midinote <pitch> <vel> <durMs> <chan> <delayMs>`;
  *                               it computes WHEN, Max places it precisely.
- *                 "passthrough" plugin~ -> plugout~ (an audio effect that
- *                               passes its input through untouched).
+ *                 "lowpass"     onepole~ in the signal path, on a `cutoff` param.
+ *                 "gain"        *~ in the signal path, on a `gain` param.
+ *                 "passthrough" nothing at all - an audio effect that passes its
+ *                               input through untouched.
  *
- *               TWO AUDIO CHAINS CANNOT BE COMBINED TODAY. Each one creates its
- *               own plugin~/plugout~ and owns the whole signal path, so
- *               `["lowpass", "gain"]` emits duplicate boxes and SUMS the two
- *               paths instead of stacking them - silently. Stage 2.6 of
- *               doc/TODO.md fixes this (the build owns the endpoints; a chain
- *               claims a stage). Until then: one audio chain per device.
+ *               THE ORDER IS THE SIGNAL PATH. An audio device's plugin~/plugout~
+ *               are created by the build; each audio chain claims one STAGE
+ *               between them, so `["lowpass", "gain"]` is
+ *               plugin~ -> onepole~ -> *~ -> plugout~, and reversing the list
+ *               reverses the effects.
  *   unmatchedTo where messages the chains did not consume go. "js" sends them
  *               to the wrapper (ui_ready, write_clip, read_notes, ...).
  *
@@ -43,20 +44,23 @@ export default [
   {
     /**
      * An audio EFFECT: it sits on an audio track, takes audio in and gives audio
-     * out. This one is audible - a one-pole lowpass with the Cutoff dial on it,
-     * so sweeping the knob takes the top end away. Ableton's Auto Filter, minus
-     * everything except the part you can hear.
+     * out. Three stages, and THIS LINE IS THE SIGNAL PATH:
      *
-     * (It used to be the `passthrough` chain: a straight wire that proved the
-     * container built and did nothing else. Removing it from a track sounded
-     * identical, which is a fair thing to be annoyed by.)
+     *   plugin~ -> onepole~ -> overdrive~ -> *~ -> plugout~
+     *              "lowpass"    "drive"    "gain"
+     *
+     * The build creates the device's plugin~/plugout~; each chain claims one stage
+     * between them, in declaration order. Swap "drive" and "gain" here and the
+     * device is rewired - and you can HEAR the difference, because distortion and a
+     * level change do not commute (a filter and a level change do: reordering
+     * "lowpass" and "gain" would generate a different patcher and sound the same).
+     *
+     * Each chain requires the parameter named after it - cutoff, drive, gain - from
+     * src/app/hello-audio/surface.ts, and fails the build without it.
      */
     name: "hello-audio",
     type: "audio",
-    chains: ["lowpass"],
-    // The `cutoff` parameter the chain needs: src/app/hello-audio/surface.ts. It
-    // is 0-1 on the dial; the chain maps it logarithmically to 40 Hz - 18 kHz,
-    // because a linear sweep of frequency does not sound like a linear sweep.
+    chains: ["lowpass", "drive", "gain"],
     unmatchedTo: "js",
   },
   {

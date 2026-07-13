@@ -1,16 +1,26 @@
 /**
  * hello-audio - an AUDIO EFFECT. It sits on an audio track, takes audio in and
- * gives audio out. A lowpass filter: drag the Cutoff slider down and the top end
- * goes away.
+ * gives audio out. A filter into a distortion into a level: sweep Cutoff and the
+ * top end goes, push Drive and it dirties up, pull Gain and it quietens.
+ *
+ * THREE CHAINS, IN A SERIES THE MANIFEST SPELLS. `chains: ["lowpass", "drive",
+ * "gain"]` in patcher/devices.mjs IS the signal path - the build creates the
+ * device's plugin~/plugout~ and each chain claims one stage between them. Reorder
+ * those three words and the device is rewired; nothing in this file changes, and no
+ * patch cord is drawn by hand.
+ *
+ * That reordering is AUDIBLE, which is not a given: put `gain` before `drive` and a
+ * quiet signal barely clips, put it after and the distortion happens at full level
+ * and is then turned down. (Swapping `lowpass` and `gain` would sound identical -
+ * both are linear, so they commute. Distortion is what makes the order real.)
  *
  * THE THING TO UNDERSTAND HERE: the audio never touches this app.
  *
- * The Cutoff dial is wired straight into the filter, in the patcher
- * (`plugin~ -> onepole~ -> plugout~`). This React code neither sees nor carries a
- * single sample, and if the browser stalls the sound keeps working. What the app
- * does is move a VALUE - and it moves the real Live parameter, not a private copy
- * of it, so the slider, the dial, the automation lane and Push are one control
- * with several faces.
+ * Every one of those dials is wired straight into its signal object, in the patcher.
+ * This React code neither sees nor carries a single sample, and if the browser
+ * stalls the sound keeps working. What the app does is move a VALUE - and it moves
+ * the real Live parameter, not a private copy of it, so the slider, the dial, the
+ * automation lane and Push are one control with several faces.
  *
  * That is the general rule of this stack, not a quirk of this device: audio is
  * Max's job; the app decides *what* and *when*, and never carries samples.
@@ -47,7 +57,11 @@ export default function HelloAudio() {
    * Writing it moves all three.
    */
   const [hz, setHz] = useParam(surface, "cutoff");
+  const [drive, setDrive] = useParam(surface, "drive");
+  const [gain, setGain] = useParam(surface, "gain");
   const device = useDevice();
+
+  const fmt = (id: "drive" | "gain", v: number) => surface.params[id].format?.(v) ?? String(v);
 
   return (
     <Frame title="HELLO AUDIO" device={device}>
@@ -59,8 +73,26 @@ export default function HelloAudio() {
         </label>
       </dd>
 
-      <dt>filter</dt>
-      <dd>lowpass, 6 dB/oct - in the signal path, not in this page</dd>
+      {/* Drive and gain need no curve: their ranges are small and linear, so the
+          slider position IS the value. Only the cutoff is logarithmic. */}
+      <dt>drive</dt>
+      <dd>
+        <label className="slider">
+          <input type="range" min={1} max={10} step={0.1} value={drive} onChange={(e) => setDrive(Number(e.target.value))} />
+          <strong>{fmt("drive", drive)}</strong>
+        </label>
+      </dd>
+
+      <dt>gain</dt>
+      <dd>
+        <label className="slider">
+          <input type="range" min={0} max={2} step={0.01} value={gain} onChange={(e) => setGain(Number(e.target.value))} />
+          <strong>{fmt("gain", gain)}</strong>
+        </label>
+      </dd>
+
+      <dt>chain</dt>
+      <dd>lowpass &rarr; drive &rarr; gain - in the signal path, not in this page</dd>
 
       <Transport device={device} />
     </Frame>

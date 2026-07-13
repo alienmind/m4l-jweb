@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
-import { CHAINS, resetLayout } from "./chains.mjs";
+import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
 import { applySurface, loadSurface, surfaceContext } from "./surface.mjs";
 
 const require = createRequire(import.meta.url);
@@ -138,6 +138,73 @@ async function loadDeviceChains(root) {
   console.log("m4l-jweb: loaded device chains from patcher/chains.mjs");
 }
 
+/**
+ * One device, one patcher: the template, its chains, its Surface. Pure - it takes
+ * the base patcher and the device's declaration and returns the JSON to write.
+ *
+ * It is exported because the tests generate patchers too, and a test that
+ * assembled the pipeline itself could pass while the build wired something else.
+ * The ORDER below is the pipeline, and every step of it is load-bearing:
+ *
+ *   openAudio      the device's plugin~/plugout~, created ONCE, before any chain -
+ *                  so a chain is a stage in the signal path, not the owner of it.
+ *   the chains     in declaration order, each taking what the last one left.
+ *   applySurface   LAST of the message-stream claimants: it routes every `set_<id>`
+ *                  off the app's stream and passes on what nobody claimed
+ *                  (ui_ready, ...) to the wrapper. Doing it last means no chain has
+ *                  to know the Surface exists.
+ *   closeAudio     the final stage's output into plugout~.
+ *   assertUnique   two boxes with one id is a malformed patcher, and Max resolves
+ *                  it however it likes. Nothing else would report it.
+ */
+export function composePatcher(base, d, surface) {
+  const amxdtype = AMXD_TYPES[d.type];
+  if (!amxdtype) throw new Error(`unknown type "${d.type}" for device "${d.name}" (midi | audio | instrument)`);
+
+  const p = structuredClone(base);
+  const { boxes, lines } = p.patcher;
+  p.patcher.project.amxdtype = amxdtype;
+  resetLayout();
+
+  // The wrapper is mode-switched by its object-box argument. `mode` defaults
+  // to the device type, but they are not always the same thing: a sample
+  // player can be an audio-effect device ("type") that the wrapper must treat
+  // as a sampler ("mode").
+  //
+  // jsarguments[0] is the SCRIPT NAME, so the mode lands at jsarguments[1].
+  const mode = d.mode ?? d.type;
+  boxes.find((b) => b.box.id === "obj-js").box.text = `js wrapper.js ${mode}`;
+
+  const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
+
+  /**
+   * The device's parameters, declared once in src/app/<ui>/surface.ts. A chain
+   * that drives DSP from a parameter needs two things from it, and needs BOTH:
+   *
+   *   paramObject(id)  the live.* object's outlet - a knob turn, an automation
+   *                    lane, a Push encoder.
+   *   paramValue(id)   the route outlet carrying what the APP wrote. Not
+   *                    redundant: the app's write reaches the object as `set`,
+   *                    which updates it WITHOUT output, so the object would
+   *                    never pass that value on. See surface.mjs.
+   */
+  const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, ...surfaceContext(surface) };
+
+  openAudio(ctx);
+
+  for (const name of d.chains ?? []) {
+    const chain = CHAINS[name];
+    if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
+    chain(ctx);
+  }
+
+  applySurface(ctx);
+  closeAudio(ctx);
+  assertUniqueBoxIds(boxes, d.name);
+
+  return p;
+}
+
 export async function generatePatchers(root) {
   const devices = await readManifest(root);
   const base = readBase(root);
@@ -146,36 +213,6 @@ export async function generatePatchers(root) {
   mkdirSync(outDir, { recursive: true });
 
   for (const d of devices) {
-    const amxdtype = AMXD_TYPES[d.type];
-    if (!amxdtype) throw new Error(`unknown type "${d.type}" for device "${d.name}" (midi | audio | instrument)`);
-
-    const p = structuredClone(base);
-    const { boxes, lines } = p.patcher;
-    p.patcher.project.amxdtype = amxdtype;
-    resetLayout();
-
-    // The wrapper is mode-switched by its object-box argument. `mode` defaults
-    // to the device type, but they are not always the same thing: a sample
-    // player can be an audio-effect device ("type") that the wrapper must treat
-    // as a sampler ("mode").
-    //
-    // jsarguments[0] is the SCRIPT NAME, so the mode lands at jsarguments[1].
-    const mode = d.mode ?? d.type;
-    boxes.find((b) => b.box.id === "obj-js").box.text = `js wrapper.js ${mode}`;
-
-    const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
-
-    /**
-     * The device's parameters, declared once in src/app/<ui>/surface.ts. A chain
-     * that drives DSP from a parameter needs two things from it, and needs BOTH:
-     *
-     *   paramObject(id)  the live.* object's outlet - a knob turn, an automation
-     *                    lane, a Push encoder.
-     *   paramValue(id)   the route outlet carrying what the APP wrote. Not
-     *                    redundant: the app's write reaches the object as `set`,
-     *                    which updates it WITHOUT output, so the object would
-     *                    never pass that value on. See surface.mjs.
-     */
     // The manifest carried `parameters` until 0.4.0. It is now declared in
     // src/app/<ui>/surface.ts and generated from there - so a leftover field is not
     // a harmless extra key, it is a device whose parameters have SILENTLY
@@ -190,17 +227,7 @@ export async function generatePatchers(root) {
     }
 
     const surface = await loadSurface(root, d.ui ?? d.name);
-    const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, ...surfaceContext(surface) };
-
-    for (const name of d.chains ?? []) {
-      const chain = CHAINS[name];
-      if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
-      chain(ctx);
-    }
-
-    // AFTER the chains: the Surface routes every `set_<id>` off the app's message
-    // stream, and passes on what nobody claimed (ui_ready, ...) to the wrapper.
-    applySurface(ctx);
+    const p = composePatcher(base, d, surface);
 
     writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
     const params = surface ? surface.ids.join(", ") : "none";
