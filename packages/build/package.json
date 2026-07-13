@@ -18,6 +18,7 @@
 	"exports": {
 		".": "./src/index.mjs",
 		"./chains": "./src/chains.mjs",
+		"./surface": "./src/surface.mjs",
 		"./amxd": "./src/amxd.mjs",
 		"./init": "./src/init.mjs"
 	},
@@ -31,6 +32,7 @@
 		"@m4l-jweb/wrapper": "workspace:*",
 		"acorn": "^8.17.0",
 		"archiver": "^7.0.1",
+		"esbuild": "^0.25.0",
 		"typescript": "^5.7.0"
 	}
 }

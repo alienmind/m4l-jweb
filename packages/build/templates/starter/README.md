@@ -19,7 +19,7 @@ track.
 | `src/app/{{name}}/App.tsx` | The UI, and the device's logic. A React app. |
 | `src/app/{{name}}/protocol.ts` | Every selector crossing the bridge. Both sides read it. |
 | `src/app/{{name}}/surface.ts` | The Live parameters (automatable, MIDI-mappable, visible to Push). |
-| `patcher/devices.mjs` | The manifest: name, type, chains, parameters. The patcher is generated from it. |
+| `patcher/devices.mjs` | The manifest: name, type, chains. The patcher is generated from it. |
 
 `src/app/shared/` and `scripts/` are infrastructure. You should rarely need to
 touch them.

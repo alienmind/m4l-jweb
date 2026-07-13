@@ -14,11 +14,14 @@ infrastructure carved into `packages/`.
   `surface.ts`). Most work belongs here. Each device builds into its own `.amxd`
   with its own UI bundle, so do not reintroduce a shared `App.tsx` that branches
   on `mode` - a device ships what it is, not what its siblings are.
+  **`surface.ts` is the device's Live parameters** - the build imports it and
+  generates the `live.*` objects and their wiring from it. It is the only place
+  they are declared.
 - **`src/app/shared/`** - what every device has: `useDevice()` (mode, build,
   tempo, transport, the `ui_ready` handshake), the `Frame` chrome, the worker.
-- **`patcher/devices.mjs`** - the device manifest (name, type, chains,
-  parameters). Adding a device here means adding `src/app/<name>/` too; a test
-  enforces it.
+- **`patcher/devices.mjs`** - the device manifest (name, type, chains). Adding a
+  device here means adding `src/app/<name>/` too; a test enforces it. Parameters
+  are NOT here - they are in that device's `surface.ts`.
 - **`wrapper/device.ts`** - optional. Extra `[js]` message handlers for this
   device, concatenated after the packaged wrapper sources.
 - **`packages/*`** - `@m4l-jweb/bridge` (the browser bridge), `@m4l-jweb/surface`
@@ -83,11 +86,36 @@ infrastructure carved into `packages/`.
   writing a parameter from feeding itself back. But it also cuts every cord that
   object drives *inside the patcher*. Never chain a parameter's consumers behind
   the parameter object: fan the value out (to the object AND to what it controls)
-  or the app's writes reach the dial and nothing else. See `writableParams()`.
+  or the app's writes reach the dial and nothing else. A chain does this with
+  `fanParamInto()`, which wires both sources or neither; the compiler is
+  `packages/build/src/surface.mjs`, and `tests/surface-codegen.test.mjs` pins
+  both halves.
+- **A parameter's range is `parameter_mmin`/`parameter_mmax`, not
+  `parameter_range`.** `parameter_range` is not a key Max writes - it appears in
+  zero of the patchers Ableton ships - so a range set there is silently ignored
+  and the object keeps its default. An enum's options are `parameter_enum`, with
+  the highest index in `parameter_mmax`.
+- **No `parameter_unitstyle` means Live prints a float as an INTEGER.** The value
+  is fine, the readout is not: a 0-1 cutoff sweeps smoothly and reads "0" or "1"
+  on Push. Declare the parameter's `unit` (`Hz` = unit style 3, confirmed against
+  Live's factory devices). Ranges belong in REAL units - `[40, 18000]` with an
+  `exponent`, not `[0, 1]` with the curve hidden in a chain, which lies to the
+  automation lane, to Push and to the app at once.
+- **The attribute names are on disk, so never guess them.** Max's own reference
+  ships inside Live:
+  `C:\ProgramData\Ableton\Resources\Max\resources\docs\refpages\m4l-ref\` -
+  `parameters.maxref.xml` is every parameter attribute, and the factory `.maxpat`
+  files under that tree are worked examples to grep.
 - **A `live.*` object with no `default` loads at the BOTTOM of its range**, and
   for many parameters that is a broken device (a cutoff of 0 eats the signal).
-  Set `default` in the manifest. Note `parameter_initial` is inert without
-  `parameter_initial_enable`.
+  Every parameter declares `default` in `surface.ts`. Note `parameter_initial` is
+  inert without `parameter_initial_enable`.
+- **Only one thing may route `[jweb]`'s output.** Routes are chained in SERIES,
+  each passing its unmatched outlet to the next (`claimAppMessages()`); two in
+  parallel means the wrapper sees every unrouted message twice. And do not find
+  the cord to cut by searching for what feeds `[js]`: `live.thisdevice` feeds it
+  too, and cutting *that* kills every LiveAPI observer (hard rule 4) in a way
+  nothing reports.
 
 ## The contract between the two sides
 

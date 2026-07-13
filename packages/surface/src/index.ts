@@ -18,27 +18,61 @@
  *
  * This file is the one declaration all four are derived from.
  *
- * STATUS - read this before you reach for it. Shipped today (Stage 0.3 of
- * doc/TODO.md): the declaration, its types, and its validation. NOT shipped:
- * the codegen that turns it into Max objects and wiring (Stage 2). So a Surface
- * currently type-checks, validates, and drives the dev harness - but the
- * parameters Live actually sees still come from `parameters` in
- * `patcher/devices.mjs`. Declaring one does not yet make a dial appear in Live.
- * Keep the two in step by hand until Stage 2 lands and deletes the manifest field.
+ * STATUS. The Max side is generated: the build imports this declaration and emits
+ * the `live.*` objects and their wiring in both directions (`applySurface()` in
+ * @m4l-jweb/build). Declaring a parameter here makes a dial appear in Live, and
+ * `patcher/devices.mjs` has no `parameters` field any more.
+ *
+ * The APP side is not generated yet - `useParam()` / `useSurface()` and the
+ * generated protocol selectors are Stages 2.2 and 2.3 of doc/TODO.md - so a
+ * device still names its parameters in its own `protocol.ts` and sends `set_<id>`
+ * through the bridge itself. Push banks are deferred (3.3); until then Live falls
+ * back to declaration order, and Push shows every parameter.
  */
 
 /* ------------------------------------------------------------------ *
  * Parameter kinds
  * ------------------------------------------------------------------ */
 
+/**
+ * The units Live knows how to print. Anything else is a CUSTOM unit: Live shows
+ * the number and appends your string, and a sprintf pattern works too
+ * (`"%0.2f Bogons"`).
+ *
+ * Declaring one is not decoration. With no unit, a float parameter is printed
+ * with Max's default unit style, which is INTEGER - so a 0-1 cutoff reads "0" or
+ * "1" on a Push while sweeping perfectly smoothly underneath. Say `unit: "Hz"`
+ * and the same parameter reads "7.3 kHz".
+ */
+export type Unit = "Hz" | "dB" | "ms" | "%" | "st" | "pan" | "midi" | (string & {});
+
 export interface DialSpec {
   kind: "dial";
-  /** [min, max]. Live needs a bounded range; there is no unbounded parameter. */
+  /**
+   * [min, max], IN REAL UNITS. Live needs a bounded range; there is no unbounded
+   * parameter.
+   *
+   * Declare the range the parameter actually has - `[40, 18000]` for a cutoff,
+   * not `[0, 1]` with the mapping hidden in a chain. Live's automation lane, Push
+   * and your app then all read Hz, and the DSP takes the value directly.
+   */
   range: [number, number];
   default: number;
   /** `step: 1` makes it an integer parameter (Max parameter_type 1). */
   step?: number;
-  unit?: string;
+  /** What Live prints. Omit only for a bare number. See {@link Unit}. */
+  unit?: Unit;
+  /**
+   * Bend the knob's travel: > 1 gives the BOTTOM of the range more of the sweep.
+   *
+   * Frequency and time want this, because hearing is logarithmic - a linear sweep
+   * of 40 Hz to 18 kHz spends almost all its travel in the top octave, where you
+   * cannot hear anything happening, and races through the bottom, where everything
+   * does. It changes the mapping of rotation to value, never the value itself.
+   */
+  exponent?: number;
+  /** Quantise the range into N settings. */
+  steps?: number;
   /** What the dev harness and the Push preview print under the encoder. */
   format?: (v: number) => string;
   /** Push has ~8 characters per encoder label. Longer names are truncated. */

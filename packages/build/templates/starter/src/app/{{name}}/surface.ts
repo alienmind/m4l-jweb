@@ -4,10 +4,10 @@
  * Push reads Live parameters, not your UI, so anything musically meaningful has
  * to exist here as well as in the app.
  *
- * Not wired up yet: this declaration is typechecked and validated, but the
- * codegen that turns it into live.* objects is not built. For now the parameters
- * Live sees come from `parameters` in patcher/devices.mjs, and the two have to
- * be kept in step by hand.
+ * This is the ONLY place they are declared. The build imports this file and
+ * generates the live.* objects from it, wired in both directions: a knob turn
+ * reaches the app as `<id> <value>`, and the app writes the parameter back with
+ * `set_<id> <value>` - which moves the dial, the automation lane and Push.
  */
 import { defineSurface, dial } from "@m4l-jweb/surface";
 

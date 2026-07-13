@@ -182,15 +182,27 @@ The README states the rule (*no custom UI reaches Push - it renders Live
 parameters, in banks of eight, and nothing else*). Here is what the build
 actually emits for one.
 
-`addParameters()` in `chains.mjs` turns each manifest entry into a `live.*` box
-with `parameter_enable: 1`, wired out to `[jweb]` through a `prepend <id>` - so a
-knob move arrives in your app as just another message, `density 0.42`.
+You declare a parameter **once**, in `src/app/<device>/surface.ts`:
 
-| Manifest field | What it becomes |
+```ts
+export default defineSurface({
+	params: { cutoff: dial({ range: [0, 1], default: 1, short: "Cutoff" }) },
+});
+```
+
+`applySurface()` in `packages/build/src/surface.mjs` compiles it. The build
+imports that file (esbuild, in milliseconds - it is TypeScript, and it imports
+`@m4l-jweb/surface`), and emits a `live.*` box with `parameter_enable: 1`, wired
+out to `[jweb]` through a `prepend <id>` - so a knob move arrives in your app as
+just another message, `cutoff 0.42`.
+
+| Declaration | What it becomes |
 |---|---|
-| `object` | `live.dial` / `live.toggle` / `live.menu` |
-| `id` | `parameter_longname`, and the selector the app binds |
-| `range` | `parameter_range` |
+| `dial` / `toggle` / `menu` | `live.dial` / `live.toggle` / `live.menu` |
+| the key (`cutoff`) | `parameter_longname`, and the selector the app binds |
+| `short` | `parameter_shortname` - Push's label, ~8 characters |
+| `range`, or `step: 1` | `parameter_range`; `parameter_type` 0 (float) or 1 (int) |
+| `options` (menu) | `parameter_enum` |
 | `default` | `parameter_initial` **plus** `parameter_initial_enable: 1` |
 
 **`default` is not cosmetic, and its two attributes are a trap.** Without it a
@@ -198,14 +210,13 @@ knob move arrives in your app as just another message, `density 0.42`.
 bottom of the range is a broken device (a filter cutoff of 0 loads as a device
 that eats the signal, and it looks exactly like a bug in your DSP). And
 `parameter_initial` without `parameter_initial_enable` is silently inert: it
-stores the value and never applies it.
+stores the value and never applies it. The compiler always emits both.
 
 ### Writing a parameter from the app
 
-Reading is the easy direction, and it is what `addParameters()` gives you.
-*Writing* one - a slider in the device window that moves the real Live parameter,
-so automation and Push follow - is `writableParams()` in `chains.mjs`. It
-generates, per parameter:
+Reading is the easy direction. *Writing* one - a slider in the device window that
+moves the real Live parameter, so automation and Push follow - is the other half
+of what the same declaration generates:
 
 ```
 [jweb] -> [route set_<id>] -> [prepend set] -> [live.dial]
@@ -227,18 +238,19 @@ lane or a Push encoder travels.
 
 The `lowpass` chain is the worked example, and it had this bug: with the filter
 fed from the dial's outlet, writing the parameter moved the dial and told the
-filter nothing.
+filter nothing. So a chain never wires a parameter by hand - it calls
+`fanParamInto()`, which wires *both* sources or neither. The fan-out is not a
+thing you have to remember; it is the only thing on offer.
 
-### Where this is going
+### What is left to build
 
-`@m4l-jweb/surface` replaces all of the above with one declaration. Today it
-ships the **declaration** (`defineSurface()`, its types and its validation) but
-**not the codegen** - so Live still reads the parameters from the manifest, and
-`src/app/<device>/surface.ts` and `patcher/devices.mjs` must be kept in step by
-hand. See [SURFACE.md](SURFACE.md) for the design and [TODO.md](TODO.md) for the
-sequence. Note that the Surface was designed around the `set` trick above, so its
-generated wiring has to fan out the same way or every generated parameter
-inherits the bug.
+The declaration now drives the Max side. It does not yet drive the *app* side:
+`useParam()` / `useSurface()` (Stage 2.3) and the generated protocol selectors
+(2.2) are still to come, so a device's `protocol.ts` still names its parameters
+by hand and the app still sends `set_<id>` through the bridge itself. Push banks
+need patcher-JSON archaeology and are deferred (3.3); until then Live falls back
+to declaration order and Push shows every parameter. See [SURFACE.md](SURFACE.md)
+for the design and [TODO.md](TODO.md) for the sequence.
 
 ## Developing without Live: the mocked harness
 
