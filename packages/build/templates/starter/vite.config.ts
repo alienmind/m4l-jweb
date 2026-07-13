@@ -33,11 +33,14 @@ export default defineConfig(() => {
   // The device UI is bundled into ONE self-contained index.html (every script,
   // style and asset inlined) so it can be embedded in the .amxd as a base64
   // payload and extracted to a real file:// path that jweb (Chromium) reads.
+  const WINDOW_ENTRY = process.env.WINDOW_ENTRY;
+
   const config: UserConfig = {
     base: "./",
   plugins: [react(), viteSingleFile()],
   resolve: {
     alias: [
+      { find: "@device/App", replacement: fileURLToPath(new URL(`./src/app/${DEVICE}/${WINDOW_ENTRY ? WINDOW_ENTRY : "App"}`, import.meta.url)) },
       { find: "@device", replacement: fileURLToPath(new URL(`./src/app/${DEVICE}`, import.meta.url)) },
       { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
     ],
@@ -60,7 +63,7 @@ export default defineConfig(() => {
     build: {
       // dist/ui/<device>/index.html - one per device, picked up by `m4l-jweb build`.
       outDir: `dist/ui/${DEVICE}`,
-      emptyOutDir: true,
+      emptyOutDir: !process.env.WINDOW,
     },
   };
   return config;
