@@ -341,11 +341,23 @@ drives.
 
 **Set `default`.** Without it a `live.*` object loads at the *bottom* of its
 range, and for a filter cutoff that is a device which swallows the signal the
-moment you drop it on a track.
+moment you drop it on a track. And **declare the `unit`**: with no unit style Live
+prints a float as an integer, so a smooth sweep reads "0" and "1" on a Push.
 
-Still to come: `useParam()` in React, and the protocol selectors generated from
-the same declaration. See [doc/SURFACE.md](doc/SURFACE.md) for the design and
-[doc/TODO.md](doc/TODO.md) for the sequence.
+Bind it in your app with one hook - typed from the declaration, two-way, and
+naming no selectors:
+
+```tsx
+import { useParam } from "@m4l-jweb/surface/react";
+import surface from "./surface";
+
+const [cutoff, setCutoff] = useParam(surface, "cutoff"); // number
+```
+
+Turning the Push encoder moves the React state; moving the React control moves the
+Live parameter - so automation, MIDI mapping and Push all follow. `pnpm dev:<device>`
+renders the same declaration as a parameter panel and a **Push preview**, so you can
+see what a performer will see without leaving the browser.
 
 ### 6. One device, one bundle
 

@@ -27,11 +27,32 @@ import App from "@device/App";
  */
 const DevHarness = import.meta.env.DEV ? (await import("@m4l-jweb/surface/dev")).DevHarness : null;
 
+/**
+ * The device's parameter surface, for the harness to render - the same
+ * declaration the Max objects are generated from, so the panel and the Push
+ * preview cannot drift from what Live will show.
+ *
+ * A GLOB rather than `import "@device/surface"`, because surface.ts is OPTIONAL:
+ * a device with no parameters has no such file, and a static import of a missing
+ * module is a build error, not an undefined.
+ *
+ * The glob sits INSIDE the `import.meta.env.DEV` branch, and that placement is
+ * load-bearing. A glob resolves to every match, so hoisting it to a `const` would
+ * put EVERY device's declaration in EVERY bundle - one device shipping its
+ * siblings' parameters - and the single-file build inlines dynamic chunks, so
+ * being lazy is not enough on its own. Written here, the whole expression is dead
+ * code once DEV is replaced by `false`, and rollup drops all of it.
+ * `tests/bundle.test.mjs` asserts a device carries no sibling's parameters.
+ */
+const surface = import.meta.env.DEV
+  ? (((await import.meta.glob("./app/*/surface.ts", { import: "default" })[`./app/${__DEVICE__}/surface.ts`]?.()) as never) ?? null)
+  : null;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     {DevHarness ? (
       <div className="dev-layout">
-        <DevHarness />
+        <DevHarness surface={surface} />
         <App />
       </div>
     ) : (

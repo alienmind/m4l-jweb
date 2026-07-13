@@ -23,11 +23,11 @@
  */
 import { useRef, useState } from "react";
 import { flushNotes, onNote, sendNote } from "@m4l-jweb/bridge";
+import { useParam } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
 import { useEffect } from "react";
-import { IN } from "./protocol";
-import { bindInlet } from "@m4l-jweb/bridge";
+import surface from "./surface";
 import DemoWorker from "../shared/worker.ts?worker&inline";
 
 /**
@@ -50,13 +50,22 @@ const RATES = [0, 4, 8, 16, 32] as const;
 const beatsPerPulse = (division: number) => 4 / division;
 
 export default function HelloMidi() {
-  const [density, setDensity] = useState(0.5);
-  const [rateIdx, setRateIdx] = useState(0);
+  /**
+   * Both are REAL Live parameters, bound in both directions. `density` scales how
+   * hard the pulse hits; `rate` is the index into RATES.
+   *
+   * The rate slider used to be a one-way readout - the app followed the dial and
+   * could not move it - because writing a parameter meant hand-rolling
+   * `set_rate`. Now the binding is symmetric by default: drag the slider and the
+   * Live dial, the automation lane and Push all follow.
+   */
+  const [density] = useParam(surface, "density");
+  const [rateIdx, setRateIdx] = useParam(surface, "rate");
   const [notesSent, setNotesSent] = useState(0);
   const [lastIn, setLastIn] = useState<number | null>(null);
   const [workerTicks, setWorkerTicks] = useState(0);
 
-  const division = RATES[rateIdx];
+  const division = RATES[clampIdx(rateIdx)];
 
   const worker = useRef<Worker | null>(null);
 
@@ -109,9 +118,6 @@ export default function HelloMidi() {
     };
     worker.current = w;
 
-    bindInlet(IN.density, (d) => setDensity(Number(d)));
-    bindInlet(IN.rate, (r) => setRateIdx(clampIdx(Number(r))));
-
     // Incoming MIDI, from the `midiin` chain. onNote drops note-offs for you:
     // [makenote] on the Max side already owns the release.
     onNote((pitch) => setLastIn(pitch));
@@ -120,7 +126,7 @@ export default function HelloMidi() {
   }, []);
 
   function changeRate(idx: number) {
-    setRateIdx(idx);
+    setRateIdx(idx); // writes the Live parameter, not just this component
     // Going to "off" mid-note would leave C3 sounding: the note-off is Max's to
     // send, and it only sends one for notes it still knows about.
     if (RATES[idx] === 0) flushNotes();
@@ -155,7 +161,14 @@ export default function HelloMidi() {
       <dt>rate</dt>
       <dd>
         <label className="slider">
-          <input type="range" min={0} max={RATES.length - 1} step={1} value={rateIdx} onChange={(e) => changeRate(Number(e.target.value))} />
+          <input
+            type="range"
+            min={0}
+            max={RATES.length - 1}
+            step={1}
+            value={clampIdx(rateIdx)}
+            onChange={(e) => changeRate(Number(e.target.value))}
+          />
           <strong>{division === 0 ? "off" : `1/${division}`}</strong>
         </label>
       </dd>

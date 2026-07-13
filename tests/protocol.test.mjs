@@ -123,7 +123,7 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
 
   const IN = selectors(src, "IN", where);
   const OUT = selectors(src, "OUT", where);
-  const paramIds = new Set(surfaces[name]?.ids ?? []);
+  const surface = surfaces[name];
   const maxSide = `${chains}\n${patcherText(name)}`;
 
   test("declares selectors in both directions", () => {
@@ -133,7 +133,7 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
 
   test("every IN selector is actually sent by the wrapper or a chain", () => {
     for (const sel of IN) {
-      const sent = wrapper.includes(`"${sel}"`) || maxSide.includes(`prepend ${sel}`) || maxSide.includes(`"${sel}"`) || paramIds.has(sel);
+      const sent = wrapper.includes(`"${sel}"`) || maxSide.includes(`prepend ${sel}`) || maxSide.includes(`"${sel}"`);
       expect(sent, `IN selector "${sel}" is never sent from ${name}'s Max side`).toBe(true);
     }
   });
@@ -142,6 +142,40 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
     for (const sel of OUT) {
       const handled = new RegExp(`function ${sel}\\s*\\(`).test(wrapper) || new RegExp(`route [^"']*\\b${sel}\\b`).test(maxSide);
       expect(handled, `OUT selector "${sel}" is never handled or routed on ${name}'s Max side`).toBe(true);
+    }
+  });
+
+  /**
+   * The PARAMETERS get the same lint, from the declaration rather than from
+   * protocol.ts - which is the whole point of generating them. A parameter is two
+   * selectors, and the patcher must carry BOTH: `<id>` out of the live.* object,
+   * `set_<id>` back into it. One without the other is a control that reads but
+   * cannot be moved, or moves but never reports - and neither raises an error.
+   *
+   * Note this reads the GENERATED patcher, not the chain source: the Surface's
+   * route is built from the declaration (`route set_a set_b`), so there is no
+   * literal to grep for anywhere in the source.
+   */
+  test.skipIf(!surface?.ids.length || !patcherText(name))("every declared parameter is wired in both directions", () => {
+    const patcher = patcherText(name);
+    for (const id of surface.ids) {
+      expect(patcher, `parameter "${id}" never reaches ${name}'s UI - no [prepend ${id}]`).toContain(`prepend ${id}`);
+      expect(patcher, `parameter "${id}" cannot be written by ${name}'s UI - no [route ... set_${id}]`).toMatch(
+        new RegExp(`route [^"']*\\bset_${id}\\b`),
+      );
+    }
+  });
+
+  /**
+   * ...and a parameter must NOT also be hand-declared in protocol.ts. Two sources
+   * of truth for one selector is exactly the drift the Surface deletes: rename it
+   * in surface.ts and the stale copy here keeps type-checking, keeps passing the
+   * lint above, and silently binds a message nothing sends any more.
+   */
+  test.skipIf(!surface?.ids.length)("a declared parameter is not re-declared by hand", () => {
+    for (const id of surface.ids) {
+      expect(IN, `"${id}" is generated from surface.ts - remove it from ${where}`).not.toContain(id);
+      expect(OUT, `"set_${id}" is generated from surface.ts - remove it from ${where}`).not.toContain(`set_${id}`);
     }
   });
 });
