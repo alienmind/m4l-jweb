@@ -613,7 +613,7 @@ In outline, what remains:
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running
-  in every DAW instead of only Live. Assessed in **[VST3.md](VST3.md)**: most of
+  in every DAW instead of only Live. Assessed in **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of
   this architecture is not actually about Max, but the LiveAPI wrapper does not
   port and the headless build is the price. Not started.
 

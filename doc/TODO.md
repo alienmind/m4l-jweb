@@ -376,7 +376,7 @@ first; do not guess the shape.
   `src/app/spike/`, `patcher/chains.mjs`, `wrapper/device.ts`, and the manifest
   entry.
 - **A VST3 backend**, so a device runs outside Live. Assessed in
-  [VST3.md](VST3.md): the app, the bridge, the surface and the harness port; the
+  [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md): the app, the bridge, the surface and the harness port; the
   LiveAPI wrapper does not, and the headless build is what you trade away. **One
   repo, not a fork** - the shared traps *are* the product, and duplicating them is
   how they drift. The first stage of it is a `Target` seam extracted from
@@ -546,7 +546,7 @@ hear the order change.
 **What it unblocks.** m4l-strudel's `strudelfx` chain exists only because the canned
 chains could not be composed; it can be deleted. And a chain that does not conjure
 the device's audio I/O is the only kind that could ever be retargeted to a VST3
-([VST3.md](VST3.md)), where `plugin~`/`plugout~` are the plugin's own I/O - so the
+([PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)), where `plugin~`/`plugout~` are the plugin's own I/O - so the
 vocabulary came out target-shaped as a side effect.
 
 ## Stage 0.1 - the mocked-Live dev harness (part 1)
