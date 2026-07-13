@@ -99,6 +99,10 @@ declare class File {
  * `replace` on a file buffer~ cannot decode is a SILENT NO-OP: no error, and the
  * buffer keeps whatever it held before. So a frame count on its own never means
  * "the read worked" - it only means something next to what the count was before.
+ *
+ * `replace` also adopts the FILE's channel count, whatever the buffer~ was
+ * declared with (a stereo .wav gave channelcount() === 2 from a buffer~ created
+ * with no arguments). Never assume mono. Ask.
  */
 declare class Buffer {
   constructor(name: string);

@@ -57,6 +57,13 @@ lands on disk, `buffer~` reads it, MSP plays it, and `[js]` only ever sends
 control messages. The `Buffer` binding in `max.d.ts` is confirmed too (`send`,
 `framecount`, `channelcount`, `peek`); only `poke` is still taken on faith.
 
+**And the two meet.** The `.wav` `[maxurl]` downloaded was then loaded into the
+`buffer~` from `[js]`: 302712 frames, **2 channels**, non-zero samples, from an
+empty buffer. Network -> disk -> decode -> audio, in one device, in Live, with no
+`[node.script]` anywhere in it. Stage 3 is not a hypothesis any more; it is
+wiring. (The channel count came from the *file*, not the declaration - so the
+`samples` chain must not assume mono, and readers should ask `channelcount()`.)
+
 One trap that cost a run, now recorded in `max.d.ts`: **`replace` on a file
 `buffer~` cannot decode is a silent no-op.** No error, and the buffer keeps
 whatever it held. A frame count on its own never means "the read worked" - it
