@@ -257,9 +257,9 @@ test("a chain that already claimed jweb's outlet keeps it - the Surface goes dow
 });
 
 test("a device with no surface is left alone", () => {
-  // The spike device declares no parameters. It must not grow an empty `route`
-  // with nothing after it - that would cut [jweb] off from the wrapper entirely.
-  const c = compile(null, { device: { name: "spike" } });
+  // The device declares no parameters. It must not grow an empty `route`
+  // mapping or crash the UI bridge.
+  const c = compile(null, { device: { name: "empty-device" } });
   expect(c.box(SURFACE_ROUTE)).toBeUndefined();
   expect(appFeeds(c).map((x) => x.src)).toEqual(["obj-jweb"]);
 });
