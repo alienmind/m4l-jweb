@@ -33,8 +33,12 @@ export default function Spike() {
   // its search path, so a bare filename resolves with no path at all.
   const [bufferPath, setBufferPath] = useState("jongly.aif");
   const [probePath, setProbePath] = useState("");
-  const [urlWords, setUrlWords] = useState("get https://example.com/");
   const [urlResult, setUrlResult] = useState<string | null>(null);
+  // Blank = let the wrapper default it, next to the .amxd. Set it to somewhere
+  // unwritable and a FILESYSTEM failure can be asked for on purpose - the one
+  // maxurl failure mode still unmeasured, and the one that needs telling apart
+  // from an HTTP failure.
+  const [dlDest, setDlDest] = useState("");
   // A small, real .wav over https. The download-to-file form is a `dictionary`
   // message per maxurl's reference, so the wrapper builds the dict - raw words
   // cannot say it. If it lands, buffer_load it: 1.2 already proved that seam, so
@@ -95,7 +99,7 @@ export default function Spike() {
       <dt>1.3 maxurl</dt>
       <dd className="row">
         <input value={dlUrl} onChange={(e) => setDlUrl(e.target.value)} size={18} />
-        <button onClick={() => outlet(OUT.url_download, dlUrl)} disabled={!dlUrl.trim()}>
+        <button onClick={() => outlet(OUT.url_download, dlUrl, ...(dlDest.trim() ? [dlDest.trim()] : []))} disabled={!dlUrl.trim()}>
           get
         </button>
         <button onClick={() => outlet(OUT.url_check, dlPath)} disabled={!dlPath} title={dlPath}>
@@ -108,10 +112,14 @@ export default function Spike() {
         <span>{dlBytes === null ? "-" : dlBytes > 0 ? `${dlBytes}B` : "NO FILE"}</span>
       </dd>
 
-      <dt>raw</dt>
+      {/* The destination, so an UNWRITABLE one can be asked for on purpose. The
+          server saying no and the disk saying no want different handling, and
+          until this field existed the spike could not tell them apart. Blank =
+          the wrapper's default, next to the .amxd. */}
+      <dt>dest</dt>
       <dd className="row">
-        <input value={urlWords} onChange={(e) => setUrlWords(e.target.value)} size={18} />
-        <button onClick={() => outlet(OUT.url_send, ...urlWords.trim().split(/\s+/))}>send</button>
+        <input value={dlDest} onChange={(e) => setDlDest(e.target.value)} size={26} placeholder="blank = next to the .amxd" />
+        <button onClick={() => setDlDest("C:/Windows/System32/nope.wav")}>unwritable</button>
         <span>{urlResult ?? "-"}</span>
       </dd>
     </Frame>
