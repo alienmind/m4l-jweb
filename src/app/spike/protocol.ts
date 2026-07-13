@@ -16,8 +16,12 @@ export const IN = {
   buffer_result: "buffer_result",
   /** spike wrapper -> UI: a real path on disk to feed buffer~. */
   probe_path: "probe_path",
-  /** spike wrapper -> UI: whatever [maxurl] replied, verbatim. */
+  /** spike wrapper -> UI: whatever [maxurl] replied, verbatim, outlet index first. */
   url_result: "url_result",
+  /** spike wrapper -> UI: where the download was told to land. */
+  download_path: "download_path",
+  /** spike wrapper -> UI: `url_check_result <bytes>` - 0 means no file at all. */
+  url_check_result: "url_check_result",
 } as const;
 
 /** UI -> device. */
@@ -33,4 +37,13 @@ export const OUT = {
   buffer_probe_path: "buffer_probe_path",
   /** UI -> spike wrapper: raw words for [maxurl], unguessed. */
   url_send: "url_send",
+  /**
+   * UI -> spike wrapper: `url_download <url> [dest]`.
+   *
+   * The download-to-file form is a `dictionary` message, not flat words, so
+   * url_send cannot express it. The wrapper builds the dict.
+   */
+  url_download: "url_download",
+  /** UI -> spike wrapper: `url_check <path>` - is the file REALLY on disk? */
+  url_check: "url_check",
 } as const;
