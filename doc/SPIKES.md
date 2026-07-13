@@ -200,14 +200,55 @@ apart from a filesystem one.
    path - network, disk, decode, audio - end to end, with no `[node.script]`
    anywhere in it. That is the whole point of Stage 3.1.
 
-**What to record:** the exact request that works, which outlet completion arrives
-on, what an HTTP error looks like versus a filesystem error, and whether the file
-lands complete.
+### What 1.3 found - `[maxurl]` works, and here is its shape
 
-**If `[maxurl]` cannot do it**, swap the box for `[jit.uldl]` in
-`patcher/chains.mjs` (one line) and repeat. If neither can, that is a genuine
-finding and `[node.script]` may have to stay - in which case say so in TODO.md
-rather than letting Stage 3.1 sit there looking achievable.
+Measured in Live. 1,210,892 bytes of `.wav` over HTTPS, straight to a file, no
+`[node.script]` anywhere in it.
+
+**The request.** A `dictionary <name>` message to `[maxurl]`, with the dict built
+in `[js]`:
+
+```json
+{ "url": "https://...", "http_method": "get",
+  "filename_out": "C:/.../spike_download.wav",
+  "overwrite_output_file": 1, "response_dict": "m4ljweb_spike_res", "timeout": 30 }
+```
+
+**The outlets** - read, not assumed, and worth having:
+
+| Outlet | Carries | Shape |
+|---|---|---|
+| **1** | **progress**, continuously, while the transfer runs | `<tag> <total> <sofar> 0 0` |
+| **0** | **completion**, once | `dictionary <responseDictName>` |
+
+The progress tag is the **response dict name** for a `dictionary` request, and the
+literal word `progress` for a raw `get`. Either way outlet 1 gives a real download
+a progress bar for free - `sofar/total` - which the app can have without any extra
+plumbing.
+
+**The completion dict** carries everything worth knowing:
+
+```
+status 200, header "HTTP/1.1 200 OK\r\n...", content_type "audio/x-wav",
+size_download 1210892, content_length_download 1210892, total_time 5.81,
+url, filename_out, body ""   <- body is EMPTY when filename_out is set
+```
+
+**It streams, and it does not truncate.** The progress ticks climb 8 KB, 16 KB,
+24 KB ... 1,210,892 - and the file lands whole. `File.writebytes` giving up
+silently past ~16 KB is *this project's* scar, not `maxurl`'s: nothing here has to
+be sliced.
+
+**`Dict` is confirmed** along with it - `new Dict()`, `set`, `clear`, `stringify`
+are all real. `max.d.ts` updated; `get`, `parse` and `freepeer` remain unexercised.
+
+**Still open, and cheap:** what an HTTP error (404) and a filesystem error
+(unwritable `filename_out`) look like. `status` is in the dict, so a 404 is
+presumably `status 404` with the file absent - but that is a guess, and this
+document exists because guesses cost weeks. Point the field at a dead URL and look.
+
+**`[jit.uldl]` is not needed.** `[maxurl]` does the job, and it does not drag in
+the Jitter runtime.
 
 ---
 
@@ -222,7 +263,7 @@ Fill this in as they are run. An unrun spike is not a "probably fine".
 | 1.1a | ...and a `set` write still reaches automation | **not run** | Arm the track, write the dial with `set_param`, confirm Live records it. |
 | 1.1b | ...and a `set` write still reaches Push | **YES, on hardware** | `set_param` moves the Push knob's value **while the echo counter stays frozen**. So `set` writes the parameter itself, and the suppression is scoped to the outlet (and the cords it drives). This is the result Stage 2 was gated on. |
 | 1.1c | a `parameter_enable`d dial reaches Push at all | **YES, on hardware** | Push banked it automatically - no extra wiring, named from `parameter_shortname`, over `parameter_range`. Turning the Push knob moves the on-screen value. That is the parameter -> app direction; 1.1b is the untested one. |
-| 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **not run** | - |
+| 1.3 | `[maxurl]` / `[jit.uldl]` downloads to disk in Live | **YES, measured in Live** | `[maxurl]` streamed 1,210,892 bytes of `.wav` over HTTPS to a file. `status 200`, no truncation, progress on outlet 1, completion dict on outlet 0. `[jit.uldl]` not needed. `[node.script]` can go. |
 
 ### Field evidence for 1.1, from hello-audio
 
