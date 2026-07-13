@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/bridge",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "m4l-jweb: the browser-side bridge connecting a device's web UI to Max for Live.",
 	"type": "module",
 	"license": "MIT",
