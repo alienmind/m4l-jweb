@@ -111,6 +111,29 @@ export default [
   },
   {
     /**
+     * hello-sampler - the first device in this repo that ORIGINATES a sound.
+     *
+     * An INSTRUMENT (`type: "instrument"`), which nothing else here builds: it sits on
+     * a MIDI track and is the source of that track's audio rather than a stage in
+     * someone else's signal path.
+     *
+     * The two chains are the whole sample-browser path, in order: `download` puts the
+     * file on disk ([maxurl] writes it; the bytes never cross the bridge), and
+     * `samples` reads it into a [buffer~] and plays it through [groove~] INTO THE
+     * TRACK. A page cannot preview a sample by playing it itself - [jweb] has no
+     * signal outlets, so its audio goes to the OS output device, past the fader and
+     * the monitor cue.
+     *
+     * `slots` names the buffers. One is enough for a preview; a drum map wants eight.
+     */
+    name: "hello-sampler",
+    type: "instrument",
+    chains: ["samples", "download"],
+    slots: ["preview"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
      * hello-state
      * Demonstrates the state persistence API (`useStateSync`).
      * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.

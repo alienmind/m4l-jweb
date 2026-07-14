@@ -168,6 +168,8 @@ export const CHAIN_IN = {
   fetch_error: "fetch_error",
   /** download -> UI: `fetch_progress <requestId> <downloaded> <total>`. */
   fetch_progress: "fetch_progress",
+  /** samples -> UI: `buffer_ready <slot> <sampleRate> <ms> <channels>` - what actually loaded. */
+  buffer_ready: "buffer_ready",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -178,6 +180,12 @@ export const CHAIN_OUT = {
   flush: "flush",
   /** UI -> download: `fetch_to_file <requestId> <url> <destPath>`. */
   fetch_to_file: "fetch_to_file",
+  /** UI -> samples: `buffer_load <slot> <path>` - read a file into that slot's [buffer~]. */
+  buffer_load: "buffer_load",
+  /** UI -> samples: `buffer_play <slot>` - preview it through the track. */
+  buffer_play: "buffer_play",
+  /** UI -> samples: `buffer_stop` - stop the preview. */
+  buffer_stop: "buffer_stop",
 } as const;
 
 /**
@@ -296,6 +304,87 @@ export function fetchToFile(url: string, destPath: string, onProgress?: (downloa
     fetchResolvers.set(requestId, { resolve, reject, onProgress });
     outlet(CHAIN_OUT.fetch_to_file, requestId, url, destPath);
   });
+}
+
+/* ------------------------------------------------------------------ *
+ * Samples - the `samples` chain
+ * ------------------------------------------------------------------ */
+
+/** What a slot actually holds, once the read completed. Reported by [info~], not assumed. */
+export interface LoadedSample {
+  /** The FILE's sample rate, which need not be Live's. */
+  sampleRate: number;
+  durationMs: number;
+  /** The file's channel count. `replace` adopts it - a slot is not mono by wishing. */
+  channels: number;
+  /** Derived from the two above. Nobody counted them. */
+  frames: number;
+}
+
+const sampleResolvers = new Map<string, { resolve: (s: LoadedSample) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+let samplesBound = false;
+
+/**
+ * Read a file from disk into a slot's [buffer~], and resolve with WHAT LANDED.
+ *
+ * Requires the `samples` chain, and the file must already be on disk - that is what
+ * `fetchToFile()` is for. The bytes never cross the bridge in either direction: Max
+ * reads the file, and what comes back is a description of it.
+ *
+ * The resolved value is measured, not assumed. `replace` adopts the file's channel
+ * count and sample rate, so a stereo file in a slot you think of as mono is a stereo
+ * slot - and a frame count is not proof of a read, because a FAILED read leaves the
+ * previous contents of the buffer exactly where they were. The chain only replies
+ * when [buffer~] says the read completed; a file Max cannot read produces an error in
+ * the Max console and NO reply at all, which is what the timeout below is for. There
+ * is no bang for failure to bind to.
+ */
+export function loadSample(slot: string, path: string, timeoutMs = 10_000): Promise<LoadedSample> {
+  if (!samplesBound) {
+    samplesBound = true;
+    bindInlet(CHAIN_IN.buffer_ready, (id, sampleRate, ms, channels) => {
+      const p = sampleResolvers.get(String(id));
+      if (!p) return;
+      sampleResolvers.delete(String(id));
+      clearTimeout(p.timer);
+      const sr = Number(sampleRate);
+      const durationMs = Number(ms);
+      const chans = Number(channels);
+      // An empty buffer is a read that "worked" and gave us nothing. Do not hand the
+      // app a slot it will play in silence and blame itself for.
+      if (!(sr > 0) || !(durationMs > 0) || !(chans > 0)) {
+        p.reject(new Error(`slot "${id}" loaded empty: ${durationMs} ms, ${chans} channels at ${sr} Hz`));
+        return;
+      }
+      p.resolve({ sampleRate: sr, durationMs, channels: chans, frames: Math.round((durationMs / 1000) * sr) });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      sampleResolvers.delete(slot);
+      reject(new Error(`slot "${slot}": [buffer~] never reported a completed read of "${path}" (${timeoutMs} ms). See the Max console.`));
+    }, timeoutMs);
+    sampleResolvers.set(slot, { resolve, reject, timer });
+    outlet(CHAIN_OUT.buffer_load, slot, path);
+  });
+}
+
+/**
+ * Play a loaded slot, once, from the beginning - THROUGH THE TRACK.
+ *
+ * That last part is the whole reason this exists. Audio a page plays for itself goes
+ * to the OS output device: [jweb] has no signal outlets, so it bypasses the track,
+ * the fader and the monitor cue. A preview Live can hear has to be [buffer~] in the
+ * patcher, which is this.
+ */
+export function playSample(slot: string): void {
+  outlet(CHAIN_OUT.buffer_play, slot);
+}
+
+/** Stop the preview. One voice, so this stops whichever slot is sounding. */
+export function stopSample(): void {
+  outlet(CHAIN_OUT.buffer_stop);
 }
 
 /**
