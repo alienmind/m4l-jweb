@@ -1012,6 +1012,26 @@ on disk, `buffer~` reads it, MSP plays it, and `[js]` sends only control message
 - **The channel count comes from the FILE, not the declaration.** `replace` adopted a
   stereo file's layout on its own. Anything reading a buffer asks `channelcount()`.
 
+**...and a third, which the `samples` chain shipped with: `[buffer~]` DOES NOT RESOLVE
+A RELATIVE PATH THE WAY THE DEVICE DOES.** A bare name is looked up in **Max's search
+path**, which does not contain the device's own folder - so `preview.wav`, downloaded
+by `fetchToFile()` into exactly that folder a second earlier, came back
+`buffer~: preview.wav: can't open`. Two resolutions of one path, and the device wrote
+the file correctly and then looked for it somewhere else. **A path from the app is
+resolved ONCE, in the wrapper** (`resolveFetchPath()`), and the resolved path is handed
+to the buffer - which also keeps it a single symbol, since a real install's path
+(`.../Ableton Library/.../Max For Live/...`) has spaces in it and would otherwise split
+into atoms in the patcher.
+
+**And the format list is `[buffer~]`'s, not Max's: WAV, AIFF, Next/Sun - no MP3.** MP3,
+OGG, FLAC and M4A belong to `[sfplay~]`, which streams from disk instead of filling a
+buffer. A format `buffer~` will not decode produces a line in the Max console and *no
+bang*, so there is nothing for an app to await - which is why `loadSample()` carries a
+timeout and the wrapper pre-checks the file it can see.
+
+**VERIFIED IN LIVE** (`hello-sampler`, an `instrument`): fetch to disk -> `replace` ->
+`[groove~]` -> the track. The first device in this repo that originates a sound.
+
 ### `[maxurl]`: a URL, streamed straight to disk, with no `[node.script]`
 
 **1,210,892 bytes of `.wav` over HTTPS, to a file, no truncation, no Jitter runtime**
