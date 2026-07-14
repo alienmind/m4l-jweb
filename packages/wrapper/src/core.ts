@@ -145,9 +145,8 @@ function loadWebview(): void {
         if (name.slice(-5) === ".html") {
           var winId = name.replace(/^.*_/, "").replace(".html", "");
           var winUrl = encodeURI("file:///" + folder + "/" + name) + "?v=" + encodeURIComponent(buildStamp());
-          // @ts-ignore Messnamed is a Max object
-          var m = new Messnamed("window-read-" + winId);
-          m.send("url", winUrl);
+          // @ts-ignore messnamed is a Max function
+          messnamed("window-read-" + winId, "url", winUrl);
         }
       }
     }

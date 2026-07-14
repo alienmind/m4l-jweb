@@ -23,7 +23,7 @@
  */
 import { useRef, useState } from "react";
 import { flushNotes, onNote, sendNote } from "@m4l-jweb/bridge";
-import { useParam } from "@m4l-jweb/surface/react";
+import { useParam, useWindow, useStateSync } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
 import { useEffect } from "react";
@@ -63,6 +63,8 @@ export default function HelloMidi() {
    */
   const [rate, setRate] = useParam(surface, "rate");
   const [density, setDensity] = useParam(surface, "density");
+  const drumWindow = useWindow(surface, "testWindow");
+  const [config, setConfig] = useStateSync(surface, "config");
   const [notesSent, setNotesSent] = useState(0);
   const [lastIn, setLastIn] = useState<number | null>(null);
   const [workerTicks, setWorkerTicks] = useState(0);
@@ -161,7 +163,7 @@ export default function HelloMidi() {
   return (
     <Frame title="HELLO MIDI" device={device}>
       <dt>rate</dt>
-      <dd>
+      <dd style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <label className="slider">
           {/* The slider steps through the parameter's own OPTIONS - the same list
               Push prints under its encoder, because both come from surface.ts. */}
@@ -175,16 +177,20 @@ export default function HelloMidi() {
           />
           <strong>{rate}</strong>
         </label>
+        <button onClick={() => drumWindow.open()} style={{ padding: "2px 6px" }}>Open Floating Window</button>
       </dd>
 
       <dt>density</dt>
-      <dd>
+      <dd style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <label className="slider">
           <input type="range" min={0} max={100} step={1} value={density} onChange={(e) => setDensity(Number(e.target.value))} />
           <strong>
             {Math.round(density)}% - vel {toVelocity(density)}
           </strong>
         </label>
+        <button onClick={() => setConfig({ testValue: Math.random() })} style={{ padding: "2px 6px" }}>
+          Update State: {(config as any)?.testValue?.toFixed(4)}
+        </button>
       </dd>
 
       <dt>sent</dt>

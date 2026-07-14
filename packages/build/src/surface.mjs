@@ -327,11 +327,19 @@ export function applyWindows(ctx) {
 
     const openMsgId = `obj-window-${id}-openmsg`;
     boxes.push(box(openMsgId, "message", { text: "open" }));
-    lines.push(line(routeId, openOutlet, openMsgId, 0));
+
+    const triggerOpenId = `obj-window-${id}-t-open`;
+    boxes.push(box(triggerOpenId, "t b"));
+    lines.push(line(routeId, openOutlet, triggerOpenId, 0));
+    lines.push(line(triggerOpenId, 0, openMsgId, 0));
 
     const closeMsgId = `obj-window-${id}-closemsg`;
     boxes.push(box(closeMsgId, "message", { text: "wclose" }));
-    lines.push(line(routeId, closeOutlet, closeMsgId, 0));
+
+    const triggerCloseId = `obj-window-${id}-t-close`;
+    boxes.push(box(triggerCloseId, "t b"));
+    lines.push(line(routeId, closeOutlet, triggerCloseId, 0));
+    lines.push(line(triggerCloseId, 0, closeMsgId, 0));
 
     const pcontrolId = `obj-window-${id}-pcontrol`;
     boxes.push({ box: { id: pcontrolId, maxclass: "pcontrol", numinlets: 1, numoutlets: 1, outlettype: [""] } });
@@ -339,11 +347,13 @@ export function applyWindows(ctx) {
     lines.push(line(closeMsgId, 0, pcontrolId, 0));
 
     const subpatcherId = `obj-window-${id}-sub`;
+    lines.push(line(pcontrolId, 0, subpatcherId, 0));
     boxes.push({
       box: {
         id: subpatcherId,
         maxclass: "newobj",
         text: `p ${spec.title}`,
+        numinlets: 1,
         patching_rect: [0, 0, 100, 22],
         patcher: {
           fileversion: 1,
@@ -352,17 +362,37 @@ export function applyWindows(ctx) {
           boxes: [
             {
               box: {
+                id: "obj-in",
+                maxclass: "inlet",
+                patching_rect: [10, 10, 30, 30],
+                numinlets: 0,
+                numoutlets: 1,
+                outlettype: [""],
+              },
+            },
+            {
+              box: {
+                id: "obj-in",
+                maxclass: "inlet",
+                patching_rect: [10, 10, 30, 30],
+                numinlets: 0,
+                numoutlets: 1,
+                outlettype: [""],
+              },
+            },
+            {
+              box: {
                 id: "obj-recv",
                 maxclass: "newobj",
                 text: `r window-read-${id}`,
-                patching_rect: [10, 10, 100, 22],
+                patching_rect: [120, 10, 100, 22],
               },
             },
             {
               box: {
                 id: "obj-jweb",
                 maxclass: "jweb",
-                patching_rect: [10, 40, spec.width, spec.height],
+                patching_rect: [10, 80, spec.width, spec.height],
                 presentation: 1,
                 presentation_rect: [0, 0, spec.width, spec.height],
                 color: [1.0, 1.0, 1.0, 1.0],
@@ -380,8 +410,6 @@ export function applyWindows(ctx) {
         },
       },
     });
-
-    lines.push(line(pcontrolId, 0, subpatcherId, 0));
   });
 }
 

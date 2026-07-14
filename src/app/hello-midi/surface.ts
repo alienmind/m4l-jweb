@@ -7,7 +7,7 @@
  * This is the only place they are declared: the build imports this file and
  * generates the live.dial objects Live sees, wired in both directions.
  */
-import { defineSurface, dial, menu } from "@m4l-jweb/surface";
+import { defineSurface, dial, menu, window, state } from "@m4l-jweb/surface";
 
 /** The note divisions this device can pulse at. `off` is one of them, not a special case. */
 export const RATES = ["off", "1/4", "1/8", "1/16", "1/32"] as const;
@@ -36,4 +36,11 @@ export default defineSurface({
   },
 
   banks: [{ name: "Perform", params: ["rate", "density"] }],
+
+  windows: {
+    testWindow: window({ title: "My Floating Window", width: 400, height: 300, entry: "App" }),
+  },
+  state: {
+    config: state({ default: { testValue: 42 } }),
+  },
 });
