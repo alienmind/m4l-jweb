@@ -512,8 +512,157 @@ function downloadChain(ctx) {
   lines.push(line("obj-prepend-maxurl-progress", 0, unmatchedId, 0));
 }
 
+/**
+ * "samples" - the first chain that ORIGINATES a sound: a named [buffer~] per slot,
+ * loaded from a file on disk, played back through [groove~] into the signal path.
+ *
+ *   app -> buffer_load <slot> <path>  -> [buffer~ <name>]  (replace)
+ *          buffer_play <slot>         -> [groove~] set + play
+ *          buffer_stop                -> [groove~] stop
+ *   app <- buffer_ready <slot> <sr> <ms> <chans>   when the read actually completed
+ *
+ * THE BYTES NEVER CROSS THE BRIDGE. [buffer~] reads the file itself; what travels in
+ * Max messages is a path and, coming back, a description of what landed - the same
+ * rule the `download` chain follows, which is how you get the file there in the
+ * first place.
+ *
+ * WHAT LOADED IS NOT WHAT YOU ASKED FOR, so the chain reports what it GOT. `replace`
+ * resizes the buffer and adopts the FILE's channel count and sample rate, so a slot
+ * is not mono because you wanted it to be. [info~] is banged from the buffer's own
+ * "read completed" outlet (outlet 1 - outlet 0 is a mouse position in the editing
+ * window) and reports sample rate, duration and channels; the app derives frames from
+ * those. A frame count on its own is not proof of a read: a failed `replace` leaves
+ * the PREVIOUS contents in place, so "there are samples in there" says nothing. The
+ * bang does - it only fires when a read completed - and until it does the app's
+ * promise is still open (see loadSample() in @m4l-jweb/bridge, which is where the
+ * timeout lives).
+ *
+ * info~'s outlets fire right-to-left, so the LAST one to arrive is outlet 0, the
+ * sample rate - which is therefore the one wired to [pack]'s hot inlet. Wire it the
+ * other way round and the message goes out carrying the PREVIOUS load's numbers.
+ *
+ * ONE VOICE, DELIBERATELY. `groove~` takes `set <buffer-name>` to switch buffers, so
+ * one stereo player covers N slots: this is a PREVIEW - the sample browser's "let me
+ * hear it, through the track" - not a sampler. Polyphony is the `instrument` chain,
+ * and it is still open (doc/TODO.md item 2).
+ *
+ * It SUMS into the signal path rather than claiming it ([+~]), because it makes sound
+ * of its own: on an audio effect the preview plays over the track's audio, and on an
+ * instrument there is nothing at the input to add.
+ *
+ * The buffer NAMES are global to Max, and they are generated from the device name
+ * (`buf-<device>-<slot>`), so two INSTANCES of the same device on two tracks name
+ * their buffers alike - and Max hands the name to whichever loaded last. Not
+ * verified in Live yet; a preview device you drag onto one track is unaffected.
+ *
+ * Slots default to one, named "preview". `slots: ["kick", "snare"]` in the manifest
+ * gives you more.
+ */
+function samplesChain(ctx) {
+  const { boxes, lines, device, jwebId } = ctx;
+  const slots = device?.slots ?? ["preview"];
+  const bufName = (slot) => `buf-${device?.name}-${slot}`;
+
+  // [route buffer_load buffer_play buffer_stop] - outlet 3 is everything else, and
+  // it must go on to the next claimant (the Surface, the wrapper).
+  boxes.push(box("obj-samples-route", "route buffer_load buffer_play buffer_stop", { numoutlets: 4, outlettype: ["", "", "", ""] }));
+  claimAppMessages(ctx, "obj-samples-route", 3);
+
+  // `route` strips the selector, so the slot name is now the first word of both
+  // remaining messages: a second route per stream dispatches on it.
+  const slotList = slots.join(" ");
+  const slotOutlets = { numoutlets: slots.length + 1, outlettype: slots.map(() => "").concat("") };
+  boxes.push(box("obj-samples-loadslot", `route ${slotList}`, slotOutlets));
+  boxes.push(box("obj-samples-playslot", `route ${slotList}`, slotOutlets));
+  lines.push(line("obj-samples-route", 0, "obj-samples-loadslot", 0));
+  lines.push(line("obj-samples-route", 1, "obj-samples-playslot", 0));
+
+  // The player. `groove~ <buffer> 2` = two signal outlets (plus a loop-sync outlet),
+  // and it MIXES a buffer with more channels down rather than dropping them.
+  // @loop 0 makes it a one-shot: a preview that loops forever is a preview you have
+  // to fight. [sig~ 1.] is the playback rate, in the left inlet, which is a SIGNAL
+  // inlet - a float there means something else entirely (a position, in ms).
+  boxes.push(box("obj-samples-rate", "sig~ 1.", { numinlets: 1, numoutlets: 1, outlettype: ["signal"] }));
+  boxes.push(
+    box("obj-samples-groove", `groove~ ${bufName(slots[0])} 2 @loop 0`, {
+      numinlets: 3,
+      numoutlets: 3,
+      outlettype: ["signal", "signal", "signal"],
+    }),
+  );
+  lines.push(line("obj-samples-rate", 0, "obj-samples-groove", 0));
+
+  // Stop: a bare `buffer_stop` arrives from [route] as a BANG - the word is gone -
+  // so re-materialize it in a message box, or groove~ hears nothing it knows.
+  boxes.push(box("obj-samples-stopmsg", "stop", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+  lines.push(line("obj-samples-route", 2, "obj-samples-stopmsg", 0));
+  lines.push(line("obj-samples-stopmsg", 0, "obj-samples-groove", 0));
+
+  slots.forEach((slot, i) => {
+    const buf = `obj-samples-buf-${slot}`;
+    const info = `obj-samples-info-${slot}`;
+
+    // buffer~: outlet 0 is a mouse position, outlet 1 is the bang on a completed
+    // read. Only the second one means anything here.
+    boxes.push(box(buf, `buffer~ ${bufName(slot)}`, { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
+    boxes.push(box(`obj-samples-replace-${slot}`, "prepend replace"));
+    lines.push(line("obj-samples-loadslot", i, `obj-samples-replace-${slot}`, 0));
+    lines.push(line(`obj-samples-replace-${slot}`, 0, buf, 0));
+
+    // What actually landed. info~'s outlets: 0 = sample rate, 6 = duration in ms,
+    // 8 = number of channels (per its reference page - do not count them from
+    // memory). They fire right-to-left, so 0 arrives last and is the hot one.
+    boxes.push(
+      box(info, `info~ ${bufName(slot)}`, {
+        numinlets: 1,
+        numoutlets: 10,
+        outlettype: ["float", "list", "float", "float", "float", "float", "float", "", "int", ""],
+      }),
+    );
+    boxes.push(box(`obj-samples-pack-${slot}`, "pack 0. 0. 0", { numinlets: 3, numoutlets: 1, outlettype: [""] }));
+    boxes.push(box(`obj-samples-ready-${slot}`, `prepend buffer_ready ${slot}`));
+
+    lines.push(line(buf, 1, info, 0)); // the read completed - ask what it was
+    lines.push(line(info, 8, `obj-samples-pack-${slot}`, 2)); // channels (fires first)
+    lines.push(line(info, 6, `obj-samples-pack-${slot}`, 1)); // duration, ms
+    lines.push(line(info, 0, `obj-samples-pack-${slot}`, 0)); // sample rate - hot, last
+    lines.push(line(`obj-samples-pack-${slot}`, 0, `obj-samples-ready-${slot}`, 0));
+    lines.push(line(`obj-samples-ready-${slot}`, 0, jwebId, 0));
+
+    // Play: pick the buffer, THEN start it. Two cords out of one outlet fire in an
+    // order Max chooses, so the sequence goes through a [t b b] - right outlet
+    // first - and never through a fan-out. Starting the OLD buffer and then
+    // switching is exactly the bug that looks like "the wrong sample previewed".
+    boxes.push(box(`obj-samples-trig-${slot}`, "t b b", { numinlets: 1, numoutlets: 2, outlettype: ["bang", "bang"] }));
+    boxes.push(box(`obj-samples-set-${slot}`, `set ${bufName(slot)}`, { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+    // A float in groove~'s left inlet is a playback POSITION in ms, and 0 is "from
+    // the beginning" - which is also what starts it after a `stop`.
+    boxes.push(box(`obj-samples-start-${slot}`, "0", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+
+    lines.push(line("obj-samples-playslot", i, `obj-samples-trig-${slot}`, 0));
+    lines.push(line(`obj-samples-trig-${slot}`, 1, `obj-samples-set-${slot}`, 0)); // right first: set the buffer
+    lines.push(line(`obj-samples-trig-${slot}`, 0, `obj-samples-start-${slot}`, 0)); // ...then play it
+    lines.push(line(`obj-samples-set-${slot}`, 0, "obj-samples-groove", 0));
+    lines.push(line(`obj-samples-start-${slot}`, 0, "obj-samples-groove", 0));
+  });
+
+  // Sum into the signal path: this chain MAKES sound, it does not process what came
+  // before. Claiming the stage instead would silence the track the preview plays over.
+  for (const [ch, id] of [
+    [0, "obj-samples-mix-l"],
+    [1, "obj-samples-mix-r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    boxes.push(box(id, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, id, 0));
+    lines.push(line("obj-samples-groove", ch, id, 1));
+    ctx.setAudioOut(ch, id, 0);
+  }
+}
+
 export const CHAINS = {
   midiin: midiInChain,
+  samples: samplesChain,
   midiout: midiOutChain,
   passthrough: passthroughChain,
   gain: gainChain,

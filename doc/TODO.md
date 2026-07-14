@@ -13,9 +13,9 @@ not one device's business logic.
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike** that can fail in an afternoon rather than a week.
 
-**NEXT UP: item 2, the `samples` chain.** It is the last thing blocking `m4l-strudel`'s
-sample browser (a preview the user's track can actually hear), and it is the first device
-in this repo that would ORIGINATE a sound rather than process one.
+**NEXT UP: item 2's second half, the `instrument` chain.** The `samples` chain is built
+(`hello-sampler`, the first device here that ORIGINATES a sound), but it is one voice - a
+preview, not a sampler - and it has **not been verified in Live yet**.
 
 ---
 
@@ -30,7 +30,7 @@ right call - but it means its backlog is a live specification of this one's. As 
 | Drum-map popup UI, sample browser window | Floating windows (`FEAT-STRUDEL-001`) | **shipped** - unpark it |
 | Drum map + FX expression surviving the set | State persistence (`FEAT-STRUDEL-003`, "definePersistence") | **shipped** as `state()` + `useStateSync()` - unpark it |
 | Sample browser: downloading samples | Fetch-to-disk | **shipped** - unpark it |
-| Sample browser: previewing them **through the track** | the `samples` chain (2) | open |
+| Sample browser: previewing them **through the track** | the `samples` chain (2) | **built** - unverified in Live |
 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (3) | open |
 | `.lpf(sine.range(200, 2000))` | modulation (4) | open |
 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | Priority 2 - hard, and possibly never |
@@ -67,17 +67,26 @@ first, saved nothing at all.
 (the Strudel instrument, offline-rendered audio, previews) plays through a `[buffer~]`
 in the end.
 
-The download half is now shipped, so this is unblocked - but the `samples` chain can
-still be built and tested against an already-extracted payload first, so start there.
-
-- **`samples`** - a named `[buffer~]` per slot; `buffer_load <slot> <path>` replying
-  `buffer_ready <slot> <frames> <ms>`. **Must not assume mono** (`replace` adopts the
-  file's channel count) and must not treat a frame count as proof of a read.
-- **`instrument`** - `[poly~]` voices around `groove~`/`play~`, a **stage** in the
-  signal path like any other chain, driven by the note contract the bridge already
-  exports. Polyphony and voice stealing are Max's problem, not the app's.
-- This is the device that should finally exercise **`type: "instrument"`**, which
-  nothing in this repo builds today.
+- **`samples`** - **BUILT, NOT YET VERIFIED IN LIVE.** A named `[buffer~]` per slot
+  (`slots: [...]` in the manifest); `buffer_load <slot> <path>` replying `buffer_ready
+  <slot> <sr> <ms> <chans>`, and `buffer_play`/`buffer_stop` through one `[groove~]`
+  into the signal path. `loadSample()` / `playSample()` / `stopSample()` in
+  `@m4l-jweb/bridge`; the device is `hello-sampler`, an `instrument`, which is the
+  first thing here to exercise `type: "instrument"` at all.
+  It does not assume mono - `replace` adopts the file's channel count, so the chain
+  reports what `[info~]` MEASURED rather than what the app hoped for - and it does not
+  treat a frame count as proof of a read: a failed `replace` leaves the previous
+  contents in the buffer, so the reply is driven by `[buffer~]`'s read-completed bang
+  and nothing else. A file Max cannot read produces no bang at all, hence the timeout
+  in `loadSample()`.
+  **Two things to settle in Live**, and neither can be settled here: whether the
+  preview is audible through the track (the point of the whole item), and whether two
+  INSTANCES of the device fight over the buffer names, which are global to Max and
+  generated per device (`buf-<device>-<slot>`), not per instance.
+- **`instrument`** - still open. `[poly~]` voices around `groove~`/`play~`, a **stage**
+  in the signal path like any other chain, driven by the note contract the bridge
+  already exports. Polyphony and voice stealing are Max's problem, not the app's.
+  `samples` is deliberately ONE voice: a preview, not a sampler.
 
 **Unlocks the first M4L-JWEB device that ORIGINATES sound.** Be precise about that,
 because three different claims live near each other and only one of them is still open:
@@ -85,7 +94,7 @@ because three different claims live near each other and only one of them is stil
 | | Status |
 |---|---|
 | **Processing** audio - Live's signal through our DSP (`hello-audio`: `onepole~`, `overdrive~`, `*~`) | **works today** |
-| **Originating** audio - the device makes the sound itself (`buffer~`, `play~`, `poly~`) | **this item** |
+| **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **built** (`samples`), unverified in Live; polyphony (`poly~`) still open |
 | **JS-generated** audio - a WebAudio synth in `[jweb]` reaching the track | Priority 2, and it needs a C++ external |
 
 Nothing in the 0.6.0 release makes a sound. Fetch-to-disk is a *precondition* for

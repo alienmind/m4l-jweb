@@ -194,3 +194,90 @@ test("a stage that forgets setAudioOut is bypassed, not silently mixed in", () =
   const c = compile(null, { name: "orphan-device", type: "audio", chains: ["orphan"] });
   expect(c.feeding("obj-plugout", 0)).toEqual(["obj-plugin"]);
 });
+
+/* ------------------------------------------------------------------ *
+ * "samples" - the chain that ORIGINATES a sound
+ * ------------------------------------------------------------------ */
+
+const sampler = (chains = ["samples"], slots = ["preview"]) => compile(null, { name: "smp", type: "instrument", chains, slots });
+
+/** The box text of one id, so a test can assert what Max will actually instantiate. */
+const textOf = (c, id) => c.boxes.find((b) => b.box.id === id)?.box.text;
+
+test("a sample slot is a named [buffer~], and the player refers to it by that name", () => {
+  const c = sampler();
+  // groove~ and buffer~ agree on the name or they are two unrelated objects, and
+  // nothing in Max reports the mismatch: the preview simply plays silence.
+  expect(textOf(c, "obj-samples-buf-preview")).toBe("buffer~ buf-smp-preview");
+  expect(textOf(c, "obj-samples-info-preview")).toBe("info~ buf-smp-preview");
+  expect(textOf(c, "obj-samples-set-preview")).toBe("set buf-smp-preview");
+  expect(textOf(c, "obj-samples-groove")).toContain("groove~ buf-smp-preview 2");
+});
+
+test("the buffer reports what it LOADED, from its read-completed outlet", () => {
+  const c = sampler();
+  // Outlet 1, not outlet 0: outlet 0 is a mouse position in the editing window. And
+  // info~'s outlets fire right-to-left, so the sample rate (outlet 0) arrives LAST
+  // and is the only one that may drive [pack]'s hot inlet - otherwise the message
+  // goes out carrying the previous load's numbers.
+  expect(c.cords).toContainEqual({ src: "obj-samples-buf-preview", out: 1, dst: "obj-samples-info-preview", in: 0 });
+  const pack = "obj-samples-pack-preview";
+  expect(c.cords).toContainEqual({ src: "obj-samples-info-preview", out: 0, dst: pack, in: 0 }); // sample rate, hot
+  expect(c.cords).toContainEqual({ src: "obj-samples-info-preview", out: 6, dst: pack, in: 1 }); // duration ms
+  expect(c.cords).toContainEqual({ src: "obj-samples-info-preview", out: 8, dst: pack, in: 2 }); // channels
+  expect(textOf(c, "obj-samples-ready-preview")).toBe("prepend buffer_ready preview");
+  expect(c.feeding("obj-jweb", 0)).toContain("obj-samples-ready-preview");
+});
+
+test("play sets the buffer BEFORE it starts it, through a trigger and not a fan-out", () => {
+  const c = sampler();
+  // Two cords out of one outlet fire in an order Max chooses. Starting the OLD buffer
+  // and switching after is exactly the bug that reads as "it previewed the wrong
+  // sample" - so the order is a [t b b], whose right outlet fires first.
+  expect(c.feeding("obj-samples-set-preview", 0)).toEqual(["obj-samples-trig-preview"]);
+  expect(c.cords).toContainEqual({ src: "obj-samples-trig-preview", out: 1, dst: "obj-samples-set-preview", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-samples-trig-preview", out: 0, dst: "obj-samples-start-preview", in: 0 });
+  for (const id of ["obj-samples-set-preview", "obj-samples-start-preview", "obj-samples-stopmsg"]) {
+    expect(c.boxes.find((b) => b.box.id === id).box.maxclass).toBe("message");
+    expect(c.feeding("obj-samples-groove", 0)).toContain(id);
+  }
+});
+
+test("the preview SUMS into the signal path - it does not claim the stage", () => {
+  const c = sampler();
+  // A chain that makes its own sound and claimed the stage would silence whatever came
+  // before it. The input goes into [+~]'s left inlet, the player into its right.
+  for (const ch of [0, 1]) {
+    const mix = `obj-samples-mix-${"lr"[ch]}`;
+    expect(c.feeding(mix, 0)).toEqual(["obj-plugin"]);
+    expect(c.feeding(mix, 1)).toEqual(["obj-samples-groove"]);
+    expect(c.feeding("obj-plugout", ch)).toEqual([mix]);
+  }
+});
+
+test("...and it still composes: an effect after it processes the sound it made", () => {
+  const c = compile(surface, { name: "smp", type: "instrument", chains: ["samples", "lowpass"], slots: ["preview"] });
+  expect(c.feeding("obj-lpf-l", 0)).toEqual(["obj-samples-mix-l"]);
+  expect(c.feeding("obj-plugout", 0)).toEqual(["obj-lpf-l"]);
+});
+
+test("more than one slot is more than one buffer, dispatched by name", () => {
+  const c = sampler(["samples"], ["kick", "snare"]);
+  expect(c.count("buffer~ buf-smp-kick")).toBe(1);
+  expect(c.count("buffer~ buf-smp-snare")).toBe(1);
+  // One player, N buffers: groove~ takes `set <name>`. Both slots' route outlets have
+  // to reach it, and the slot lives in the ARGUMENTS - `route kick snare` matches a
+  // whole word, which is what makes that legal here.
+  expect(c.count("groove~ buf-smp-kick 2 @loop 0")).toBe(1);
+  expect(textOf(c, "obj-samples-loadslot")).toBe("route kick snare");
+  expect(c.cords).toContainEqual({ src: "obj-samples-playslot", out: 1, dst: "obj-samples-trig-snare", in: 0 });
+});
+
+test("the samples chain hands on what it did not match, in series with the next claimant", () => {
+  // The wrapper still has to see `ui_ready`. A route hung off [jweb] in parallel
+  // would deliver every unrouted message twice instead.
+  const c = sampler(["samples", "download"]);
+  expect(c.feeding("obj-samples-route", 0)).toEqual(["obj-jweb"]);
+  expect(c.cords).toContainEqual({ src: "obj-samples-route", out: 3, dst: "obj-js", in: 0 });
+  expect(c.feeding("obj-js", 0)).not.toContain("obj-jweb");
+});
