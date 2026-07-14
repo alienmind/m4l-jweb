@@ -99,18 +99,34 @@ export default [
     unmatchedTo: "js",
   },
   {
+    /**
+     * hello-downloads
+     * Tests the fetch-to-disk capability, which bypasses the lack of disk access in [jweb].
+     * Demonstrates using the `download` chain that interfaces with `[maxurl]`.
+     */
     name: "hello-downloads",
     type: "midi",
     chains: ["download"],
     unmatchedTo: "js",
   },
   {
+    /**
+     * hello-state
+     * Demonstrates the state persistence API (`useStateSync`). 
+     * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
+     */
     name: "hello-state",
     type: "midi",
     chains: ["midiin", "midiout"],
     unmatchedTo: "js",
   },
   {
+    /**
+     * hello-window
+     * Demonstrates the floating window API (`useWindow`).
+     * Currently PARKED: the signal crosses the bridge successfully, but Max's `[route]`
+     * object fails to trigger the `[pcontrol]` to open the subpatcher. See doc/WINDOW.md.
+     */
     name: "hello-window",
     type: "midi",
     chains: ["midiin", "midiout"],
