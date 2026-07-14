@@ -80,6 +80,14 @@ export function buildWrapper(root) {
         // At [js] global scope `this` IS the jsthis object - that is how
         // `this.patcher.filepath` works.
         noImplicitThis: false,
+        // ...and that is ONLY true in sloppy mode. `strict: true` makes tsc emit
+        // "use strict" at the top of every file, under which `this` inside a plainly
+        // called function is UNDEFINED - so `this.patcher` would throw. Max's [js] is
+        // an ES5-era interpreter that does not enforce strict semantics, so the
+        // device works anyway; it works by accident, on a technicality of a very old
+        // engine, and any [js] that ever grew a real strict mode would take every
+        // device down with it. Emit what we actually target.
+        alwaysStrict: false,
         noImplicitAny: false,
         skipLibCheck: true,
         types: [],
@@ -299,14 +307,14 @@ export async function packageDevices(root) {
      */
     let wrapperData = banner + wrapperJs;
     const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
-    
+
     // Main UI payload
     wrapperData += payloadJs("UI_PAYLOAD", uiName, readFileSync(path.join(dist, "ui", d.ui ?? d.name, "index.html")));
-    
+
     // Additional window payloads
-    const extraWindows = uiDirContent.filter(f => f !== "index.html");
+    const extraWindows = uiDirContent.filter((f) => f !== "index.html");
     const payloads = (d.payloads ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) }));
-    
+
     for (const winHtml of extraWindows) {
       payloads.push({ name: `${d.name}_${winHtml}`, data: readFileSync(path.join(dist, "ui", d.ui ?? d.name, winHtml)) });
     }

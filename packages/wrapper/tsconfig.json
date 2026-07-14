@@ -1,0 +1,36 @@
+{
+	/*
+	 * EDITOR-ONLY. The BUILD does not read this file - it writes its own tsconfig
+	 * into a temp dir (packages/build/src/index.mjs, buildWrapper()) because it
+	 * stages the sources next to a device's own wrapper/device.ts before compiling
+	 * them as one program. Keep the two in step: these options are that one,
+	 * verbatim.
+	 *
+	 * Without this file, VS Code typechecks core.ts as a stray browser module: the
+	 * DOM lib is on, so `File` is the DOM's File and `post`/`outlet`/`LiveAPI` are
+	 * undeclared, and the editor lights up the whole wrapper in red. That is what
+	 * `// @ts-nocheck` was hiding - along with every real error in the one file
+	 * under the ES5 constraint, where a type error is a device that dies at load
+	 * with a one-line message and no stack.
+	 */
+	"compilerOptions": {
+		// The ES5 target is a build gate, not a style preference: Max's [js] is an
+		// ES5-era interpreter. `module: "none"` forbids imports, which is exactly
+		// the [js] constraint - the sources are CONCATENATED, not linked.
+		"target": "ES5",
+		"lib": ["ES5"],
+		"module": "none",
+		"noEmit": true,
+		"strict": true,
+		// At [js] global scope `this` IS the jsthis object - that is how
+		// `this.patcher.filepath` works. It is only true in SLOPPY mode, so the
+		// emitted script must not carry "use strict" (see buildWrapper()).
+		"noImplicitThis": false,
+		"alwaysStrict": false,
+		"noImplicitAny": false,
+		"skipLibCheck": true,
+		// No @types/node, no DOM. The only ambient globals are src/max.d.ts.
+		"types": []
+	},
+	"files": ["src/max.d.ts", "src/core.ts", "src/liveapi.ts"]
+}
