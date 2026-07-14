@@ -526,6 +526,11 @@ function downloadChain(ctx) {
  * rule the `download` chain follows, which is how you get the file there in the
  * first place.
  *
+ * WAV/AIFF/Next-Sun ONLY. [buffer~]'s `read`/`replace` does not take MP3 - that list
+ * (MP3, OGG, FLAC, M4A) is [sfplay~]'s, which streams from disk rather than filling a
+ * buffer, and is therefore a different chain. A format it cannot read is an error in
+ * the Max console and NO bang, so the app's promise times out rather than lying.
+ *
  * WHAT LOADED IS NOT WHAT YOU ASKED FOR, so the chain reports what it GOT. `replace`
  * resizes the buffer and adopts the FILE's channel count and sample rate, so a slot
  * is not mono because you wanted it to be. [info~] is banged from the buffer's own
