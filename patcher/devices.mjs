@@ -128,8 +128,8 @@ export default [
      * object fails to trigger the `[pcontrol]` to open the subpatcher. See doc/WINDOW.md.
      */
     name: "hello-window",
-    type: "midi",
-    chains: ["midiin", "midiout"],
+    type: "audio",
+    chains: ["passthrough"],
     unmatchedTo: "js",
   },
 ];

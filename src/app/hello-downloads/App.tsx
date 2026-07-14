@@ -8,7 +8,7 @@ export default function HelloDownloads() {
   const [status, setStatus] = useState("Idle");
 
   async function testDownload() {
-    const destPath = "~/Desktop/test_download.json";
+    const destPath = "~/test_download.json";
     const url = "https://jsonplaceholder.typicode.com/todos/1";
     
     setStatus("Downloading...");
