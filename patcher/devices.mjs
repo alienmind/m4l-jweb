@@ -112,7 +112,7 @@ export default [
   {
     /**
      * hello-state
-     * Demonstrates the state persistence API (`useStateSync`). 
+     * Demonstrates the state persistence API (`useStateSync`).
      * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
      */
     name: "hello-state",
@@ -123,9 +123,10 @@ export default [
   {
     /**
      * hello-window
-     * Demonstrates the floating window API (`useWindow`).
-     * Currently PARKED: the signal crosses the bridge successfully, but Max's `[route]`
-     * object fails to trigger the `[pcontrol]` to open the subpatcher. See doc/WINDOW.md.
+     * Demonstrates the floating window API (`useWindow`): a second page, in a window
+     * of its own, for a UI that does not fit in the device view's fixed ~169 px. The
+     * window is declared in surface.ts; the build generates the subpatcher, its
+     * [jweb] and the [pcontrol] that opens it.
      */
     name: "hello-window",
     type: "audio",

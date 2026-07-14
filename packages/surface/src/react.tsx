@@ -18,7 +18,7 @@
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { outlet } from "@m4l-jweb/bridge";
-import type { ParamSpec, ParamValue, Surface } from "./index";
+import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, WindowSpec } from "./index";
 import { paramStore, stateStore } from "./store";
 
 /**
@@ -45,11 +45,19 @@ export function useSurface<P extends Record<string, ParamSpec>>(
   return [values as { [K in keyof P]: ParamValue<P[K]> }, set];
 }
 
-/** Open and close a declared floating window. */
-export function useWindow<P extends Record<string, ParamSpec>>(
-  _surface: Surface<P>,
-  id: string,
-): { open: () => void; close: () => void } {
+/**
+ * Open and close a declared floating window.
+ *
+ * The selectors are DERIVED from the declaration, exactly as the patcher's
+ * `[route window_<id>_open ...]` is - so the window id is typed against the
+ * surface and a typo is a build error, not a button that does nothing.
+ */
+export function useWindow<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec>,
+  W extends Record<string, WindowSpec>,
+  K extends Extract<keyof W, string>,
+>(_surface: Surface<P, S, W>, id: K): { open: () => void; close: () => void } {
   return useMemo(
     () => ({
       open: () => outlet(`window_${id}_open`, 1),
@@ -59,13 +67,21 @@ export function useWindow<P extends Record<string, ParamSpec>>(
   );
 }
 
-/** A two-way binding to a persisted JSON state inside the Live Set. */
-export function useStateSync<P extends Record<string, ParamSpec>, T = any>(
-  surface: Surface<P>,
-  id: string,
-): [T, (value: T) => void] {
+/**
+ * A two-way binding to a JSON state slot, persisted in the Live SET.
+ *
+ * `[value, setValue]`, like useState - except the value survives saving, closing
+ * and reopening the set, and each instance of the device keeps its own. The type
+ * comes from the declaration's `default`, so there is nothing to cast.
+ */
+export function useStateSync<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec>,
+  W extends Record<string, WindowSpec>,
+  K extends Extract<keyof S, string>,
+>(surface: Surface<P, S, W>, id: K): [StateValue<S[K]>, (value: StateValue<S[K]>) => void] {
   const store = useMemo(() => stateStore(surface), [surface]);
   const values = useSyncExternalStore(store.subscribe, store.get, store.get);
-  const set = useCallback((value: T) => store.write(id, value), [store, id]);
-  return [values[id] as T, set];
+  const set = useCallback((value: StateValue<S[K]>) => store.write(id, value), [store, id]);
+  return [values[id] as StateValue<S[K]>, set];
 }
