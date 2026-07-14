@@ -1,6 +1,6 @@
-# Floating Windows Architecture
+This document records the architectural details, implementation attempts, and trial-and-error logs for several attempted features, currently parked, for future reference.
 
-This document records the architectural details, implementation attempts, and trial-and-error logs for the floating window feature in `m4l-jweb`. The feature is currently parked.
+# Floating Windows Architecture
 
 ## Goal
 To allow the React UI to declare secondary floating windows (e.g., `testWindow: window({ ... })`), which compile into hidden Max subpatchers containing their own `[jweb]` instance. The main UI should be able to trigger these windows to open and close via `drumWindow.open()`.
@@ -42,3 +42,36 @@ To allow the React UI to declare secondary floating windows (e.g., `testWindow: 
 - The `window.max.outlet` bridge *works*. The log `JWEB_WINDOWS: window_testWindow_open 1` proves the signal successfully crosses from React into Max.
 - The failure lies strictly in the Max patching domain: specifically, bridging the gap between what `[jweb]` outputs natively and what `[route]` accepts to trigger the subpatcher opening logic.
 - **Future Investigation**: Inspect the exact type of the message coming out of `jweb` dumpout in Max 8 (e.g., using `[type]` or passing it through `[fromsymbol]` / `[tosymbol]`) to figure out why `[route]` ignores it.
+
+---
+
+# Fetch-to-disk (File Download)
+
+## Goal
+To allow the React UI to download a file from a URL directly to the user's local disk (e.g., the Desktop) without requiring standard browser dialogs (which CEF/jweb does not support). The feature should be portable across Mac and Windows.
+
+## Architecture Intent
+1. **React Side**: fetchToFile(url, destPath) exposed via the bridge API.
+2. **Bridge/Wrapper Side**: processNextFetch() constructs a request dictionary for Max's [maxurl] object, setting the downloadfilename key.
+3. **Max Patcher Side**: A [maxurl] object receives the dictionary and initiates a GET request, saving the output directly to the specified file path.
+
+## Implementation Attempts & Trial and Error
+
+### Attempt 1: Raw Messages
+- **Approach**: Sent raw http_method get, downloadfilename <path>, and url <url> messages to [maxurl].
+- **Result**: Max 8's [maxurl] threw doesn't understand errors for these messages.
+
+### Attempt 2: Dictionary Configuration
+- **Approach**: Discovered [maxurl] in Max 8 requires passing a Dict object to configure downloads. Created a Dict in core.ts with downloadfilename.
+- **Result**: [maxurl] correctly understood the request (HTTP 200 Success), but no bytes were written to the file on disk.
+
+### Attempt 3: Portable Paths
+- **Approach**: Attempted to resolve paths portably using ~/ and Desktop:/ (which Max's File object understands natively).
+- **Result**: [maxurl] relies directly on libcurl under the hood. Libcurl does not understand Max-specific path prefixes (~/, Desktop:/), and requires an absolute OS path.
+
+### Attempt 4: Relative to Device Path
+- **Approach**: Stripped relative prefixes and prepended 	his.patcher.filepath in Max JS to create an absolute OS path pointing to the device's installation directory in the Ableton User Library.
+- **Result**: Due to Ableton Live's behavior, instances of .amxd devices already loaded on tracks cache their state. Without deleting and re-dragging the device manually after every rebuild, the old relative path ~/test_download.json continued to execute, producing invalid libcurl paths and failing to write to disk.
+
+The feature is parked pending a more robust cross-platform path-resolution strategy and a smoother device reloading workflow.
+

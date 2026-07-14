@@ -1,3 +1,5 @@
+> **Introduction:** This document describes an audible test of the audio effect plugin, demonstrating the order of operations being applied to a chain.
+
 # The listening test
 
 *The one test in this repo you run with your ears, and the only way to prove that a

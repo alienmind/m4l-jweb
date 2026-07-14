@@ -13,25 +13,7 @@ not one device's business logic.
 
 ## Priority 1: Core Library Enhancements
 
-### [DONE] 1. Fetch-to-disk - and `[node.script]` is deleted
-`[jweb]` can `fetch()` but cannot write to disk. The only escape hatch today is
-`[node.script]`, whose failure modes in Live run from silently ignoring `script start`
-to crashing the host: the least reliable infrastructure in the project. `[maxurl]`
-replaces it, and the shape it takes is already measured.
-
-- A generated **`download` chain** around `[maxurl]`. Not `[js]` conjuring the object
-  at runtime (silent failure in a frozen device), and not chunking bytes back through
-  the bridge (many MB through a text protocol, for nothing).
-- **Protocol, in the library** - any device wants this, so it is not a device's own
-  `protocol.ts`:
-  - UI -> device: `fetch_to_file <requestId> <url> <destPath>`
-  - device -> UI: `fetch_done <requestId> <bytes>` / `fetch_error <requestId> <msg>`
-  - the bridge wraps it as `fetchToFile(url, destPath): Promise<{ bytes }>`.
-- **`fetchToFile` must:** check `status` **and** the `error` key (neither alone is
-  sufficient); download to a **temp path and move it into place only on success** (a
-  404 otherwise overwrites a good cached file with an error page); and surface the
-  failure to the app with the status in it. Report progress as bytes land - outlet 1
-  gives it for free.
+### [PARKED] 1. Fetch-to-disk - and `[node.script]` is deleted (See [PARKED_FEATURES.md](PARKED_FEATURES.md) for details)
 
 ### 2. Sound from samples: the `samples` and `instrument` chains
 The download half needs 1, but the `samples` chain can be built and tested against an
@@ -119,7 +101,4 @@ Until Max provides a native `[jweb~]` object that exposes CEF's audio output as 
   `packages/build` **while there is still only one target**, which is worth doing on its
   own merits.
 
-## Priority 4: Declarative Floating Windows
-This feature is currently parked and fully documented in [WINDOW.md](WINDOW.md). It is not completed yet, as we hit a roadblock with how Max's `[route]` object handles the raw messages coming out of the `[jweb]` dumpout.
-
-This is a non-blocking enhancement. It is only required if we decide to implement certain "bigger window" features—like porting the full strudel.cc code editor interface directly into Max for Live-which demand expansive screen real estate outside the standard Live device view. When we resume work on this, start by addressing the debug findings listed in `WINDOW.md`.4
+### [PARKED] 4. Declarative Floating Windows - See [PARKED_FEATURES.md](PARKED_FEATURES.md) for details
