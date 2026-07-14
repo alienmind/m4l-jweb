@@ -26,7 +26,19 @@ export default function HelloSampler() {
   // A relative path lands next to the .amxd, in the device's own folder - the one
   // place a device can always write, on both platforms.
   const FILE = "preview.wav";
-  const URL = "https://cdn.freesound.org/previews/171/171104_2394245-lq.wav";
+  /**
+   * A WAV, and that is not a preference: [buffer~]'s `read`/`replace` takes AIFF,
+   * Next/Sun and WAV, per its reference page - and NOT MP3. (MP3, OGG, FLAC and M4A
+   * are [sfplay~]'s list, which streams from disk instead of filling a buffer, so it
+   * is a different chain and not this one.) A file it cannot read produces an error
+   * in the Max console and no reply at all, which is what loadSample() times out on.
+   *
+   * `raw.githubusercontent.com`, not the `github.com/.../blob/...` page - that one
+   * serves HTML, and an HTML file downloads perfectly and then fails to load as audio.
+   * The sample is from tidal-drum-machines, which is where m4l-strudel's own samples
+   * come from.
+   */
+  const URL = "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/AJKPercusyn/ajkpercusyn-bd/Bassdrum.wav";
 
   async function fetchIt() {
     setLoaded(null);

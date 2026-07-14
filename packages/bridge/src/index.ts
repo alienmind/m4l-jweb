@@ -331,6 +331,12 @@ let samplesBound = false;
  * `fetchToFile()` is for. The bytes never cross the bridge in either direction: Max
  * reads the file, and what comes back is a description of it.
  *
+ * WAV, AIFF OR NEXT/SUN - NOT MP3. That is [buffer~]'s list, from its reference page,
+ * and it is shorter than Max's: MP3, OGG, FLAC and M4A belong to [sfplay~], which
+ * streams from disk rather than filling a buffer. Handing this an MP3 gets you an
+ * error in the Max console, no reply, and the timeout below - the file downloads
+ * perfectly and simply never becomes audio.
+ *
  * The resolved value is measured, not assumed. `replace` adopts the file's channel
  * count and sample rate, so a stereo file in a slot you think of as mono is a stereo
  * slot - and a frame count is not proof of a read, because a FAILED read leaves the
