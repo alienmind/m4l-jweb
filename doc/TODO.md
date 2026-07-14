@@ -13,9 +13,10 @@ not one device's business logic.
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike** that can fail in an afternoon rather than a week.
 
-**NEXT UP: item 2's second half, the `instrument` chain.** The `samples` chain is built
-(`hello-sampler`, the first device here that ORIGINATES a sound), but it is one voice - a
-preview, not a sampler - and it has **not been verified in Live yet**.
+**NEXT UP: item 2's second half, the `instrument` chain.** The `samples` chain is
+**shipped and verified in Live** - `hello-sampler` fetches a WAV, loads it and plays it
+through the track, which is the first sound this repo has ever ORIGINATED. But it is one
+voice: a preview, not a sampler. Polyphony is what is left.
 
 ---
 
@@ -30,12 +31,12 @@ right call - but it means its backlog is a live specification of this one's. As 
 | Drum-map popup UI, sample browser window | Floating windows (`FEAT-STRUDEL-001`) | **shipped** - unpark it |
 | Drum map + FX expression surviving the set | State persistence (`FEAT-STRUDEL-003`, "definePersistence") | **shipped** as `state()` + `useStateSync()` - unpark it |
 | Sample browser: downloading samples | Fetch-to-disk | **shipped** - unpark it |
-| Sample browser: previewing them **through the track** | the `samples` chain (2) | **built** - unverified in Live |
+| Sample browser: previewing them **through the track** | the `samples` chain (2) | **shipped** - unpark it |
 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (3) | open |
 | `.lpf(sine.range(200, 2000))` | modulation (4) | open |
 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | Priority 2 - hard, and possibly never |
 
-Three of those unblocked on this release. **The other four are the items below**, and
+Four of those are unblocked now. **The rest are the items below**, and
 they are ordered here in the order that repo needs them.
 
 ---
@@ -61,13 +62,14 @@ survived a save, a close and a reopen of the set. The switch is `parameter_enabl
 the `[pattr]` (see ARCHITECTURE.md); `@save`/`@autorestore`, which it shipped with
 first, saved nothing at all.
 
-### 2. Sound from samples: the `samples` and `instrument` chains  ← **START HERE**
+### 2. Sound from samples: `samples` (SHIPPED) and `instrument` (open)  ← **START HERE**
 **The highest-value item in this file**, because it is the only thing standing between
 `m4l-strudel`'s sample browser and a working device, and because everything downstream
 (the Strudel instrument, offline-rendered audio, previews) plays through a `[buffer~]`
 in the end.
 
-- **`samples`** - **BUILT, NOT YET VERIFIED IN LIVE.** A named `[buffer~]` per slot
+- **`samples`** - SHIPPED. **Verified in Live**: `hello-sampler` fetched a WAV to disk,
+  loaded it, and played it through the track. A named `[buffer~]` per slot
   (`slots: [...]` in the manifest); `buffer_load <slot> <path>` replying `buffer_ready
   <slot> <sr> <ms> <chans>`, and `buffer_play`/`buffer_stop` through one `[groove~]`
   into the signal path. `loadSample()` / `playSample()` / `stopSample()` in
@@ -79,29 +81,33 @@ in the end.
   contents in the buffer, so the reply is driven by `[buffer~]`'s read-completed bang
   and nothing else. A file Max cannot read produces no bang at all, hence the timeout
   in `loadSample()`.
-  **Two things to settle in Live**, and neither can be settled here: whether the
-  preview is audible through the track (the point of the whole item), and whether two
-  INSTANCES of the device fight over the buffer names, which are global to Max and
-  generated per device (`buf-<device>-<slot>`), not per instance.
+  **The trap it shipped with, now in ARCHITECTURE.md:** `[buffer~]` resolves a bare
+  name against MAX'S SEARCH PATH, not the device's folder - so it could not open the
+  file `fetchToFile()` had just written there. One resolution, in the wrapper, for both.
+  **Still unsettled:** two INSTANCES of the device on two tracks share their buffer
+  names, which are global to Max and generated per device (`buf-<device>-<slot>`), not
+  per instance. Fine for one preview device; a real question for a drum rack.
 - **`instrument`** - still open. `[poly~]` voices around `groove~`/`play~`, a **stage**
   in the signal path like any other chain, driven by the note contract the bridge
   already exports. Polyphony and voice stealing are Max's problem, not the app's.
   `samples` is deliberately ONE voice: a preview, not a sampler.
 
-**Unlocks the first M4L-JWEB device that ORIGINATES sound.** Be precise about that,
-because three different claims live near each other and only one of them is still open:
+**This produced the first M4L-JWEB device that ORIGINATES sound.** Be precise about
+that, because three different claims live near each other and they are not in the same
+state:
 
 | | Status |
 |---|---|
 | **Processing** audio - Live's signal through our DSP (`hello-audio`: `onepole~`, `overdrive~`, `*~`) | **works today** |
-| **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **built** (`samples`), unverified in Live; polyphony (`poly~`) still open |
+| **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **WORKS** (`samples`, verified in Live); polyphony (`poly~`) still open |
 | **JS-generated** audio - a WebAudio synth in `[jweb]` reaching the track | Priority 2, and it needs a C++ external |
 
-Nothing in the 0.6.0 release makes a sound. Fetch-to-disk is a *precondition* for
-sampled audio - you cannot load a sample you have not got - not audio itself.
+Nothing in the 0.6.0 release made a sound; `hello-sampler` is the first thing that does.
+Fetch-to-disk was a *precondition* for sampled audio - you cannot load a sample you have
+not got - not audio itself.
 
-It is also the last thing `m4l-strudel`'s **sample browser** needs, and that design
-currently rests on something untrue: *"any audio generated by the floating `[jweb]`
+It was also the last thing `m4l-strudel`'s **sample browser** needed, and that design
+rested on something untrue: *"any audio generated by the floating `[jweb]`
 browser outputs through that track"*. **It does not.** `[jweb]` has no `~` outlets; its
 Chromium process sends audio straight to the OS output device, bypassing the track, the
 fader and the monitor cue - which is the entire reason Priority 2 exists. A
