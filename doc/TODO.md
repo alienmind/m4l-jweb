@@ -7,16 +7,17 @@ not one device's business logic.
   also records **what we measured in Live**. Read that section before building new features.
 - The **designs still being argued about** - dynamic chains, and how Strudel's own audio
   could reach a track - are in [ENHANCEMENTS.md](ENHANCEMENTS.md). Read it before
-  building items 3 and 4 below: it argues that the most valuable version of both is not
+  building items 2 and 3 below: it argues that the most valuable version of both is not
   the obvious one.
 - The two rules everything follows: **`[js]` is a control plane, not a data plane**
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike** that can fail in an afternoon rather than a week.
+- **What has already shipped is at the [END of this file](#shipped)**, with what each one
+  cost to get right. This half is what is still open.
 
-**NEXT UP: item 2's second half, the `instrument` chain.** The `samples` chain is
-**shipped and verified in Live** - `hello-sampler` fetches a WAV, loads it and plays it
-through the track, which is the first sound this repo has ever ORIGINATED. But it is one
-voice: a preview, not a sampler. Polyphony is what is left.
+**NEXT UP: item 1, the `instrument` chain.** The `samples` chain ships (`hello-sampler`
+plays a WAV through the track - the first sound this repo has ever ORIGINATED), but it
+is ONE VOICE: a preview, not a sampler. Polyphony is what is left.
 
 ---
 
@@ -28,94 +29,48 @@ right call - but it means its backlog is a live specification of this one's. As 
 
 | `m4l-strudel` wants | Needs from here | State |
 |---|---|---|
-| Drum-map popup UI, sample browser window | Floating windows (`FEAT-STRUDEL-001`) | **shipped** - unpark it |
-| Drum map + FX expression surviving the set | State persistence (`FEAT-STRUDEL-003`, "definePersistence") | **shipped** as `state()` + `useStateSync()` - unpark it |
+| Drum-map popup UI, sample browser window | Floating windows | **shipped** - unpark it |
+| Drum map + FX expression surviving the set | State persistence | **shipped** as `state()` + `useStateSync()` - unpark it |
 | Sample browser: downloading samples | Fetch-to-disk | **shipped** - unpark it |
-| Sample browser: previewing them **through the track** | the `samples` chain (2) | **shipped** - unpark it |
-| `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (3) | open |
-| `.lpf(sine.range(200, 2000))` | modulation (4) | open |
+| Sample browser: previewing them **through the track** | the `samples` chain | **shipped** - unpark it |
+| `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (2) | open |
+| `.lpf(sine.range(200, 2000))` | modulation (3) | open |
 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | Priority 2 - hard, and possibly never |
 
-Four of those are unblocked now. **The rest are the items below**, and
-they are ordered here in the order that repo needs them.
+Four of those are unblocked now. **The rest are the items below**, and they are ordered
+here in the order that repo needs them.
 
 ---
 
 ## Priority 1: Core Library Enhancements
 
-### ~~1. Fetch-to-disk~~ - SHIPPED
-`fetchToFile(url, path)` + the `download` chain + `[maxurl]`. **Verified in Live.**
+### 1. The `instrument` chain: polyphony  ← **START HERE**
 
-A download goes to `<dest>.part`, is validated (status **and** the `error` key **and**
-the bytes on disk - each catches a failure the others call success), and only then is
-copied over the destination, **so a 404 can no longer destroy a good cached file**.
-`[js]` has no rename and no delete, so **`[maxurl]` performs the move**: libcurl speaks
-`file://`, and a GET of the .part file with `filename_out` set to the destination is a
-native streaming copy - 1 MB in 6 ms, measured, with no bytes through `[js]`. The
-leftover .part is truncated to zero, which is the closest thing to `delete` that [js]
-has. Pinned by `tests/wrapper-max.test.mjs`; the Max side is pinned by the conformance
-check in `wrapper/device.ts`.
+`samples` shipped and made the first sound (see [Shipped](#shipped)) - but deliberately
+as ONE voice, because a sample browser needs a preview, not a sampler.
 
-### ~~1b. State persistence~~ - SHIPPED
-`state: { x: state({ default }) }` + `useStateSync()`. **Verified in Live**: a value
-survived a save, a close and a reopen of the set. The switch is `parameter_enable` on
-the `[pattr]` (see ARCHITECTURE.md); `@save`/`@autorestore`, which it shipped with
-first, saved nothing at all.
+**`instrument`** is the other half: `[poly~]` voices around `groove~`/`play~`, a **stage**
+in the signal path like any other chain, driven by the note contract the bridge already
+exports. Polyphony and voice stealing are Max's problem, not the app's - which is the
+whole reason to spend a `[poly~]` on it rather than N groove~ objects and a scheduler in
+the app.
 
-### 2. Sound from samples: `samples` (SHIPPED) and `instrument` (open)  ← **START HERE**
-**The highest-value item in this file**, because it is the only thing standing between
-`m4l-strudel`'s sample browser and a working device, and because everything downstream
-(the Strudel instrument, offline-rendered audio, previews) plays through a `[buffer~]`
-in the end.
+**One thing `samples` left unsettled, and it lands squarely on this item:** buffer names
+are global to Max and generated per DEVICE (`buf-<device>-<slot>`), not per instance, so
+two copies of the device on two tracks name their buffers alike and Max hands the name to
+whichever loaded last. Harmless for one preview device. Not harmless for a drum rack,
+which is what this item builds.
 
-- **`samples`** - SHIPPED. **Verified in Live**: `hello-sampler` fetched a WAV to disk,
-  loaded it, and played it through the track. A named `[buffer~]` per slot
-  (`slots: [...]` in the manifest); `buffer_load <slot> <path>` replying `buffer_ready
-  <slot> <sr> <ms> <chans>`, and `buffer_play`/`buffer_stop` through one `[groove~]`
-  into the signal path. `loadSample()` / `playSample()` / `stopSample()` in
-  `@m4l-jweb/bridge`; the device is `hello-sampler`, an `instrument`, which is the
-  first thing here to exercise `type: "instrument"` at all.
-  It does not assume mono - `replace` adopts the file's channel count, so the chain
-  reports what `[info~]` MEASURED rather than what the app hoped for - and it does not
-  treat a frame count as proof of a read: a failed `replace` leaves the previous
-  contents in the buffer, so the reply is driven by `[buffer~]`'s read-completed bang
-  and nothing else. A file Max cannot read produces no bang at all, hence the timeout
-  in `loadSample()`.
-  **The trap it shipped with, now in ARCHITECTURE.md:** `[buffer~]` resolves a bare
-  name against MAX'S SEARCH PATH, not the device's folder - so it could not open the
-  file `fetchToFile()` had just written there. One resolution, in the wrapper, for both.
-  **Still unsettled:** two INSTANCES of the device on two tracks share their buffer
-  names, which are global to Max and generated per device (`buf-<device>-<slot>`), not
-  per instance. Fine for one preview device; a real question for a drum rack.
-- **`instrument`** - still open. `[poly~]` voices around `groove~`/`play~`, a **stage**
-  in the signal path like any other chain, driven by the note contract the bridge
-  already exports. Polyphony and voice stealing are Max's problem, not the app's.
-  `samples` is deliberately ONE voice: a preview, not a sampler.
-
-**This produced the first M4L-JWEB device that ORIGINATES sound.** Be precise about
-that, because three different claims live near each other and they are not in the same
-state:
+**Be precise about what makes a sound**, because three claims live near each other and
+they are not in the same state:
 
 | | Status |
 |---|---|
-| **Processing** audio - Live's signal through our DSP (`hello-audio`: `onepole~`, `overdrive~`, `*~`) | **works today** |
-| **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **WORKS** (`samples`, verified in Live); polyphony (`poly~`) still open |
+| **Processing** audio - Live's signal through our DSP (`hello-audio`: `onepole~`, `overdrive~`, `*~`) | **works** |
+| **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **works** (`samples`, verified in Live); polyphony is this item |
 | **JS-generated** audio - a WebAudio synth in `[jweb]` reaching the track | Priority 2, and it needs a C++ external |
 
-Nothing in the 0.6.0 release made a sound; `hello-sampler` is the first thing that does.
-Fetch-to-disk was a *precondition* for sampled audio - you cannot load a sample you have
-not got - not audio itself.
-
-It was also the last thing `m4l-strudel`'s **sample browser** needed, and that design
-rested on something untrue: *"any audio generated by the floating `[jweb]`
-browser outputs through that track"*. **It does not.** `[jweb]` has no `~` outlets; its
-Chromium process sends audio straight to the OS output device, bypassing the track, the
-fader and the monitor cue - which is the entire reason Priority 2 exists. A
-**transport-synced preview therefore has to be `buffer~` + `play~` in the patcher** -
-this chain - and not WebAudio in the browser view. Downloading the file first is not a
-detour; it is the only path to audio that Live can hear.
-
-### 3. The rack: a chain vocabulary, and the NEUTRALITY CONTRACT it needs first
+### 2. The rack: a chain vocabulary, and the NEUTRALITY CONTRACT it needs first
 
 > [!WARNING]
 > **DO NOT START THIS UNTIL SPIKE 1 IN [ENHANCEMENTS.md](ENHANCEMENTS.md) HAS RUN.**
@@ -134,6 +89,7 @@ detour; it is the only path to audio that Live can hear.
 > Keep this item as the FALLBACK, and for the two things a device chain genuinely cannot
 > do: an effect Live has no device for, and anything that must change per-hap faster than
 > a parameter can be set.
+
 `m4l-strudel` refuses `.room()`, `.delay()`, `.crush()` and `.hpf()` honestly ("no Max
 chain yet") because this vocabulary does not exist. It is four chains and one rule, and
 **the rule is the load-bearing half.**
@@ -171,7 +127,7 @@ for the library to say so rather than let a device imply otherwise.
 **Which effects earn a permanent place is the real question**, since each one costs DSP
 whether or not the app's line mentions it.
 
-### 4. Modulation: a parameter that moves faster than the bridge
+### 3. Modulation: a parameter that moves faster than the bridge
 `.lpf(sine.range(200, 2000))` describes **continuous** modulation. Sending it as
 parameter writes from the app means 20 Hz of stepped values fighting the automation
 lane - audibly stepped, and wrong in every readout.
@@ -192,7 +148,7 @@ Spike it. See [ENHANCEMENTS.md](ENHANCEMENTS.md).
 **Unblocks** `m4l-strudel`'s pattern-driven modulation (its Phase 7.2), which is parked
 on exactly this.
 
-### 2. Reversed-engineered Push Banks (Hardware Controller Mapping)
+### 4. Reverse-engineered Push banks (hardware controller mapping)
 Currently, `m4l-jweb` allows you to declare parameter banks (groupings of 8 parameters for hardware like Ableton Push) in `surface.ts`,
 and the web mock harness displays them perfectly. However, the build script does not yet inject this banking data into the generated `.amxd` file.
 As a result, Live falls back to displaying all parameters in a single, unbanked list.
@@ -201,26 +157,27 @@ To fix this, we need to reverse-engineer Max's undocumented JSON format for stor
 1. **Patcher-JSON archaeology:** Open a device in the Max editor, manually configure parameter banks, save it, and diff the resulting JSON to find exactly where and how Max stores this data.
 2. **Write the round-trip test first:** Max is extremely picky and will corrupt patches if the JSON is malformed. Do not guess the shape. Write a strict unit test against the known-good JSON before implementing the generator logic.
 
-### 3. Retake README Screenshots
+### 5. Retake README screenshots
 Whenever the example devices change shape again.
 
-### 4. Extract the contract pattern - `defineWatch()`, `defineSamples()`
-**Only after Priority 3.2 has shipped**, when there are two real instances to generalise from.
+### 6. Extract the contract pattern - `defineWatch()`, `defineSamples()`
+**Only after item 4 (Push banks) has shipped**, when there are two real instances to
+generalise from.
 `defineSurface()` is not a parameters feature; it is one instance of a rule: *you
 declare what the Max side has, the build derives everything else* - objects, wiring,
 protocol selectors, a typed React hook, and a harness mock, the same five artifacts
 every time.
 
-- **4.1 Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
+- **6.1 Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
   pipeline. Leave the user-facing APIs bespoke: `params`, `slots` and `watch` have
   nothing meaningful in common. Same for the harness: a mock registry every contract
   plugs into.
-- **4.2 `defineWatch()`** - the real prize. It kills hard rule 4 **by construction**: a
+- **6.2 `defineWatch()`** - the real prize. It kills hard rule 4 **by construction**: a
   LiveAPI object created during `loadbang` is dead, forever, with no error, and today
   that is enforced by a comment and a code review. Declare what to observe and the
   codegen emits the observers into `bang()`, unconditionally, because that is the only
   place it ever emits them. `liveapi.ts` becomes generated.
-- **4.3 `defineDevice()`** - fold in the manifest, which is already a declaration:
+- **6.3 `defineDevice()`** - fold in the manifest, which is already a declaration:
   untyped, in another language, with no derived hook and no mock. **The end state: you
   do not write `[js]` at all.**
 
@@ -228,7 +185,8 @@ every time.
 terms of it. An abstraction extracted from one example is a guess. Two instances, then
 lift. And **fetch-to-disk is not one of these**: it is a service, not a declaration -
 you call `fetchToFile(url, path)` and await it. Resist inventing `defineFetch()` for
-symmetry.
+symmetry. Note `samples` DOES take a declaration already (`slots: [...]` in the
+manifest), so it is one of the two instances this item is waiting for.
 
 ---
 
@@ -255,6 +213,11 @@ To achieve this, `m4l-jweb` would need a native C++ Max external or a local sock
 
 Until Max provides a native `[jweb~]` object that exposes CEF's audio output as a Max signal, true JS-generated audio instruments require significant native OS-level or C++ extensions beyond standard Max patching.
 
+**Note this is NOT what the `samples` chain did.** That one originates sound from a
+`[buffer~]` in the PATCHER, which is why it works today with no external. Audio generated
+inside the browser view still has no route to the track, and that is the whole of this
+item.
+
 ## Priority 3: **A VST3 backend**, so a device runs outside Live. Assessed in
   [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md): the app, the bridge, the surface and the
   harness port; the LiveAPI wrapper does not, and the headless build is what you trade
@@ -263,7 +226,69 @@ Until Max provides a native `[jweb~]` object that exposes CEF's audio output as 
   `packages/build` **while there is still only one target**, which is worth doing on its
   own merits.
 
-### ~~4. Declarative Floating Windows~~ - SHIPPED
-`windows: { x: window({ ... }) }` in `surface.ts` + `useWindow()`. **Verified in Live**
-with `hello-window`. Why it was broken for so long, and the rule it produced, are in
-ARCHITECTURE.md ("Never invent a name Max is going to look up").
+---
+
+<a id="shipped"></a>
+
+# Shipped
+
+Kept, rather than deleted, for one reason: **each of these was broken in a way that
+produced no error**, and the note says what the fix actually was. The full account of
+what Max does is ARCHITECTURE.md; this is the index into it.
+
+### ~~Fetch-to-disk~~ - SHIPPED, verified in Live
+`fetchToFile(url, path)` + the `download` chain + `[maxurl]`.
+
+A download goes to `<dest>.part`, is validated (status **and** the `error` key **and**
+the bytes on disk - each catches a failure the others call success), and only then is
+copied over the destination, **so a 404 can no longer destroy a good cached file**.
+`[js]` has no rename and no delete, so **`[maxurl]` performs the move**: libcurl speaks
+`file://`, and a GET of the .part file with `filename_out` set to the destination is a
+native streaming copy - 1 MB in 6 ms, measured, with no bytes through `[js]`. The
+leftover .part is truncated to zero, which is the closest thing to `delete` that [js]
+has. Pinned by `tests/wrapper-max.test.mjs`; the Max side is pinned by the conformance
+check in `wrapper/device.ts`.
+
+### ~~State persistence~~ - SHIPPED, verified in Live
+`state: { x: state({ default }) }` + `useStateSync()`. A value survived a save, a close
+and a reopen of the set. The switch is `parameter_enable` on the `[pattr]` (see
+ARCHITECTURE.md); `@save`/`@autorestore`, which it shipped with first, saved nothing at
+all.
+
+### ~~Declarative floating windows~~ - SHIPPED, verified in Live
+`windows: { x: window({ ... }) }` in `surface.ts` + `useWindow()`, with `hello-window`.
+Why it was broken for so long, and the rule it produced, are in ARCHITECTURE.md ("Never
+invent a name Max is going to look up").
+
+### ~~The `samples` chain~~ - SHIPPED, verified in Live
+**The first M4L-JWEB device that ORIGINATES a sound.** `hello-sampler` (an `instrument`,
+which nothing here had built before) fetches a WAV to disk, loads it, and plays it
+through the track.
+
+A named `[buffer~]` per slot (`slots: [...]` in the manifest); `buffer_load <slot>
+<path>` replying `buffer_ready <slot> <sr> <ms> <chans>`, and `buffer_play` /
+`buffer_stop` through one `[groove~]`, which SUMS into the signal path rather than
+claiming the stage. `loadSample()` / `playSample()` / `stopSample()` in
+`@m4l-jweb/bridge`.
+
+It reports what `[info~]` **measured**, never what the app hoped for: `replace` adopts
+the FILE's channel count, and a failed `replace` leaves the previous contents in the
+buffer - so a frame count is not proof of a read, and the reply is driven by
+`[buffer~]`'s read-completed bang and nothing else.
+
+**Two traps, both silent, both now in ARCHITECTURE.md:**
+- **`[buffer~]` does not resolve a relative path the way the device does.** A bare name
+  is looked up in MAX'S SEARCH PATH, which does not contain the device's folder - so it
+  could not open the file `fetchToFile()` had just written there ("can't open"), and the
+  app's promise timed out. A path is resolved ONCE now, in the wrapper, for both.
+- **`[buffer~]` reads WAV/AIFF/Next-Sun, NOT MP3.** That list (MP3, OGG, FLAC, M4A)
+  belongs to `[sfplay~]`, which streams from disk. A format it will not decode is a line
+  in the Max console and *no bang at all* - there is nothing to await, which is why
+  `loadSample()` carries a timeout.
+
+**It also corrected the sample-browser design**, which rested on something untrue: *"any
+audio generated by the floating `[jweb]` browser outputs through that track"*. **It does
+not.** `[jweb]` has no `~` outlets; its Chromium process sends audio straight to the OS
+output device, bypassing the track, the fader and the monitor cue. A preview Live can
+hear has to be `buffer~` in the patcher. Downloading the file first is not a detour; it
+is the only path to audio Live can hear.

@@ -61,7 +61,7 @@ Build every stage the rack will ever have, always, and let the *routing* be dyna
 `[selector~]` or `[gate~]` chooses which stages the signal passes through, and a stage
 that is switched out is bypassed rather than removed.
 
-- **This is the rack in [TODO.md](TODO.md) item 3**, and the **neutrality contract** is
+- **This is the rack in [TODO.md](TODO.md) item 2**, and the **neutrality contract** is
   what makes it honest: every stage must declare the setting at which it is bit-identical
   to a wire, because every stage is always there. `cverb~` is wet-only and has no such
   setting - so it needs a dry/wet, which, per Live above, means **a parallel dry path and
@@ -272,7 +272,7 @@ A hap already crosses the bridge with everything needed: `s`, `note`, `gain`, `p
 answering voice requests since 1988:
 
 - **samples** → `[buffer~]` + `[poly~]` of `[play~]`/`[groove~]` voices. This is the
-  `samples`/`instrument` chain already in [TODO.md](TODO.md) item 2, needed for the sample
+  `samples` chain (SHIPPED) and the `instrument` chain ([TODO.md](TODO.md) item 1), needed for the sample
   browser anyway. Strudel's sample packs are URLs; `fetchToFile()` already downloads them.
 - **synths** → `superdough`'s oscillators are not exotic: saw/square/tri/sine, an ADSR, a
   filter. A `[poly~]` voice patch covers the common cases exactly.
