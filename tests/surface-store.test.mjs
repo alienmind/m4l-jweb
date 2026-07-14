@@ -145,7 +145,7 @@ const makeStateSurface = () =>
 test("stateStore starts at defaults and emits get_state", () => {
   const { out, stop } = sent();
   const store = stateStore(makeStateSurface());
-  
+
   expect(store.get()).toEqual({ config: { voices: 4 } });
   expect(out).toContainEqual(["get_state", "config"]);
   stop();
@@ -160,17 +160,28 @@ test("stateStore parses inbound JSON and updates", () => {
 test("stateStore ignores invalid JSON without crashing", () => {
   const store = stateStore(makeStateSurface());
   const before = store.get().config;
-  simulate("state_config", '{ invalid json }');
+  simulate("state_config", "{ invalid json }");
   expect(store.get().config).toEqual(before);
 });
 
-test("stateStore writes state out as JSON string", () => {
+/**
+ * THE ID IS AN ARGUMENT, NOT PART OF THE SELECTOR.
+ *
+ * This emitted `sync_state_config`, and Max dispatches on the FIRST WORD - so it
+ * looked for a `sync_state_config()` the wrapper does not have, found nothing, and
+ * fell into anything(), which swallows other people's messages by design. Every
+ * write was dropped. The read path (`get_state <id>`) had it right all along, so
+ * state loaded and never saved.
+ *
+ * The wrapper handles `function sync_state(id)`. That is the contract this pins.
+ */
+test("stateStore writes state out as `sync_state <id> <json>` - the selector the wrapper handles", () => {
   const { out, stop } = sent();
   const store = stateStore(makeStateSurface());
-  
+
   store.write("config", { voices: 16 });
-  expect(out).toContainEqual(["sync_state_config", '{"voices":16}']);
+  expect(out).toContainEqual(["sync_state", "config", '{"voices":16}']);
   expect(store.get().config).toEqual({ voices: 16 });
-  
+
   stop();
 });
