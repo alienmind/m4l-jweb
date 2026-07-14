@@ -170,6 +170,8 @@ export const CHAIN_IN = {
   fetch_progress: "fetch_progress",
   /** samples -> UI: `buffer_ready <slot> <sampleRate> <ms> <channels>` - what actually loaded. */
   buffer_ready: "buffer_ready",
+  /** samples -> UI: `buffer_error <slot> <msg>` - there was no readable file at that path. */
+  buffer_error: "buffer_error",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -363,6 +365,17 @@ export function loadSample(slot: string, path: string, timeoutMs = 10_000): Prom
         return;
       }
       p.resolve({ sampleRate: sr, durationMs, channels: chans, frames: Math.round((durationMs / 1000) * sr) });
+    });
+    // The failure the wrapper CAN see - no file, or an empty one - arrives at once,
+    // rather than as ten seconds of silence. The failure it cannot see (a file Max
+    // will not decode) still has no event: [buffer~] says nothing, and the timeout is
+    // the only thing that ever will.
+    bindInlet(CHAIN_IN.buffer_error, (id, msg) => {
+      const p = sampleResolvers.get(String(id));
+      if (!p) return;
+      sampleResolvers.delete(String(id));
+      clearTimeout(p.timer);
+      p.reject(new Error(String(msg)));
     });
   }
 

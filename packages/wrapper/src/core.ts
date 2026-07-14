@@ -497,6 +497,59 @@ function placeFetch(fetched: ActiveFetch): void {
   outlet(1, "maxurl", "dictionary", reqDict.name);
 }
 
+/* ------------------------------------------------------------------ *
+ * Samples - the `samples` chain
+ * ------------------------------------------------------------------ */
+
+/**
+ * The app: `buffer_load <slot> <path>` - read a file into that slot's [buffer~].
+ *
+ * WHY THIS GOES THROUGH [js] AT ALL, when the chain could route it straight to the
+ * buffer: because the path the app wrote is not a path [buffer~] can open, and it
+ * fails in the two ways this file exists to prevent.
+ *
+ * A RELATIVE path is resolved against the device's folder - the same resolution
+ * `fetch_to_file` does, and it has to be the same one or the app downloads a file to
+ * one place and loads it from another. [buffer~] does not resolve it that way: a bare
+ * name is looked up in MAX's SEARCH PATH, which does not contain the device's folder,
+ * so `preview.wav` - freshly downloaded, right there next to the .amxd - reports
+ * "can't open" and the promise times out.
+ *
+ * ...and the resolved path CONTAINS SPACES on a normal Live install ("Ableton
+ * Library", "Max For Live"). A message travelling through the patcher as text would
+ * split there into three atoms and [buffer~] would open the first one. Handed out of
+ * [js] as a string, it stays ONE symbol all the way to `replace`.
+ *
+ * The file is checked before the buffer is asked for it, because a missing file makes
+ * [buffer~] print to the Max console and stay silent - there is no failure bang to
+ * bind to, and the app would learn nothing until the timeout. `buffer_error` says so
+ * at once.
+ */
+function buffer_load(slot: string, path: string): void {
+  var resolved = resolveFetchPath(path); // the same folder the download wrote to
+  var f: File | null = null;
+  try {
+    f = new File(resolved, "read");
+  } catch (e) {
+    f = null;
+  }
+  if (!f || !f.isopen) {
+    outlet(0, "buffer_error", slot, "no file at " + resolved);
+    return;
+  }
+  var bytes = f.eof;
+  f.close();
+  if (!bytes) {
+    outlet(0, "buffer_error", slot, "empty file at " + resolved);
+    return;
+  }
+
+  // Outlet 1 is the aux outlet; the `samples` chain routes `buffer_replace` off it,
+  // exactly as the `download` chain routes `maxurl`. Outlet 0 belongs to [jweb].
+  post("m4l-jweb: buffer_load " + slot + " -> " + resolved + "\n");
+  outlet(1, "buffer_replace", slot, resolved);
+}
+
 /** The app: `fetch_to_file <requestId> <url> <destPath>`. */
 function fetch_to_file(requestId: string, url: string, destPath: string): void {
   fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, partBytes: 0 });
