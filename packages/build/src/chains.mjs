@@ -192,17 +192,25 @@ export function closeAudio(ctx) {
  * that is about to be written, so it covers the canned chains, a device repo's own
  * `patcher/chains.mjs`, and the template underneath both.
  */
-export function assertUniqueBoxIds(boxes, deviceName) {
+export function assertUniqueBoxIds(boxes, deviceName, scope = "the patcher") {
   const seen = new Set();
   const dupes = new Set();
   for (const { box: b } of boxes) (seen.has(b.id) ? dupes : seen).add(b.id);
   if (dupes.size) {
     throw new Error(
-      `device "${deviceName}" generated duplicate box ids: ${[...dupes].join(", ")}. ` +
+      `device "${deviceName}" generated duplicate box ids in ${scope}: ${[...dupes].join(", ")}. ` +
         `Two boxes with one id is a patcher Max will interpret however it likes. ` +
         `A chain that creates a box another chain also creates is not a stage - it is claiming to be the whole device. ` +
         `Take the stage before you (ctx.audioIn / ctx.appOut) and hand yours on, or name your boxes after your chain.`,
     );
+  }
+  // A SUBPATCHER is its own id namespace, so its boxes are checked against each
+  // other and not against ours - a floating window's [jweb] may be called
+  // `obj-jweb` even though the device's is too. It is checked, though: the window
+  // codegen emitted two inlets sharing one id and nothing said a word, because
+  // this only ever looked at the top level.
+  for (const { box: b } of boxes) {
+    if (b.patcher?.boxes) assertUniqueBoxIds(b.patcher.boxes, deviceName, `subpatcher [${b.text ?? b.id}]`);
   }
 }
 
@@ -463,23 +471,37 @@ function driveChain(ctx) {
 }
 
 /**
- * "download" - a chain that exposes `[maxurl]` to `[js]` for fetching files to disk.
+ * "download" - `[maxurl]`, so the app can fetch a file to DISK.
  *
- * It routes `[js]` outlet 1 to `[maxurl]`, and prepends the responses before sending
- * them back to `[js]` inlet 0. The app sends `fetch_to_file`, `core.ts` orchestrates it.
+ *   [js] out 1 -> [route maxurl] -> [maxurl] -> [prepend maxurl_done]     -> [js] in 0
+ *                                            -> [prepend maxurl_progress] -> [js] in 0
+ *
+ * The bytes never enter the Max message stream: [js] hands maxurl a request dict
+ * carrying `filename_out` and libcurl writes the file itself. What comes back here
+ * is only the RESULT - a response dict name, and progress. That is the whole point:
+ * [js] is a control plane, not a data plane. See the fetch section of core.ts for
+ * the request dict, which is where this feature was actually broken.
+ *
+ * The request leaves [js] on OUTLET 1 (the aux outlet) rather than outlet 0, which
+ * belongs to [jweb]: a `maxurl` message on outlet 0 would be delivered to the web
+ * view, which has no idea what to do with it. The [route maxurl] then strips the
+ * tag, so what reaches the object is the bare `dictionary <name>` it expects.
+ *
+ * maxurl has TWO outlets (per its reference page): 0 = the response dictionary,
+ * 1 = progress. Not three.
  */
 function downloadChain(ctx) {
-  const { boxes, lines, unmatchedId } = ctx; // unmatchedId is usually obj-js
+  const { boxes, lines, unmatchedId } = ctx; // unmatchedId is the wrapper's [js]
 
-  // Create maxurl box with correct number of outlets (3)
-  boxes.push(box("obj-maxurl", "maxurl", { numoutlets: 3, outlettype: ["", "", ""] }));
+  boxes.push(box("obj-maxurl", "maxurl", { numinlets: 2, numoutlets: 2, outlettype: ["", ""] }));
 
-  // Wire JS outlet 1 (aux) to maxurl via a route
   boxes.push(box("obj-route-maxurl", "route maxurl", { numoutlets: 2, outlettype: ["", ""] }));
   lines.push(line(unmatchedId, 1, "obj-route-maxurl", 0));
   lines.push(line("obj-route-maxurl", 0, "obj-maxurl", 0));
 
-  // Wire maxurl outlets back to JS inlet 0
+  // Tag both replies, so [js] dispatches them to a handler rather than to
+  // anything(), which would swallow them - they arrive as a bare `dictionary
+  // <name>` and a bare list otherwise.
   boxes.push(box("obj-prepend-maxurl-done", "prepend maxurl_done"));
   boxes.push(box("obj-prepend-maxurl-progress", "prepend maxurl_progress"));
 

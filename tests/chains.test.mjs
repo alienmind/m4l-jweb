@@ -155,7 +155,24 @@ test("a duplicate box id fails the build", () => {
   // This is what two audio chains produced, and a patcher with two boxes sharing an
   // id is one Max resolves however it likes. It shipped. Now it cannot.
   registerChain("dupe", ({ boxes }) => boxes.push(box("obj-js", "print")));
-  expect(() => compile(null, { name: "dupe-device", type: "midi", chains: ["dupe"] })).toThrow(/duplicate box ids: obj-js/);
+  expect(() => compile(null, { name: "dupe-device", type: "midi", chains: ["dupe"] })).toThrow(/duplicate box ids.*obj-js/);
+});
+
+test("a duplicate box id INSIDE a subpatcher fails the build too", () => {
+  // A subpatcher is its own id namespace, so this used to be unchecked - and the
+  // floating-window codegen shipped two [inlet]s sharing one id for exactly as long
+  // as nobody looked. Same malformed patcher, one level down.
+  registerChain("dupe-sub", ({ boxes }) =>
+    boxes.push({
+      box: {
+        id: "obj-sub",
+        maxclass: "newobj",
+        text: "p Inner",
+        patcher: { boxes: [{ box: { id: "obj-in", maxclass: "inlet" } }, { box: { id: "obj-in", maxclass: "inlet" } }], lines: [] },
+      },
+    }),
+  );
+  expect(() => compile(null, { name: "dupe-sub-device", type: "midi", chains: ["dupe-sub"] })).toThrow(/subpatcher \[p Inner\].*obj-in/s);
 });
 
 test("an audio chain on a MIDI device says so, instead of wiring into a box that does not exist", () => {
