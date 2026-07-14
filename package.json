@@ -11,6 +11,7 @@
 		"dev:hello-midi": "node scripts/dev.mjs hello-midi",
 		"dev:hello-audio": "node scripts/dev.mjs hello-audio",
 		"dev:hello-downloads": "node scripts/dev.mjs hello-downloads",
+		"dev:hello-sampler": "node scripts/dev.mjs hello-sampler",
 		"dev:hello-state": "node scripts/dev.mjs hello-state",
 		"dev:hello-window": "node scripts/dev.mjs hello-window",
 		"build": "tsc -b && node scripts/build-ui.mjs && m4l-jweb build",
