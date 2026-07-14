@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * core.ts - lifecycle, the message guard, and the self-extracting UI payload.
  *
@@ -87,36 +86,66 @@ function ui_ready(): void {
   // mixed install (stale .amxd instance vs newer extracted UI, or vice versa).
   outlet(0, "build", buildStamp());
   sendCurrentTempo(); // liveapi.ts
-// The device resends its own state here. The page loads asynchronously, so
+  // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
 }
 
 /* ------------------------------------------------------------------ *
- * Persistence Handlers
+ * State persistence
+ *
+ * A declared `state` slot is a named [dict] in the patcher with a [pattr] bound
+ * to it (see applyPersistence in surface.mjs). The pattr is what SAVES: Live
+ * stores a pattr's value in the set, and restores it before this script runs.
+ * The dict is where the app's JSON lives while the set is open.
+ *
+ * The app never touches the dict directly - it cannot; it is in the patcher. It
+ * asks for a slot (`get_state <id>`) and writes one (`sync_state <id> <json>`),
+ * and BOTH selectors carry the id as an ARGUMENT, not in the selector name.
+ * That matters: Max dispatches a message on its first word, so an app emitting
+ * `sync_state_config` looks for a `function sync_state_config()` that no device
+ * has, lands in anything(), and is silently swallowed. It did exactly that -
+ * every write was dropped, and the read path worked, so the state looked like it
+ * simply never persisted. The app side is @m4l-jweb/surface's stateStore().
  * ------------------------------------------------------------------ */
 
+/** The app asks for a slot. Reply on the inlet it binds: `state_<id> <json>`. */
 function get_state(id: string): void {
   try {
-    // @ts-ignore Dict is a Max object
     var d = new Dict("obj-state-" + id);
-    var jsonStr = d.stringify();
-    outlet(0, "state_" + id, jsonStr);
+    var json = d.stringify();
+    // Logged, because this is the ONLY moment that can tell you whether Live actually
+    // restored the slot: the app asks for it once the page is up, and what the dict
+    // hands back is what came out of the set. An empty "{}" here after a reopen means
+    // the [pattr] did not save - which is a failure with no other symptom.
+    post("m4l-jweb: get_state " + id + " -> " + json + "\n");
+    outlet(0, "state_" + id, json);
   } catch (e) {
     post("m4l-jweb: get_state error for " + id + " - " + (e as Error).message + "\n");
   }
 }
 
+/**
+ * The app writes a slot: `sync_state <id> <json...>`.
+ *
+ * The JSON arrives SPLIT: Max parses a message into atoms on whitespace, so
+ * anything the app stringified with spaces in it reaches us as several
+ * arguments. Join them back before parsing.
+ */
 function sync_state(id: string): void {
   try {
     var jsonParts: string[] = [];
     for (var i = 1; i < arguments.length; i++) {
       jsonParts.push(String(arguments[i]));
     }
-    var jsonStr = jsonParts.join(" ");
-    // @ts-ignore Dict is a Max object
+    var json = jsonParts.join(" ");
     var d = new Dict("obj-state-" + id);
-    d.parse(jsonStr);
+    d.parse(json);
+    // Read it straight back out. `parse` failing silently, or the dict box not
+    // existing at all (it was emitted with an invalid maxclass for a while, so [pattr]
+    // bound to nothing), both look exactly like a successful write from here. What the
+    // dict says it holds is the only evidence.
+    post("m4l-jweb: sync_state " + id + " <- " + json + " (dict now " + d.stringify() + ")\n");
   } catch (e) {
     post("m4l-jweb: sync_state error for " + id + " - " + (e as Error).message + "\n");
   }
@@ -139,20 +168,39 @@ function loadWebview(): void {
     outlet(0, "url", url);
     post("m4l-jweb: sent url " + url + "\n");
 
-    if (typeof EXTRA_PAYLOAD_NAMES !== "undefined") {
-      var folder = deviceFolder();
-      for (var i = 0; i < EXTRA_PAYLOAD_NAMES.length; i++) {
-        var name = EXTRA_PAYLOAD_NAMES[i];
-        if (name.slice(-5) === ".html") {
-          var winId = name.replace(/^.*_/, "").replace(".html", "");
-          var winUrl = encodeURI("file:///" + folder + "/" + name) + "?v=" + encodeURIComponent(buildStamp());
-          // @ts-ignore messnamed is a Max function
-          messnamed("window-read-" + winId, "url", winUrl);
-        }
-      }
-    }
+    loadWindows();
   } catch (e) {
     post("m4l-jweb: loadWebview error " + (e as Error).message + "\n");
+  }
+}
+
+/**
+ * Point every floating window's [jweb] at its own extracted page.
+ *
+ * A window's [jweb] lives inside a subpatcher, so there is no cord from this
+ * [js] to it. `messnamed` reaches the [r window-read-<id>] the build put next to
+ * it - naming the receiver instead of the cord.
+ *
+ * The window payloads are the extra payloads whose name is `<device>_<id>.html`
+ * (packageDevices names them; the device's own UI is UI_PAYLOAD and is not in
+ * this list). Strip that prefix EXPLICITLY: a regex like /^.*_/ is greedy, so a
+ * window id with an underscore in it - `edit_grid` - would arrive as `grid`, and
+ * the page would then load into a receiver nobody is listening on.
+ */
+function loadWindows(): void {
+  if (typeof EXTRA_PAYLOAD_NAMES === "undefined") return;
+  var folder = deviceFolder();
+  if (!folder) return;
+
+  var prefix = typeof UI_PAYLOAD_NAME !== "undefined" ? UI_PAYLOAD_NAME.replace(/\.html$/, "") + "_" : "";
+  for (var i = 0; i < EXTRA_PAYLOAD_NAMES.length; i++) {
+    var name = EXTRA_PAYLOAD_NAMES[i];
+    if (name.slice(-5) !== ".html") continue; // a sample, a preset, ...: not a window
+    if (prefix && name.slice(0, prefix.length) !== prefix) continue;
+    var winId = name.slice(prefix.length, name.length - 5);
+    var winUrl = encodeURI("file:///" + folder + "/" + name) + "?v=" + encodeURIComponent(buildStamp());
+    messnamed("window-read-" + winId, "url", winUrl);
+    post("m4l-jweb: window " + winId + " -> " + winUrl + "\n");
   }
 }
 
@@ -313,105 +361,261 @@ function b64decode(s: string): number[] {
 /* ------------------------------------------------------------------ *
  * Fetch-to-disk
  *
- * Implements fetch_to_file by orchestrating `[maxurl]` in the patcher.
- * To avoid downloading an error page (e.g. 404) over a good cached file,
- * it first sends a HEAD request. If it succeeds (200 OK), it sends a GET
- * with `downloadfilename` to save the payload to disk.
+ * `fetchToFile(url, path)` in the app, [maxurl] in the patcher (the "download"
+ * chain), and this, orchestrating between them. Bulk data must never cross the
+ * Max message bridge, so the bytes go from libcurl STRAIGHT to disk and only the
+ * result comes back as a message.
+ *
+ * ------------------------------------------------------------------------------
+ * THE THREE THINGS THAT MADE THIS LOOK IMPOSSIBLE, all in maxurl's request dict:
+ *
+ *   1. THE KEY IS `filename_out`. It was `downloadfilename` here, which is not a
+ *      key maxurl has - and an unknown key in a request dict is IGNORED, not
+ *      rejected. So the request succeeded (HTTP 200, every time), the body went
+ *      into the response dict, and nothing was ever written to disk. A perfect
+ *      success and an empty folder. It is `filename_out` in Max's own reference
+ *      (docs/refpages/max-ref/maxurl.maxref.xml, the `dictionary` message) and in
+ *      the maxurl.maxhelp that ships with Live. Do not guess these names.
+ *
+ *   2. `overwrite_output_file` DEFAULTS TO 0. maxurl refuses to overwrite a file
+ *      that already exists - so even with the right key, the download works once
+ *      and then silently stops working. Set it to 1.
+ *
+ *   3. THE PATH IS AN OS PATH. maxurl is libcurl, not a Max file object: it does
+ *      not know `~/`, and it does not know Max's `Desktop:/` style. It needs an
+ *      absolute path, which is why a relative one is resolved against the device
+ *      folder below.
+ *
+ * `response_dict` names the reply dict, so what comes back on maxurl's outlets is
+ * identifiable rather than a dict called "output" shared with anyone else's request.
+ *
+ * ------------------------------------------------------------------------------
+ * DOWNLOAD, THEN PLACE - why every fetch is TWO maxurl requests.
+ *
+ * A 404 is a RESPONSE, and maxurl writes it: point `filename_out` at a file you
+ * already rely on and a missing URL replaces it with the error page. Measured, not
+ * feared - see doc/ARCHITECTURE.md, where a 404 destroyed a good 1.2 MB cached .wav
+ * and reported status 404 while doing it. `overwrite_output_file` does not care what
+ * the status was.
+ *
+ * Everywhere else in computing the answer is "write to a temp path and move it into
+ * place on success". Max's [js] cannot: its `File` object has open, close, and the
+ * read/write family, and NOTHING ELSE. No rename. No delete. (Confirmed twice - in
+ * Cycling '74's reference, and by asking the live object what members it has.)
+ *
+ * So MAXURL DOES THE MOVE. It is libcurl, and libcurl speaks `file://`: a GET of
+ * `file:///<temp>` with `filename_out` set to the destination is a native, streaming
+ * file copy, on maxurl's own thread, with not one byte passing through [js]. Measured
+ * at 6 ms for 1 MB. The download therefore goes:
+ *
+ *   1. GET <url>          -> filename_out <dest>.part     (a bad response lands HERE)
+ *   2. validate           status 2xx, no `error` key, bytes on disk > 0
+ *   3. GET file://<part>  -> filename_out <dest>          (only now is <dest> touched)
+ *
+ * A failure at 1 or 2 leaves the destination UNTOUCHED, which is the entire point.
+ *
+ * TWO TRAPS IN STEP 3, both of which look like success:
+ *
+ *   - A file:// reply has NO HTTP STATUS. It comes back `status 0`, which the 2xx
+ *     check in step 2 would reject as a failure. The copy is validated on BYTES - the
+ *     destination is the same size as the part file - which is the honest check anyway
+ *     and the only one that survives both schemes.
+ *   - The .part file cannot be DELETED afterwards (no unlink, see above), so it is
+ *     TRUNCATED to zero bytes instead. It costs an inode, not a megabyte, and the next
+ *     fetch to the same destination overwrites it.
  * ------------------------------------------------------------------ */
+
+/** The reply dicts. Named, so nothing else can be mistaken for them - and so the two phases cannot be mistaken for each other. */
+var FETCH_RESPONSE_DICT = "m4ljweb_fetch_response";
+var PLACE_RESPONSE_DICT = "m4ljweb_place_response";
+
+/** Where a download lands before it has earned its destination. */
+function partPath(destPath: string): string {
+  return destPath + ".part";
+}
 
 interface ActiveFetch {
   requestId: string;
   url: string;
   destPath: string;
-  phase: "head" | "download";
+  /** Bytes in the .part file, carried from the download phase into the place phase. */
+  partBytes: number;
 }
 
+// One at a time: [maxurl] can run several, but a queue keeps `currentFetch`
+// unambiguous, and a device downloading its samples wants them in order anyway.
 var fetchQueue: ActiveFetch[] = [];
 var currentFetch: ActiveFetch | null = null;
 
+/**
+ * An absolute OS path for libcurl, from whatever the app asked for.
+ *
+ * A relative path is resolved against the DEVICE's folder - the one place a
+ * device can always write, and the same folder the UI payload is extracted into.
+ * An absolute path (POSIX `/...`, or Windows `C:/...`) is passed through.
+ */
+function resolveFetchPath(destPath: string): string {
+  var isAbsolute = destPath.indexOf("/") === 0 || destPath.indexOf(":") === 1;
+  if (isAbsolute) return destPath;
+  var folder = deviceFolder();
+  return folder ? folder + "/" + destPath : destPath;
+}
+
+/** PHASE 1: download the URL to `<dest>.part`. Nothing touches `<dest>` yet. */
 function processNextFetch(): void {
   if (currentFetch || fetchQueue.length === 0) return;
-  currentFetch = fetchQueue.shift() || null;
-  if (!currentFetch) return;
-
-  currentFetch.phase = "download";
-  
-  // maxurl/libcurl requires an absolute OS path.
-  // Resolve relative paths relative to the device folder.
-  var finalPath = currentFetch.destPath;
-  if (finalPath.indexOf("/") !== 0 && finalPath.indexOf(":") === -1) {
-    var devicePath = this.patcher.filepath;
-    if (devicePath) {
-      var deviceDir = devicePath.substring(0, devicePath.lastIndexOf("/"));
-      finalPath = deviceDir + "/" + finalPath;
-    }
-  }
-  currentFetch.destPath = finalPath;
+  var next = fetchQueue.shift();
+  if (!next) return;
+  currentFetch = next;
+  next.destPath = resolveFetchPath(next.destPath);
 
   var reqDict = new Dict();
-  reqDict.set("url", currentFetch.url);
+  reqDict.set("url", next.url);
   reqDict.set("http_method", "get");
-  reqDict.set("downloadfilename", finalPath);
+  reqDict.set("filename_out", partPath(next.destPath)); // NOT the destination - see above
+  reqDict.set("overwrite_output_file", 1); // ...or it downloads exactly once, ever
+  reqDict.set("response_dict", FETCH_RESPONSE_DICT);
 
-  // Send the dictionary to maxurl to trigger the configured request
+  post("m4l-jweb: fetch " + next.url + " -> " + next.destPath + "\n");
+  // Outlet 1 is the aux outlet; the "download" chain routes `maxurl` off it.
   outlet(1, "maxurl", "dictionary", reqDict.name);
 }
 
+/**
+ * PHASE 3: ask libcurl to copy the validated .part file over the destination.
+ *
+ * This is the "move" that [js] cannot do. `file://` is a scheme libcurl handles, so
+ * maxurl streams the file on its own thread and nothing crosses the message bridge.
+ */
+function placeFetch(fetched: ActiveFetch): void {
+  var reqDict = new Dict();
+  reqDict.set("url", encodeURI("file:///" + partPath(fetched.destPath)));
+  reqDict.set("http_method", "get");
+  reqDict.set("filename_out", fetched.destPath);
+  reqDict.set("overwrite_output_file", 1);
+  reqDict.set("response_dict", PLACE_RESPONSE_DICT);
+  outlet(1, "maxurl", "dictionary", reqDict.name);
+}
+
+/** The app: `fetch_to_file <requestId> <url> <destPath>`. */
 function fetch_to_file(requestId: string, url: string, destPath: string): void {
-  post("m4l-jweb: fetch_to_file called! id=" + requestId + " url=" + url + " dest=" + destPath + "\n");
-  fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, phase: "download" });
+  fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, partBytes: 0 });
   processNextFetch();
 }
 
 /**
- * Handle maxurl completion. It sends a dictionary containing `status` and `error`.
+ * maxurl finished: `maxurl_done dictionary <name>` (outlet 0, via [prepend]).
+ *
+ * Both phases land here, told apart by the response dict they asked for.
  */
 function maxurl_done(msgType: string, dictName: string): void {
-  post("m4l-jweb: maxurl_done called with " + msgType + " " + dictName + "\n");
-  if (!currentFetch) return;
   if (msgType !== "dictionary") return;
+  // A device's own wrapper/device.ts may drive [maxurl] itself (a cache, a spike) and
+  // its replies come back down this same cord. Offer it the reply first: without this
+  // hook, a request the device made lands here, finds no `currentFetch`, and is
+  // dropped in silence - which looks exactly like maxurl never answering.
+  if (typeof onMaxurlReply === "function" && onMaxurlReply(dictName)) return;
+  if (!currentFetch) return;
+  var fetched = currentFetch;
 
   try {
-    var d = new Dict(dictName);
-    var status = d.get("status");
-    var errorMsg = d.get("error");
-    
-    var success = (status === 200 || status === 201 || status === 304) && !errorMsg;
-
-    if (success) {
-      var bytes = 0;
-      try {
-        var f = new File(currentFetch.destPath);
-        if (f.isopen) {
-          bytes = f.eof;
-          f.close();
-        }
-      } catch (err) {}
-      
-      outlet(0, "fetch_done", currentFetch.requestId, bytes);
-    } else {
-      var msg = errorMsg ? String(errorMsg) : "HTTP " + status;
-      outlet(0, "fetch_error", currentFetch.requestId, msg);
-    }
-    currentFetch = null;
-    processNextFetch();
+    if (dictName === PLACE_RESPONSE_DICT) finishPlace(fetched);
+    else finishDownload(fetched, dictName);
   } catch (e) {
     post("m4l-jweb: maxurl_done error - " + (e as Error).message + "\n");
-    if (currentFetch) {
-      outlet(0, "fetch_error", currentFetch.requestId, "Internal wrapper error");
-      currentFetch = null;
-    }
-    processNextFetch();
+    failFetch(fetched, "wrapper error: " + (e as Error).message);
   }
 }
 
 /**
- * Handle maxurl progress: `progress <downloaded> <total> <percent>`
+ * PHASE 2: did the download earn its destination?
+ *
+ * All three checks, and all three are load-bearing: a filesystem failure comes back as
+ * status 200 with an `error` key, and a `filename_out` maxurl ignored comes back as a
+ * clean 200 with nothing on disk. Only the file itself proves the file.
  */
-function maxurl_progress(downloaded: number, total: number, percent: number): void {
-  if (!currentFetch) return;
-  // Progress happens during download phase, but HEAD might also report it (with small sizes)
-  if (currentFetch.phase === "download") {
-    outlet(0, "fetch_progress", currentFetch.requestId, downloaded, total);
+function finishDownload(fetched: ActiveFetch, dictName: string): void {
+  var d = new Dict(dictName);
+  var status = Number(d.get("status"));
+  var errorMsg = d.get("error");
+  var bytes = fileSize(partPath(fetched.destPath));
+
+  if (errorMsg) return failFetch(fetched, String(errorMsg));
+  if (status < 200 || status >= 300) return failFetch(fetched, "HTTP " + status);
+  if (bytes <= 0) return failFetch(fetched, "HTTP " + status + " but nothing was written to disk");
+
+  fetched.partBytes = bytes;
+  placeFetch(fetched); // ...and only now does the destination get touched
+}
+
+/**
+ * PHASE 3 (reply): validate the copy ON BYTES, not on status.
+ *
+ * A `file://` request has no HTTP status - it comes back as `status 0`, measured - so
+ * the 2xx check that guards the download would reject a perfectly good copy here. The
+ * size is the honest check for both schemes anyway.
+ */
+function finishPlace(fetched: ActiveFetch): void {
+  var placed = fileSize(fetched.destPath);
+  if (placed !== fetched.partBytes) {
+    return failFetch(fetched, "could not place the download: " + placed + " bytes at the destination, expected " + fetched.partBytes);
   }
+  truncate(partPath(fetched.destPath)); // [js] cannot DELETE it; zero it instead
+  post("m4l-jweb: fetched " + placed + " bytes to " + fetched.destPath + "\n");
+  outlet(0, "fetch_done", fetched.requestId, placed);
+  currentFetch = null;
+  processNextFetch();
+}
+
+/** The destination is untouched whenever this is called from phase 1 or 2. That is the point. */
+function failFetch(fetched: ActiveFetch, message: string): void {
+  post("m4l-jweb: fetch failed - " + message + "\n");
+  outlet(0, "fetch_error", fetched.requestId, message);
+  currentFetch = null;
+  processNextFetch();
+}
+
+/** Bytes on disk, or -1 if there is no readable file there. */
+function fileSize(p: string): number {
+  try {
+    var f = new File(p);
+    if (!f.isopen) return -1;
+    var n = f.eof;
+    f.close();
+    return n;
+  } catch (e) {
+    return -1;
+  }
+}
+
+/** Zero a file. The closest thing to `delete` that [js] has - it has no unlink. */
+function truncate(p: string): void {
+  try {
+    var f = new File(p, "write");
+    if (!f.isopen) f.open();
+    if (!f.isopen) return;
+    f.eof = 0;
+    f.close();
+  } catch (e) {
+    /* a leftover .part is untidy, not a failure */
+  }
+}
+
+/**
+ * maxurl's progress outlet, via [prepend maxurl_progress]:
+ *
+ *   maxurl_progress <response-dict-name> <dl total> <dl now> <ul total> <ul now>
+ *
+ * FIVE atoms, starting with the dict NAME - per the reference (outlet 1). This
+ * used to be read as `(downloaded, total, percent)`, so the "bytes downloaded"
+ * the UI showed was actually a symbol, and the total was the download total. And
+ * note the reference's warning: not every server sends a content length, so the
+ * TOTAL can legitimately be 0. Do not divide by it.
+ */
+function maxurl_progress(dictName: string, dlTotal: number, dlNow: number): void {
+  if (!currentFetch) return;
+  // The local file:// copy reports progress too. It is not the download, and a UI that
+  // showed it would run its progress bar twice - the second time in a few milliseconds.
+  if (dictName !== FETCH_RESPONSE_DICT) return;
+  outlet(0, "fetch_progress", currentFetch.requestId, dlNow, dlTotal);
 }
