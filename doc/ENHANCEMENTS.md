@@ -101,28 +101,129 @@ a graph; emitting them into a live patcher rather than into JSON is not a rewrit
 creates an `[overdrive~]`, wires it between two existing objects while audio plays, and we
 listen. Do that before designing anything on top of it.
 
-### C. Don't build a rack. Build a REAL one. (the out-of-the-box route)
+### C. Don't build a rack. POPULATE one. (the route to actually take)
 
-The most powerful version of "dynamic chains" is the one where we do no DSP at all.
+The most powerful version of "dynamic chains" is the one where **we write no DSP at all.**
 
-`.room(0.5)` in a Strudel line does not have to mean *"our reverb chain"*. It could mean
-**"put Live's own Reverb on this track and set its Dry/Wet to 0.5"** - a real Ableton
-device, in the user's rack, with its own automation lanes, its own presets, its own
-undo history, and DSP written by Ableton.
+`.lpf(800).gain(1.2)` does not have to mean *"our filter chain, frozen last March"*. It can
+mean:
 
-The device stops being an effects processor and becomes a **compiler from a Strudel line
-to a Live device chain.** That is a much better product than any rack we could ship, and
-it is a much smaller one.
+> **Put Live's own Auto Filter on this chain, set its Frequency to 800 Hz. Then put a
+> Utility after it, set its Gain to +1.6 dB.**
 
-- **The mechanism, and it is UNVERIFIED:** Live's Object Model exposes a browser
-  (`live_app` → `browser`, with `load_item`), which is how a Max device can instantiate a
-  Live device. It does **not** appear in the LOM reference that ships on disk, so treat
-  this as an online-docs claim, not a fact. **Spike it before believing it.**
-- Once a device exists, everything after it is easy and already proven: `LiveAPI` gets and
-  sets its parameters, and `live.remote~` (see below) can drive them at signal rate.
-- **The hard parts are UX, not Max:** what happens when the user edits the rack we built?
-  Do we own it, or hand it over? A compiler that silently rewrites a user's device chain is
-  a hostile tool. Probably: *generate once, on request, then let go.*
+Real Ableton devices, in the user's rack, next to the control device that made them. The
+device stops being an effects processor and becomes **a compiler from a Strudel expression
+to a Live device chain** - a *macro*, in the original sense of the word.
+
+```
+[ strudel-fx  ".lpf(800).gain(1.2)" ] → [ Auto Filter ] → [ Utility ]
+        the control device                    ...devices it populated
+```
+
+**Why this is not a lateral move but a strict improvement:**
+
+| | Ported chains (A/B) | Populated Live devices (C) |
+|---|---|---|
+| DSP quality | ours, forever | **Ableton's** |
+| Order | frozen at build time | **whatever the expression says** |
+| Effects available | the ones we ported | **everything the user owns, incl. third-party VSTs** |
+| Automation lanes, presets, undo, freeze | we reimplement each one | **already there, for free** |
+| The neutrality contract, dry/wet, `selector~` routing, CPU muting | all necessary | **all unnecessary. A device that is not wanted is not there.** |
+| Our maintenance burden | one DSP graph per effect, forever | **a name-to-device table** |
+
+Notice what falls away. Every hard problem in routes A and B - the frozen order, the
+wet-only reverb with no neutral setting, the always-running stages, the parameter-identity
+rule - is an artifact of *us* owning the graph. **Hand the graph to Live and they are not
+solved, they are gone.** That is the sign of a right answer.
+
+And the user's own instinct is already this: they group devices, they duplicate a chain to
+get a dry/wet, they map macros. We would be *driving the thing they already use* instead of
+building a parallel universe beside it.
+
+#### What it actually requires
+
+1. **Instantiate a device.** Live's Object Model exposes a browser (`live_app` → `browser`,
+   with `load_item`) - **and it is nowhere in the documentation that ships on disk.** The
+   Live API guide bundled with Live does not mention it; the limitations page is about
+   licensing. So this is an *online-docs claim*, and it is the **single gating fact of the
+   whole design**: if a Max device cannot create a Live device, route C dies on the spot
+   and routes A/B are all we have. **SPIKE THIS FIRST. Nothing else here is worth an hour
+   until it answers.**
+2. **Put it in the right place.** Insertion appears to follow Live's *selection*, so the
+   sequence is probably: find ourselves (`this_device` → `canonical_parent`), select
+   ourselves, `load_item`, and the device lands next to us. `Track.delete_device(index)`
+   removes one. Both UNVERIFIED, both part of the same spike.
+3. **Set its parameters - and NEVER GUESS THEIR NAMES.** This is the hard rule this repo
+   learned the expensive way. `LiveAPI` can *enumerate* a device's parameters, so the
+   mapping is discovered at runtime and matched, never hardcoded from memory. A parameter
+   we cannot find is an effect we **refuse out loud**, exactly as `m4l-strudel` already
+   refuses `.crush()`.
+4. **A name-to-device table**, which is the entire "port":
+
+   | Strudel | Live device | Parameter |
+   |---|---|---|
+   | `.lpf()` / `.hpf()` | Auto Filter | Frequency (+ Filter Type) |
+   | `.gain()` | Utility | Gain |
+   | `.room()` | Reverb | Dry/Wet |
+   | `.delay()` | Delay | Feedback, Time |
+   | `.crush()` | Redux | Bit Depth / Downsample |
+   | `.distort()` | Saturator / Overdrive | Drive |
+
+   **Editions differ** - not every Live edition ships every device - so the table is a
+   *capability check*, not an assumption. An effect the user does not own is refused, not
+   silently dropped.
+
+#### The two things that make it a real design rather than a nice idea
+
+**(a) Ownership. It must be a RECONCILER, not a fire-and-forget.** Re-evaluating an
+expression cannot mean "append three more devices". So: mark the devices we created (a name
+prefix, plus the list persisted in a `state` slot - which now survives the set, as of
+0.6.0), and on every re-evaluation **diff**: keep what still matches, delete what left the
+expression, insert what is new. It is a virtual DOM for a device chain, and we have written
+one of those before.
+
+The UX rule that follows: **we own only what we made.** A device the user has touched -
+moved, renamed, tweaked - is *theirs*. Adopt it or leave it alone; never silently overwrite
+it. A compiler that rewrites a user's rack behind their back is a hostile tool, and the
+fastest way to lose their trust is to eat a setting they spent ten minutes on.
+
+**(b) What this gives up - and it is the real cost.** A Live device chain is **static**.
+Strudel effects are **per-event**: `.lpf("<400 800>")` means *this note is filtered at 400,
+the next at 800*. A populated Auto Filter has exactly one Frequency at a time, so
+per-hap variation is **not** expressible as a device chain.
+
+That is not fatal, and the escape is already in this document: **`live.remote~` drives a
+Live parameter at SIGNAL rate, without writing automation** (it ships inside Live -
+confirmed). So the split is clean and, I think, correct:
+
+> **The expression's SHAPE becomes a device chain** (which effects, in what order).
+> **The expression's per-event VALUES become `live.remote~` modulation** of the parameters
+> of the devices we just created.
+
+Static values are simply the degenerate case of that - a constant signal. Which means route
+C and the modulation work below are not two features; **they are one feature**, and each is
+half of the other.
+
+#### Honest risks
+
+- **The gating call may not exist.** See (1). Everything above is conditional on it.
+- **Populating a chain while the transport runs** will not be sample-accurate and may click.
+  This is a *compile* action, not a per-cycle one: the user types, then asks for it. Do not
+  even consider driving it from the pattern clock.
+- **Undo.** Live's undo history is the user's. Creating five devices as five undo steps is
+  obnoxious; whether it can be a single step is unknown, and worth asking early.
+- **It only works in Live.** The dev harness cannot mock a device chain honestly, so this is
+  the first feature in the project whose core cannot be verified in the browser. The
+  conformance-check pattern (`wrapper/device.ts`) is how it gets tested at all.
+
+#### Verdict
+
+**Take route C, and treat A/B as the fallback the spike may force on us.** Keep a *small*
+internal DSP vocabulary for the two cases route C genuinely cannot serve - an effect Live
+has no device for, and anything that must change *per hap* faster than a device parameter
+can be set - and let Ableton do the rest. It is less code, better sound, and it stops us
+competing with Ableton at the one thing Ableton is unambiguously better at than we will
+ever be.
 
 This is the one to think hardest about, because it inverts the whole problem - and it is
 the only route where "the user can add anything" is true without us implementing anything.
@@ -263,12 +364,17 @@ today, nobody has demonstrated that they do.
 
 Each of these is an afternoon and each one collapses a branch of this document:
 
-| Spike | Answers | Kills / unlocks |
-|---|---|---|
-| **`[js]` scripts a `~` object into a running patcher** | Is dynamic patching possible in a frozen device, and what does it sound like? | §1 route B |
-| **`live_app.browser` → `load_item`** | Can a device instantiate a real Ableton device? | §1 route C - the most valuable and least verified idea here |
-| **`OfflineAudioContext` → `saveToFile()` → `buffer~`** | Can we play strudel.cc's own audio, in sync, from disk? | §2 route B, and it gives us `saveToFile()` either way |
-| **`live.remote~` from a `[phasor~]`** | Can a pattern modulate a *Live* parameter at signal rate? | modulation, and §1 route C's best feature |
+| # | Spike | Answers | Kills / unlocks |
+|---|---|---|---|
+| **1** | **`live_app.browser` → `load_item`**, then `delete_device` | Can a device create and remove a real Ableton device, next to itself? | **§1 route C - do this one FIRST.** It is the single gating fact of the most valuable idea in this document, and it is undocumented on disk. If it fails, the rack (TODO item 3) is back on. |
+| **2** | **`live.remote~` driven by a `[phasor~]`** | Can a pattern modulate a *Live* parameter at signal rate, without touching automation? | modulation - and the other half of route C, which needs it for per-hap values |
+| **3** | **`OfflineAudioContext` → `saveToFile()` → `buffer~`** | Can we play strudel.cc's *own* audio, in sync, from disk? | §2 route B, and it delivers `saveToFile()` either way |
+| **4** | **`[js]` scripts a `~` object into a running patcher** | Is dynamic patching possible in a *frozen* device, and what does it sound like? | §1 route B - only worth running if spike 1 fails |
+
+Spikes 1 and 2 together are the whole of route C, and between them they are perhaps two
+days. **They should be run before another line of DSP is written in this repo**, because
+if they pass, a good deal of the DSP planned in [TODO.md](TODO.md) should never be written
+at all.
 
 **Gate every unknown behind a cheap spike that can fail in an afternoon rather than a
 week.** Both features that stalled this project for weeks stalled on a name nobody

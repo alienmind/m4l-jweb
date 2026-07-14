@@ -101,6 +101,24 @@ this chain - and not WebAudio in the browser view. Downloading the file first is
 detour; it is the only path to audio that Live can hear.
 
 ### 3. The rack: a chain vocabulary, and the NEUTRALITY CONTRACT it needs first
+
+> [!WARNING]
+> **DO NOT START THIS UNTIL SPIKE 1 IN [ENHANCEMENTS.md](ENHANCEMENTS.md) HAS RUN.**
+>
+> If a Max device can create **real Ableton devices** next to itself (`load_item` -
+> undocumented on disk, one afternoon to settle), then an `.lpf(800).gain(1.2)` should
+> populate an **Auto Filter** and a **Utility** in the user's own rack - Ableton's DSP,
+> their automation lanes, their presets, their undo, *and their third-party plugins* -
+> rather than run through a filter we ported.
+>
+> Everything below then becomes **unnecessary**: the frozen order, the wet-only reverb
+> with no neutral setting, the always-running stages, the CPU muting, this whole
+> contract. They are all artifacts of *us* owning the graph. Hand the graph to Live and
+> they do not get solved - they cease to exist.
+>
+> Keep this item as the FALLBACK, and for the two things a device chain genuinely cannot
+> do: an effect Live has no device for, and anything that must change per-hap faster than
+> a parameter can be set.
 `m4l-strudel` refuses `.room()`, `.delay()`, `.crush()` and `.hpf()` honestly ("no Max
 chain yet") because this vocabulary does not exist. It is four chains and one rule, and
 **the rule is the load-bearing half.**
