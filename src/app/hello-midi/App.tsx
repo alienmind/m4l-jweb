@@ -161,7 +161,7 @@ export default function HelloMidi() {
   return (
     <Frame title="HELLO MIDI" device={device}>
       <dt>rate</dt>
-      <dd>
+      <dd style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <label className="slider">
           {/* The slider steps through the parameter's own OPTIONS - the same list
               Push prints under its encoder, because both come from surface.ts. */}
@@ -178,7 +178,7 @@ export default function HelloMidi() {
       </dd>
 
       <dt>density</dt>
-      <dd>
+      <dd style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <label className="slider">
           <input type="range" min={0} max={100} step={1} value={density} onChange={(e) => setDensity(Number(e.target.value))} />
           <strong>

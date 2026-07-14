@@ -162,6 +162,16 @@ export const DEVICE_IN = {
 export const CHAIN_IN = {
   /** midiin -> UI: `notein <pitch> <velocity>`. Velocity 0 is a note-off. */
   notein: "notein",
+  /** download -> UI: `fetch_done <requestId> <bytes>`. */
+  fetch_done: "fetch_done",
+  /** download -> UI: `fetch_error <requestId> <msg>`. */
+  fetch_error: "fetch_error",
+  /** download -> UI: `fetch_progress <requestId> <downloaded> <total>`. */
+  fetch_progress: "fetch_progress",
+  /** samples -> UI: `buffer_ready <slot> <sampleRate> <ms> <channels>` - what actually loaded. */
+  buffer_ready: "buffer_ready",
+  /** samples -> UI: `buffer_error <slot> <msg>` - there was no readable file at that path. */
+  buffer_error: "buffer_error",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -170,6 +180,34 @@ export const CHAIN_OUT = {
   midinote: "midinote",
   /** UI -> midiout: release every hanging note. */
   flush: "flush",
+  /** UI -> download: `fetch_to_file <requestId> <url> <destPath>`. */
+  fetch_to_file: "fetch_to_file",
+  /** UI -> samples: `buffer_load <slot> <path>` - read a file into that slot's [buffer~]. */
+  buffer_load: "buffer_load",
+  /** UI -> samples: `buffer_play <slot>` - preview it through the track. */
+  buffer_play: "buffer_play",
+  /** UI -> samples: `buffer_stop` - stop the preview. */
+  buffer_stop: "buffer_stop",
+} as const;
+
+/**
+ * Selectors the WRAPPER handles for a device that declares `state` in its surface.
+ *
+ * THE SLOT ID IS AN ARGUMENT, NOT PART OF THE SELECTOR. `sync_state <id> <json>`,
+ * never `sync_state_<id>`: Max dispatches a message on its first word, so an id
+ * baked into the selector goes looking for a handler no device has and is swallowed
+ * without a word. That shipped, and every write to a state slot was dropped.
+ *
+ * The reply comes back the other way (`state_<id> <json>`), because the BRIDGE
+ * dispatches on the selector too - one binding per slot means the app never unpacks
+ * an id. Two dispatchers, two conventions; the id sits on whichever side is doing
+ * the looking up. `useStateSync()` handles both, and neither name is yours to type.
+ */
+export const STATE_OUT = {
+  /** UI -> wrapper: send me slot `<id>`; reply on `state_<id>`. */
+  get_state: "get_state",
+  /** UI -> wrapper: `sync_state <id> <json>` - persist this slot in the Live set. */
+  sync_state: "sync_state",
 } as const;
 
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
@@ -219,6 +257,153 @@ export function onNote(fn: (pitch: number, velocity: number) => void): void {
  */
 export function flushNotes(): void {
   outlet(CHAIN_OUT.flush);
+}
+
+const fetchResolvers = new Map<
+  string,
+  {
+    resolve: (val: { bytes: number }) => void;
+    reject: (err: Error) => void;
+    onProgress?: (downloaded: number, total: number) => void;
+  }
+>();
+let fetchBound = false;
+
+/**
+ * Fetch a URL and save it directly to disk via Max's [maxurl].
+ * Requires the `download` chain in the device manifest.
+ *
+ * @param url The URL to download
+ * @param destPath The absolute path to save the file
+ * @param onProgress Optional callback for progress updates
+ * @returns A promise resolving to the downloaded file size in bytes
+ */
+export function fetchToFile(url: string, destPath: string, onProgress?: (downloaded: number, total: number) => void): Promise<{ bytes: number }> {
+  if (!fetchBound) {
+    fetchBound = true;
+    bindInlet(CHAIN_IN.fetch_done, (id, bytes) => {
+      const p = fetchResolvers.get(String(id));
+      if (p) {
+        p.resolve({ bytes: Number(bytes) });
+        fetchResolvers.delete(String(id));
+      }
+    });
+    bindInlet(CHAIN_IN.fetch_error, (id, msg) => {
+      const p = fetchResolvers.get(String(id));
+      if (p) {
+        p.reject(new Error(String(msg)));
+        fetchResolvers.delete(String(id));
+      }
+    });
+    bindInlet(CHAIN_IN.fetch_progress, (id, downloaded, total) => {
+      const p = fetchResolvers.get(String(id));
+      if (p && p.onProgress) p.onProgress(Number(downloaded), Number(total));
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = Math.random().toString(36).substring(2, 10);
+    fetchResolvers.set(requestId, { resolve, reject, onProgress });
+    outlet(CHAIN_OUT.fetch_to_file, requestId, url, destPath);
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Samples - the `samples` chain
+ * ------------------------------------------------------------------ */
+
+/** What a slot actually holds, once the read completed. Reported by [info~], not assumed. */
+export interface LoadedSample {
+  /** The FILE's sample rate, which need not be Live's. */
+  sampleRate: number;
+  durationMs: number;
+  /** The file's channel count. `replace` adopts it - a slot is not mono by wishing. */
+  channels: number;
+  /** Derived from the two above. Nobody counted them. */
+  frames: number;
+}
+
+const sampleResolvers = new Map<string, { resolve: (s: LoadedSample) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+let samplesBound = false;
+
+/**
+ * Read a file from disk into a slot's [buffer~], and resolve with WHAT LANDED.
+ *
+ * Requires the `samples` chain, and the file must already be on disk - that is what
+ * `fetchToFile()` is for. The bytes never cross the bridge in either direction: Max
+ * reads the file, and what comes back is a description of it.
+ *
+ * WAV, AIFF OR NEXT/SUN - NOT MP3. That is [buffer~]'s list, from its reference page,
+ * and it is shorter than Max's: MP3, OGG, FLAC and M4A belong to [sfplay~], which
+ * streams from disk rather than filling a buffer. Handing this an MP3 gets you an
+ * error in the Max console, no reply, and the timeout below - the file downloads
+ * perfectly and simply never becomes audio.
+ *
+ * The resolved value is measured, not assumed. `replace` adopts the file's channel
+ * count and sample rate, so a stereo file in a slot you think of as mono is a stereo
+ * slot - and a frame count is not proof of a read, because a FAILED read leaves the
+ * previous contents of the buffer exactly where they were. The chain only replies
+ * when [buffer~] says the read completed; a file Max cannot read produces an error in
+ * the Max console and NO reply at all, which is what the timeout below is for. There
+ * is no bang for failure to bind to.
+ */
+export function loadSample(slot: string, path: string, timeoutMs = 10_000): Promise<LoadedSample> {
+  if (!samplesBound) {
+    samplesBound = true;
+    bindInlet(CHAIN_IN.buffer_ready, (id, sampleRate, ms, channels) => {
+      const p = sampleResolvers.get(String(id));
+      if (!p) return;
+      sampleResolvers.delete(String(id));
+      clearTimeout(p.timer);
+      const sr = Number(sampleRate);
+      const durationMs = Number(ms);
+      const chans = Number(channels);
+      // An empty buffer is a read that "worked" and gave us nothing. Do not hand the
+      // app a slot it will play in silence and blame itself for.
+      if (!(sr > 0) || !(durationMs > 0) || !(chans > 0)) {
+        p.reject(new Error(`slot "${id}" loaded empty: ${durationMs} ms, ${chans} channels at ${sr} Hz`));
+        return;
+      }
+      p.resolve({ sampleRate: sr, durationMs, channels: chans, frames: Math.round((durationMs / 1000) * sr) });
+    });
+    // The failure the wrapper CAN see - no file, or an empty one - arrives at once,
+    // rather than as ten seconds of silence. The failure it cannot see (a file Max
+    // will not decode) still has no event: [buffer~] says nothing, and the timeout is
+    // the only thing that ever will.
+    bindInlet(CHAIN_IN.buffer_error, (id, msg) => {
+      const p = sampleResolvers.get(String(id));
+      if (!p) return;
+      sampleResolvers.delete(String(id));
+      clearTimeout(p.timer);
+      p.reject(new Error(String(msg)));
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      sampleResolvers.delete(slot);
+      reject(new Error(`slot "${slot}": [buffer~] never reported a completed read of "${path}" (${timeoutMs} ms). See the Max console.`));
+    }, timeoutMs);
+    sampleResolvers.set(slot, { resolve, reject, timer });
+    outlet(CHAIN_OUT.buffer_load, slot, path);
+  });
+}
+
+/**
+ * Play a loaded slot, once, from the beginning - THROUGH THE TRACK.
+ *
+ * That last part is the whole reason this exists. Audio a page plays for itself goes
+ * to the OS output device: [jweb] has no signal outlets, so it bypasses the track,
+ * the fader and the monitor cue. A preview Live can hear has to be [buffer~] in the
+ * patcher, which is this.
+ */
+export function playSample(slot: string): void {
+  outlet(CHAIN_OUT.buffer_play, slot);
+}
+
+/** Stop the preview. One voice, so this stops whichever slot is sounding. */
+export function stopSample(): void {
+  outlet(CHAIN_OUT.buffer_stop);
 }
 
 /**

@@ -8,6 +8,16 @@ manager, a typechecker, unit tests, CI. The device UI is a React app, and it can
 be run, simulated and tested **outside Ableton and outside Max** - against a
 mocked Live, in a browser.
 
+*(Quick remark: this project is a developer tool, not a DAW replacement.
+It doesn't replace Ableton Live or generate audio on its own.
+You will still need a licensed copy of Ableton Live (Suite or with Max for Live extras) to
+actually load these devices and produce sound!)*
+
+Moreover, because M4L-JWEB is based entirely on declarative code, it not only provides
+an improved developer experience, but also natively enables LLM-assisted development of
+Max patches and devices—just as an LLM would assist with any other text-based
+programming language.
+
 The glue that a device needs is provided rather than rewritten each time: the
 message bridge between the browser and Max, the `[js]` script that talks to
 Live's object model, the generated patcher, and the binary `.amxd` writer. So
@@ -21,13 +31,18 @@ pnpm build            # .amxd files, no Max installed
 pnpm install:device   # into Ableton's User Library
 ```
 
-The repo builds two devices out of the box, and they are the examples:
+The repo builds several example devices out of the box to demonstrate the architecture:
 
 | Device | Type | What it is |
 |---|---|---|
 | **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
 | **hello-audio** | audio effect | Three effects in series - a lowpass, a soft-clipping drive and a level - each one a *chain* named in the manifest, each with its own Live parameter. |
-| **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/LISTENING.md](doc/LISTENING.md)**. |
+| **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/AUDIO_TEST.md](doc/AUDIO_TEST.md)**. |
+| **hello-downloads** | audio effect | Fetch-to-disk (`fetchToFile`). A `download` chain hands Max's `[maxurl]` a request, and libcurl writes the file - so the bytes never cross the message bridge. |
+| **hello-state** | audio effect | State persistence (`useStateSync`). Arbitrary JSON, saved into the Ableton Live Set and restored with it, per instance. |
+| **hello-window** | audio effect | Floating windows (`useWindow`). A second page, in a window of its own, for a UI that does not fit in the device view's fixed ~169 px. |
+
+> **Testing the feature examples:** Because `hello-downloads` and `hello-state` are compiled as **audio effects** with a `passthrough` audio chain, they won't swallow or block sound. You can drop them on the Master channel (or any audio track) to test their UI and features without disrupting your musical signal flow!
 
 Each lives in its own folder under `src/app/`, and each builds into its own
 `.amxd` carrying its own UI bundle. (`hello-audio-rev` is the exception that
@@ -53,6 +68,32 @@ the transport when it is running.
 For how any of it works underneath - the message protocol, the generated
 patchers, the `.amxd` container writer, Push support - see
 **[doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)**.
+
+---
+
+## What is supported
+
+M4L-JWEB handles the entire Max bridge so your React app feels like a native Ableton device. Out of the box, it supports:
+
+- **Parameter Automation:** Your UI components drive real Max parameters underneath. Recording an automation lane in Live, automating via clip envelopes, or MIDI-mapping a physical controller just works without fighting your app.
+- **Push Integration:** Parameters declared in your code are automatically exposed and grouped for Ableton Push encoders.
+- **Accurate MIDI Timing:** Notes are placed on Max's scheduler. Your JavaScript sequencer computes *when* a note should fall, and Max places it with sample-accurate precision despite the UI's 20Hz refresh rate.
+- **Audio DSP Chains:** Declarative audio signal paths (filters, gains, overdrives) that process sound at native C++ speeds. Audio never crosses the JS bridge.
+- **State Persistence:** `useStateSync()` gives you a `useState`-shaped binding to arbitrary JSON that is **saved inside the Live set** and restored with it, per device instance - for the pattern, preset or drum map that a numeric parameter cannot hold.
+- **Floating Windows:** `useWindow()` opens a second page in a window of its own. The device view in Live is a fixed ~169 px tall and does not scroll, so this is where a UI that needs room goes.
+- **Fetch to Disk:** `fetchToFile(url, path)` downloads straight to the filesystem through Max's `[maxurl]`, with progress. The bytes never cross the JS bridge, so a 40 MB sample pack is not a problem - and no `[node.script]` is involved.
+- **Mocked Development:** A simulated Live environment runs in the browser, providing transport controls, tempo, and message logs so you can build the UI without opening Ableton.
+
+### The last three, running in Live
+
+![hello-downloads, hello-window and hello-state loaded on a Live track](doc/screenshot-test-devices.png)
+
+Left to right: **hello-downloads** has just pulled a URL to a file next to the device
+(83 bytes, no browser download dialog, no Node); **hello-window** opens and closes a
+second `[jweb]` page in a floating window; **hello-state** is holding a JSON blob that
+will still be there when the set is reopened. Each is an *audio effect* with a
+`passthrough` chain, so you can drop them on any track - including Master - and they
+will not touch the sound.
 
 ---
 
@@ -397,7 +438,79 @@ Live parameter - so automation, MIDI mapping and Push all follow. `pnpm dev:<dev
 renders the same declaration as a parameter panel and a **Push preview**, so you can
 see what a performer will see without leaving the browser.
 
-### 6. One device, one bundle
+### 6. Declare Floating Windows and State Persistence
+
+If your UI gets too big to fit inside the standard device view, you can offload sections to **floating windows**. You can also declare arbitrary JSON **state** that is automatically saved into the Live Set (so the user doesn't lose their settings when they reopen the project).
+
+Declare them both inside `surface.ts`:
+
+```ts
+import { defineSurface, state, window } from "@m4l-jweb/surface";
+
+export default defineSurface({
+  params: { /* ... */ },
+  windows: {
+    drumMap: window({ title: "Drum Mapping", width: 800, height: 600, entry: "DrumMap" })
+  },
+  state: {
+    kitSettings: state({ default: { voices: 4, tuning: "C" } })
+  }
+});
+```
+
+And bind to them in your React app with hooks:
+
+```tsx
+import { useWindow, useStateSync } from "@m4l-jweb/surface/react";
+import surface from "./surface";
+
+export default function App() {
+  const drumWindow = useWindow(surface, "drumMap");
+  const [kitSettings, setKitSettings] = useStateSync(surface, "kitSettings");
+
+  return (
+    <div>
+      <button onClick={drumWindow.open}>Open Drum Mapping</button>
+      <button onClick={() => setKitSettings({ ...kitSettings, voices: 8 })}>Set Voices to 8</button>
+    </div>
+  );
+}
+```
+
+Both are typed **from the declaration**: `kitSettings` is `{ voices: number, tuning: string }`
+with no cast, and a window id that is not declared is a build error rather than a
+button that quietly does nothing.
+
+`entry: "DrumMap"` names the component the window bundles - `src/app/<device>/DrumMap.tsx`.
+It is a **separate page**: its own `[jweb]`, its own bundle, no shared React state with
+the device view (they talk through Max, like any two devices).
+
+The build emits a `[pcontrol]` and a subpatcher for each window, and a `[dict]` with a
+`parameter_enable`d `[pattr]` bound to it for each state slot - which is what makes
+Live save the JSON into the **set**, not into the patcher. See
+[ARCHITECTURE.md](doc/ARCHITECTURE.md) for why that attribute is the one that matters.
+
+### 7. Fetch a file to disk
+
+`[jweb]` is a Chromium view with no filesystem, and this repo bans `[node.script]`. So
+downloads go through Max's `[maxurl]`: add the `download` chain to the device in the
+manifest, and call `fetchToFile()`.
+
+```tsx
+import { fetchToFile } from "@m4l-jweb/bridge";
+
+const { bytes } = await fetchToFile(
+  "https://example.com/kick.wav",
+  "samples/kick.wav",                       // relative -> next to the .amxd
+  (downloaded, total) => setProgress(downloaded / (total || 1)),
+);
+```
+
+libcurl writes the file itself, so **the bytes never cross the message bridge** - a 40
+MB sample pack costs the same as a 40-byte one. You get progress for free, and a
+promise that rejects with the HTTP status if it failed.
+
+### 8. One device, one bundle
 
 Each device is a folder under `src/app/`, and each `.amxd` embeds **its own** UI
 bundle: `hello-midi` carries no filter code, `hello-audio` carries no sequencer.

@@ -68,9 +68,12 @@ const surfaces = Object.fromEntries(
 function patcherText(deviceName) {
   const p = path.join(root, "dist", "patchers", `${deviceName}.json`);
   if (!existsSync(p)) return "";
-  return JSON.parse(readFileSync(p, "utf8"))
-    .patcher.boxes.map((b) => b.box.text ?? "")
-    .join("\n");
+  // SUBPATCHERS COUNT. A floating window's [jweb] and the [r window-read-<id>]
+  // feeding it live inside a [p <title>], and a lint that read only the top level
+  // would call a perfectly wired window unrouted - or, worse, call an unwired one
+  // fine, because it could not see the box that was missing.
+  const texts = (boxes) => boxes.flatMap(({ box: b }) => [b.text ?? "", ...(b.patcher?.boxes ? texts(b.patcher.boxes) : [])]);
+  return texts(JSON.parse(readFileSync(p, "utf8")).patcher.boxes).join("\n");
 }
 
 /**
@@ -82,19 +85,32 @@ function patcherText(deviceName) {
  * place; a lint that could not follow the indirection would quietly stop
  * checking the very selectors it moved there.
  */
+function bridgeBlock(name, where) {
+  const from = new RegExp(`export const ${name} = \\{([\\s\\S]*?)\\} as const;`).exec(bridge);
+  expect(from, `${where} refers to ${name}, which @m4l-jweb/bridge does not export`).not.toBeNull();
+  return Object.fromEntries([...from[1].matchAll(/^\s*(\w+):\s*"([^"]+)"/gm)].map((m) => [m[1], m[2]]));
+}
+
 function selectors(src, block, where) {
   const body = new RegExp(`export const ${block} = \\{([\\s\\S]*?)\\} as const;`).exec(src);
   expect(body, `${where} must export a ${block} block`).not.toBeNull();
 
   const own = [...body[1].matchAll(/^\s*(\w+):\s*"([^"]+)"/gm)].map((m) => m[2]);
 
-  const spread = [...body[1].matchAll(/\.\.\.(\w+)/g)].flatMap(([, name]) => {
-    const from = new RegExp(`export const ${name} = \\{([\\s\\S]*?)\\} as const;`).exec(bridge);
-    expect(from, `${where} spreads ${name}, which @m4l-jweb/bridge does not export`).not.toBeNull();
-    return [...from[1].matchAll(/^\s*(\w+):\s*"([^"]+)"/gm)].map((m) => m[2]);
+  const spread = [...body[1].matchAll(/\.\.\.(\w+)/g)].flatMap(([, name]) => Object.values(bridgeBlock(name, where)));
+
+  // `fetch_done: CHAIN_IN.fetch_done` - taking ONE name from a library contract
+  // rather than the whole block. An audio effect wants the download selectors and
+  // not `midinote`, and spreading CHAIN_OUT to get one of them declares two
+  // selectors the device has no ports for. Resolve the reference like a spread: a
+  // name the lint cannot follow is a name it silently stops checking.
+  const picked = [...body[1].matchAll(/^\s*\w+:\s*(\w+)\.(\w+)/gm)].map(([, name, key]) => {
+    const value = bridgeBlock(name, where)[key];
+    expect(value, `${where} refers to ${name}.${key}, which @m4l-jweb/bridge's ${name} does not have`).toBeDefined();
+    return value;
   });
 
-  return [...own, ...spread];
+  return [...own, ...spread, ...picked];
 }
 
 test("the library's chain contract is what the packaged chains actually route", () => {
@@ -177,6 +193,47 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
       expect(IN, `"${id}" is generated from surface.ts - remove it from ${where}`).not.toContain(id);
       expect(OUT, `"set_${id}" is generated from surface.ts - remove it from ${where}`).not.toContain(`set_${id}`);
     }
+  });
+
+  /**
+   * A declared WINDOW is two more generated selectors, and it got no lint at all -
+   * so when the codegen emitted a [route] that matched them into boxes that had
+   * failed to instantiate, nothing here noticed. This checks the shipped patcher.
+   */
+  const windowIds = Object.keys(surface?.windows ?? {});
+  test.skipIf(!windowIds.length || !patcherText(name))("every declared window is routed in the patcher", () => {
+    const patcher = patcherText(name);
+    for (const id of windowIds) {
+      for (const sel of [`window_${id}_open`, `window_${id}_close`]) {
+        expect(patcher, `window "${id}" cannot be opened by ${name}'s UI - no [route ... ${sel}]`).toMatch(new RegExp(`route [^"']*\\b${sel}\\b`));
+      }
+      // The page reaches the window's [jweb] by NAME, not by a cord - there is no
+      // cord into a subpatcher. If the receive is missing, the window opens EMPTY.
+      expect(patcher, `window "${id}" has no [r window-read-${id}] for the wrapper to send its URL to`).toContain(`r window-read-${id}`);
+    }
+  });
+
+  /**
+   * ...and a declared STATE slot is a [dict] the wrapper addresses BY NAME
+   * (`new Dict("obj-state-<id>")`), so the name in the patcher and the name in the
+   * wrapper are one string in two languages. Nothing but this checks that they
+   * still agree.
+   */
+  const stateIds = Object.keys(surface?.state ?? {});
+  test.skipIf(!stateIds.length || !patcherText(name))("every declared state slot has a [dict] and a [pattr] that saves it", () => {
+    const patcher = patcherText(name);
+    for (const id of stateIds) {
+      expect(patcher, `state "${id}" has no [dict obj-state-${id}] - the wrapper's Dict("obj-state-${id}") binds to nothing`).toContain(
+        `dict obj-state-${id}`,
+      );
+      expect(patcher, `state "${id}" has no [pattr] bound to it, so Live never saves it`).toMatch(
+        new RegExp(`pattr [^"']*@bindto obj-state-${id}\\b`),
+      );
+    }
+    // The wrapper's half of the contract: the id is an ARGUMENT of a fixed
+    // selector. `sync_state_<id>` would dispatch to nothing at all.
+    expect(wrapper).toMatch(/function sync_state\s*\(/);
+    expect(wrapper).toMatch(/function get_state\s*\(/);
   });
 });
 

@@ -17,8 +17,9 @@
  * has no React in it and is tested without a DOM. This file is the hook.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import type { ParamSpec, ParamValue, Surface } from "./index";
-import { paramStore } from "./store";
+import { outlet } from "@m4l-jweb/bridge";
+import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, WindowSpec } from "./index";
+import { paramStore, stateStore } from "./store";
 
 /**
  * A two-way binding to one Live parameter. `[value, setValue]`, like useState -
@@ -42,4 +43,45 @@ export function useSurface<P extends Record<string, ParamSpec>>(
   const values = useSyncExternalStore(store.subscribe, store.get, store.get);
   const set = useCallback(<K extends Extract<keyof P, string>>(id: K, value: ParamValue<P[K]>) => store.write(id, value), [store]);
   return [values as { [K in keyof P]: ParamValue<P[K]> }, set];
+}
+
+/**
+ * Open and close a declared floating window.
+ *
+ * The selectors are DERIVED from the declaration, exactly as the patcher's
+ * `[route window_<id>_open ...]` is - so the window id is typed against the
+ * surface and a typo is a build error, not a button that does nothing.
+ */
+export function useWindow<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec>,
+  W extends Record<string, WindowSpec>,
+  K extends Extract<keyof W, string>,
+>(_surface: Surface<P, S, W>, id: K): { open: () => void; close: () => void } {
+  return useMemo(
+    () => ({
+      open: () => outlet(`window_${id}_open`, 1),
+      close: () => outlet(`window_${id}_close`, 1),
+    }),
+    [id],
+  );
+}
+
+/**
+ * A two-way binding to a JSON state slot, persisted in the Live SET.
+ *
+ * `[value, setValue]`, like useState - except the value survives saving, closing
+ * and reopening the set, and each instance of the device keeps its own. The type
+ * comes from the declaration's `default`, so there is nothing to cast.
+ */
+export function useStateSync<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec>,
+  W extends Record<string, WindowSpec>,
+  K extends Extract<keyof S, string>,
+>(surface: Surface<P, S, W>, id: K): [StateValue<S[K]>, (value: StateValue<S[K]>) => void] {
+  const store = useMemo(() => stateStore(surface), [surface]);
+  const values = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const set = useCallback((value: StateValue<S[K]>) => store.write(id, value), [store, id]);
+  return [values[id] as StateValue<S[K]>, set];
 }

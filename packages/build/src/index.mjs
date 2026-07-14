@@ -8,7 +8,7 @@
  *   wrapper/device.ts  - extra [js] message handlers, concatenated last
  */
 import archiver from "archiver";
-import { createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { copyFile, rename, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
-import { applySurface, loadSurface, surfaceContext } from "./surface.mjs";
+import { applySurface, applyWindows, applyPersistence, loadSurface, surfaceContext } from "./surface.mjs";
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,6 +80,14 @@ export function buildWrapper(root) {
         // At [js] global scope `this` IS the jsthis object - that is how
         // `this.patcher.filepath` works.
         noImplicitThis: false,
+        // ...and that is ONLY true in sloppy mode. `strict: true` makes tsc emit
+        // "use strict" at the top of every file, under which `this` inside a plainly
+        // called function is UNDEFINED - so `this.patcher` would throw. Max's [js] is
+        // an ES5-era interpreter that does not enforce strict semantics, so the
+        // device works anyway; it works by accident, on a technicality of a very old
+        // engine, and any [js] that ever grew a real strict mode would take every
+        // device down with it. Emit what we actually target.
+        alwaysStrict: false,
         noImplicitAny: false,
         skipLibCheck: true,
         types: [],
@@ -199,6 +207,8 @@ export function composePatcher(base, d, surface) {
   }
 
   applySurface(ctx);
+  applyWindows(ctx);
+  applyPersistence(ctx);
   closeAudio(ctx);
   assertUniqueBoxIds(boxes, d.name);
 
@@ -292,11 +302,23 @@ export async function packageDevices(root) {
     /**
      * Payloads ride inside wrapper.js as base64 and are written to real files
      * next to the .amxd on first load, because Chromium and any external
-     * process are blind to Max's frozen virtual filesystem. The UI is always
-     * one; a device can declare more (`payloads: ["dist/foo.cjs"]`).
+     * process are blind to Max's frozen virtual filesystem.
+     * We embed ALL .html files found in the UI directory (including the main UI and any windows).
      */
-    let wrapperData = banner + wrapperJs + payloadJs("UI_PAYLOAD", uiName, uiHtml);
+    let wrapperData = banner + wrapperJs;
+    const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
+
+    // Main UI payload
+    wrapperData += payloadJs("UI_PAYLOAD", uiName, readFileSync(path.join(dist, "ui", d.ui ?? d.name, "index.html")));
+
+    // Additional window payloads
+    const extraWindows = uiDirContent.filter((f) => f !== "index.html");
     const payloads = (d.payloads ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) }));
+
+    for (const winHtml of extraWindows) {
+      payloads.push({ name: `${d.name}_${winHtml}`, data: readFileSync(path.join(dist, "ui", d.ui ?? d.name, winHtml)) });
+    }
+
     if (payloads.length) wrapperData += extraPayloadsJs(payloads);
 
     const amxd = buildAmxd({

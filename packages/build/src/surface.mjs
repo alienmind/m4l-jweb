@@ -294,3 +294,208 @@ export function applySurface(ctx) {
     lines.push(line(`obj-set-${id}`, 0, paramObject(id), 0));
   });
 }
+
+/**
+ * Compile a declared `window` into the patcher: a subpatcher holding its own
+ * [jweb], and a [pcontrol] that opens it when the app asks.
+ *
+ *   [jweb] -> [route window_x_open window_x_close] -> [t b] -> [open( -> [pcontrol] -> [p Title]
+ *
+ * ------------------------------------------------------------------------------
+ * A MAXCLASS IS NOT A NAME YOU INVENT, and that is what was broken here.
+ *
+ * This generated the open/close message boxes as `newobj` with the TEXT "open"
+ * and "wclose", and the [pcontrol] as a box with `maxclass: "pcontrol"`. Neither
+ * is a thing:
+ *
+ *   - `newobj` means "an object box", and its text names the object. There is no
+ *     Max object called `open`, so what got built was a BROKEN box - the dashed
+ *     outline you would see instantly in the Max editor, and see nothing of here.
+ *     A message box is `maxclass: "message"` with the message in `text`
+ *     (chains.mjs's [flush( does this - copy that, do not reinvent it).
+ *   - `pcontrol` is an object, not a box class: `maxclass: "newobj"`,
+ *     `text: "pcontrol"`. A box with an unknown maxclass does not instantiate.
+ *
+ * A patcher full of broken boxes still LOADS, keeps its cords, and does nothing.
+ * That is why the message reached [jweb]'s outlet, the route matched, and the
+ * window never opened - and why the failure was misread as `[route]` refusing to
+ * match jweb's output. The route was fine. It was firing into a box that had
+ * failed to exist.
+ * ------------------------------------------------------------------------------
+ */
+export function applyWindows(ctx) {
+  const { boxes, lines, surface } = ctx;
+  const windowIds = surface?.windows ? Object.keys(surface.windows) : [];
+  if (windowIds.length === 0) return;
+
+  const selectors = windowIds.flatMap((id) => [`window_${id}_open`, `window_${id}_close`]);
+
+  const routeId = "obj-windows-route";
+  boxes.push(
+    box(routeId, `route ${selectors.join(" ")}`, {
+      numoutlets: selectors.length + 1,
+      outlettype: selectors.map(() => "").concat(""),
+    }),
+  );
+  // IN SERIES, like every other claimant of the app's message stream. Hanging this
+  // route off [jweb] in parallel (which it did) leaves two paths to [js], so the
+  // wrapper sees every unrouted message - `ui_ready` included - twice.
+  claimAppMessages(ctx, routeId, selectors.length);
+
+  windowIds.forEach((id, index) => {
+    const spec = surface.windows[id];
+
+    // `route` STRIPS the selector, so `window_x_open 1` emerges as a bare `1`. A
+    // message box would try to interpret that as its own argument, so bang it
+    // instead: [t b] makes the trigger unambiguous whatever the app sent.
+    //
+    // The words are [pcontrol]'s: `open` and `close`. NOT `wclose` - that is
+    // [thispatcher]'s vocabulary, and pcontrol says so out loud
+    // ("pcontrol: doesn't understand \"wclose\""), which is the one thing an
+    // unrecognised NAME usually does not do. See pcontrol.maxref.xml.
+    for (const [outlet, verb, tag] of [
+      [index * 2, "open", "open"],
+      [index * 2 + 1, "close", "close"],
+    ]) {
+      const triggerId = `obj-window-${id}-t-${tag}`;
+      const msgId = `obj-window-${id}-${tag}msg`;
+      boxes.push(box(triggerId, "t b"));
+      // A MESSAGE box: maxclass "message", the message in `text`. Not a newobj.
+      boxes.push(box(msgId, verb, { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+      lines.push(line(routeId, outlet, triggerId, 0));
+      lines.push(line(triggerId, 0, msgId, 0));
+      lines.push(line(msgId, 0, `obj-window-${id}-pcontrol`, 0));
+    }
+
+    // [pcontrol] is the supported way to open a subpatcher's window from outside
+    // it. `open` shows it, `wclose` hides it.
+    const pcontrolId = `obj-window-${id}-pcontrol`;
+    boxes.push(box(pcontrolId, "pcontrol"));
+
+    const subpatcherId = `obj-window-${id}-sub`;
+    lines.push(line(pcontrolId, 0, subpatcherId, 0));
+    boxes.push({
+      box: {
+        id: subpatcherId,
+        maxclass: "newobj",
+        text: `p ${spec.title}`,
+        // The inlet is not decoration: Max will not connect a patch cord to a
+        // subpatcher that has no inlets, so [pcontrol] would end up wired to
+        // NOTHING - silently, in the saved file. That was attempt 1.
+        numinlets: 1,
+        numoutlets: 0,
+        patching_rect: [16, 620, 120, 22],
+        patcher: {
+          fileversion: 1,
+          appversion: { major: 8, minor: 0, revision: 0, architecture: "x64", modernui: 1 },
+          rect: [100, 100, spec.width, spec.height],
+          openinpresentation: 1,
+          boxes: [
+            { box: { id: "obj-in", maxclass: "inlet", patching_rect: [16, 16, 30, 30], numinlets: 0, numoutlets: 1, outlettype: [""] } },
+            // The page's URL cannot be WIRED here - this [jweb] is inside a
+            // subpatcher and the wrapper's [js] is outside it. The wrapper reaches
+            // it by NAME instead (messnamed), once the payload is extracted.
+            {
+              box: {
+                id: "obj-recv",
+                maxclass: "newobj",
+                text: `r window-read-${id}`,
+                numinlets: 0,
+                numoutlets: 1,
+                outlettype: [""],
+                patching_rect: [16, 56, 160, 22],
+              },
+            },
+            {
+              box: {
+                id: "obj-jweb",
+                maxclass: "jweb",
+                numinlets: 1,
+                numoutlets: 2,
+                outlettype: ["", ""],
+                patching_rect: [16, 96, spec.width, spec.height],
+                presentation: 1,
+                presentation_rect: [0, 0, spec.width, spec.height],
+              },
+            },
+          ],
+          lines: [{ patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } }],
+        },
+      },
+    });
+  });
+}
+
+/**
+ * Compile a declared `state` slot: a named [dict] the app reads and writes, and a
+ * [pattr] bound to it, which is what actually SAVES.
+ *
+ * ------------------------------------------------------------------------------
+ * WHAT MAKES LIVE SAVE IT IS `parameter_enable`, and nothing else.
+ *
+ * A pattr on its own persists in a PATCHER. A Max for Live device is not saved as a
+ * patcher - Live saves the SET - so the pattr's value goes with it only when the
+ * pattr is a Live parameter. Max's own pattr help says so in one line:
+ *
+ *   "In Max for Live, if you activate the parameter_enable attribute, the pattr
+ *    value will be saved with the Live set."
+ *
+ * The first version of this emitted `@save 1`, which is not a pattr attribute at
+ * all ("pattr: 'save' is not a valid attribute argument"), and `@autorestore 1`,
+ * which restores from the PATCHER and so does nothing here. The state survived a
+ * reload of the page and would not have survived a reload of the set.
+ *
+ * The recipe below is copied from a device Ableton ships - `pattr Delays` in
+ * "Max DelayTaps.amxd", which persists an array of tap times exactly this way:
+ *
+ *   parameter_type 3       BLOB. Not a float, not an enum - an opaque value Live
+ *                          stores and hands back, which is the whole point: JSON is
+ *                          not a number and must never pretend to be one.
+ *   parameter_invisible 1  ...so it stays out of the automation lane and off Push.
+ *                          A blob cannot be automated, and a slot that offered to be
+ *                          would be a lie in every Live UI that listed it.
+ *   parameter_enable 1     in saved_object_attributes - the switch itself.
+ *
+ * `dict` is an OBJECT (`maxclass: "newobj"`, text `dict <name>`), not a box class.
+ * It was emitted as `maxclass: "dict"` - a box class Max does not have, so the box
+ * never instantiated and the pattr bound to nothing. Same mistake as the windows,
+ * same silence.
+ * ------------------------------------------------------------------------------
+ */
+export function applyPersistence(ctx) {
+  const { boxes, surface } = ctx;
+  const stateIds = surface?.state ? Object.keys(surface.state) : [];
+
+  for (const id of stateIds) {
+    const dictId = `obj-state-${id}`;
+    // `varname` is the SCRIPTING name, which is what [pattr]'s @bindto resolves -
+    // it binds to a NAMED object in the patcher, not to a box id (which is ours, and
+    // which Max is free to renumber). The dict's own name argument is what [js]
+    // addresses with `new Dict("obj-state-<id>")`, so all three agree.
+    boxes.push(box(dictId, `dict ${dictId}`, { varname: dictId, numinlets: 2, numoutlets: 4, outlettype: ["dictionary", "", "", ""] }));
+
+    const pattrId = `obj-pattr-${id}`;
+    boxes.push(
+      box(pattrId, `pattr ${pattrId} @bindto ${dictId}`, {
+        numinlets: 2,
+        numoutlets: 3,
+        outlettype: ["", "", ""],
+        varname: pattrId,
+        saved_attribute_attributes: {
+          valueof: {
+            parameter_longname: pattrId,
+            // Live truncates a short name at 8 characters (see the parameter
+            // compiler above), and it is never displayed for an invisible blob -
+            // but it must still be there and still be unique.
+            parameter_shortname: `st_${id}`.slice(0, 8),
+            parameter_type: 3, // blob
+            parameter_invisible: 1,
+          },
+        },
+        saved_object_attributes: {
+          parameter_enable: 1, // THE switch: no parameter, no save.
+        },
+      }),
+    );
+  }
+}

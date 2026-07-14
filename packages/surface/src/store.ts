@@ -30,7 +30,7 @@
  * the user's hand wins, and the next value after the window lands normally.
  */
 import { bindInlet, outlet } from "@m4l-jweb/bridge";
-import { defaults, type ParamSpec, type Surface } from "./index";
+import { defaults, type ParamSpec, type StateSpec, type Surface } from "./index";
 
 /** How long the user's hand beats an inbound value: long enough to cover the gaps between drag events, short enough to be imperceptible. */
 export const GUARD_MS = 120;
@@ -131,5 +131,91 @@ export function paramStore<P extends Record<string, ParamSpec>>(surface: Surface
   };
 
   stores.set(surface, store);
+  return store;
+}
+
+/* ------------------------------------------------------------------ *
+ * The state store - the JSON behind useStateSync(), persisted in the Live SET.
+ *
+ * A parameter is a Live parameter: a number, automatable, on Push. A state slot is
+ * none of those things - it is whatever JSON the app wants to survive a save (a
+ * pattern, a preset, a grid of steps), and Live never looks inside it.
+ *
+ * ------------------------------------------------------------------------------
+ * THE ID IS AN ARGUMENT, NOT PART OF THE SELECTOR - and getting that wrong is why
+ * nothing this store wrote was ever saved.
+ *
+ * It used to emit `sync_state_<id> <json>`. Max dispatches a message on its FIRST
+ * WORD, so `sync_state_config` went looking for a `function sync_state_config()`,
+ * found none, and fell into the wrapper's anything() - which exists precisely to
+ * swallow messages meant for somebody else, silently, by design. The read path
+ * (`get_state <id>`, reply `state_<id> <json>`) had it right, so state loaded and
+ * never saved: the failure mode that looks like Live losing your data.
+ *
+ * OUT: `get_state <id>`, `sync_state <id> <json>`   - one handler each, in the wrapper.
+ * IN:  `state_<id> <json>`                          - one binding per slot, so the
+ *      bridge can dispatch it without the app unpacking an id.
+ * ------------------------------------------------------------------ */
+
+export interface StateStore {
+  get(): Values;
+  subscribe(fn: () => void): () => void;
+  write(id: string, value: unknown): void;
+}
+
+const stateStores = new WeakMap<object, StateStore>();
+
+/**
+ * One store per surface, for the same reason paramStore is: one binding per selector.
+ *
+ * It asks for the SLOTS, not for a `Surface<P, S>` - a store that named the
+ * parameter types would make every caller prove theirs match, and it does not read
+ * a single parameter. The hook keeps the types; this keeps the state.
+ */
+export function stateStore(surface: { state?: Record<string, StateSpec> }): StateStore {
+  const existing = stateStores.get(surface);
+  if (existing) return existing;
+
+  const ids = surface.state ? Object.keys(surface.state) : [];
+
+  // What the app shows before Live has replied: the declared defaults.
+  let values: Values = {};
+  for (const id of ids) values[id] = surface.state![id].default;
+
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const fn of listeners) fn();
+  };
+
+  for (const id of ids) {
+    bindInlet(`state_${id}`, (raw) => {
+      try {
+        values = { ...values, [id]: JSON.parse(String(raw)) };
+        notify();
+      } catch {
+        // An empty dict stringifies to "{}" and parses fine; anything that does
+        // not parse is a slot we have no value for, and the default already in
+        // `values` is the honest answer. Keep it rather than blanking the app.
+      }
+    });
+    // The page loads asynchronously and long after the device did, so nothing was
+    // listening when Live restored the pattr. Ask for it.
+    outlet("get_state", id);
+  }
+
+  const store: StateStore = {
+    get: () => values,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    write(id, value) {
+      values = { ...values, [id]: value };
+      notify();
+      outlet("sync_state", id, JSON.stringify(value));
+    },
+  };
+
+  stateStores.set(surface, store);
   return store;
 }

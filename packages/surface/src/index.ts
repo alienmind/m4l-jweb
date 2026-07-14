@@ -97,6 +97,61 @@ export type ParamSpec = DialSpec | ToggleSpec | MenuSpec;
 /** The value type a given parameter carries. `useParam` will be typed by this. */
 export type ParamValue<P extends ParamSpec> = P extends DialSpec ? number : P extends ToggleSpec ? boolean : P extends MenuSpec<infer O> ? O : never;
 
+/* ------------------------------------------------------------------ *
+ * Windows and State
+ * ------------------------------------------------------------------ */
+
+/**
+ * A floating window: a SECOND page, in a window of its own.
+ *
+ * The device view in Live is a fixed ~169 px tall and does not scroll, so a UI
+ * that needs room (a pattern editor, a waveform) has nowhere to grow inside it.
+ * A declared window compiles to a subpatcher holding its own [jweb], and
+ * `useWindow()` opens it.
+ *
+ * `entry` names the component to bundle, from the device's own folder -
+ * `entry: "Window"` is `src/app/<device>/Window.tsx`. It is a separate BUNDLE, so
+ * it shares no React state with the device view: two pages, two Chromium
+ * contexts, talking only through Max.
+ */
+export interface WindowSpec {
+  kind: "window";
+  title: string;
+  width: number;
+  height: number;
+  entry: string;
+}
+
+/**
+ * A slot of JSON that survives a save - persisted in the LIVE SET, per instance.
+ *
+ * Not a parameter: Live never looks inside it, it does not automate, and it is not
+ * on Push. That is exactly what makes it the right home for the things a parameter
+ * cannot hold - a pattern, a preset, a grid of steps.
+ */
+export interface StateSpec<T = unknown> {
+  kind: "state";
+  default: T;
+}
+
+/** The value type a state slot carries, so `useStateSync` is typed from the declaration. */
+export type StateValue<S extends StateSpec> = S extends StateSpec<infer T> ? T : never;
+
+export const window = (spec: Omit<WindowSpec, "kind">): WindowSpec => ({
+  kind: "window",
+  ...spec,
+});
+
+/**
+ * The default is the TYPE. `state({ default: { voices: 4 } })` makes the slot
+ * `{ voices: number }` everywhere - in `useStateSync`, and in the setter that
+ * writes it back - with no type argument to pass and no `as` to remember.
+ */
+export const state = <T>(spec: Omit<StateSpec<T>, "kind">): StateSpec<T> => ({
+  kind: "state",
+  ...spec,
+});
+
 export const dial = (spec: Omit<DialSpec, "kind">): DialSpec => ({
   kind: "dial",
   ...spec,
@@ -129,12 +184,28 @@ export interface Bank<K extends string> {
   params: readonly K[];
 }
 
-export interface SurfaceDef<P extends Record<string, ParamSpec>> {
+/**
+ * The declaration. `P`, `S` and `W` are inferred from what you write - they exist so
+ * that `useParam`, `useStateSync` and `useWindow` are typed against THIS surface: a
+ * parameter, slot or window that is not declared here is a build error at the call
+ * site, not a control that silently does nothing.
+ */
+export interface SurfaceDef<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec> = Record<string, StateSpec>,
+  W extends Record<string, WindowSpec> = Record<string, WindowSpec>,
+> {
   params: P;
   banks?: readonly Bank<Extract<keyof P, string>>[];
+  windows?: W;
+  state?: S;
 }
 
-export interface Surface<P extends Record<string, ParamSpec> = Record<string, ParamSpec>> extends SurfaceDef<P> {
+export interface Surface<
+  P extends Record<string, ParamSpec> = Record<string, ParamSpec>,
+  S extends Record<string, StateSpec> = Record<string, StateSpec>,
+  W extends Record<string, WindowSpec> = Record<string, WindowSpec>,
+> extends SurfaceDef<P, S, W> {
   /** Declaration order. This is also the order Push falls back to without banks. */
   readonly ids: readonly Extract<keyof P, string>[];
 }
@@ -154,7 +225,11 @@ export const BANK_SIZE = 8;
  * imports this module to generate the patcher, so a violation fails `pnpm
  * build` and fails CI. It is only a less pretty error message.
  */
-export function defineSurface<const P extends Record<string, ParamSpec>>(def: SurfaceDef<P>): Surface<P> {
+export function defineSurface<
+  const P extends Record<string, ParamSpec>,
+  const S extends Record<string, StateSpec>,
+  const W extends Record<string, WindowSpec>,
+>(def: SurfaceDef<P, S, W>): Surface<P, S, W> {
   const ids = Object.keys(def.params) as Extract<keyof P, string>[];
 
   for (const id of ids) {

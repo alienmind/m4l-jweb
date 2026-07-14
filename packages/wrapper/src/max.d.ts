@@ -16,6 +16,16 @@ declare function outlet(n: number, ...args: unknown[]): void;
 /** Collect the `arguments` of a Max message handler into a real array. */
 declare function arrayfromargs(args: IArguments): unknown[];
 
+/**
+ * Send a message to every [receive <name>] / [r <name>] in the patcher - the
+ * only way [js] can reach a box it has no patch cord to.
+ *
+ * The wrapper uses it for what CANNOT be wired: a floating window's [jweb] lives
+ * inside a subpatcher, so there is no cord from here to there. `messnamed` names
+ * the receiver instead of the cord.
+ */
+declare function messnamed(receiveName: string, ...args: unknown[]): void;
+
 /** Arguments given to the object box, e.g. `js wrapper.js midi` -> ["midi"]. */
 declare const jsarguments: unknown[];
 
@@ -165,6 +175,15 @@ declare function onUiReady(): void;
 
 /** Every transport poll (20 Hz), after the packaged wrapper has sent its tick. */
 declare function onTick(playing: number, beats: number): void;
+
+/**
+ * A reply from [maxurl] arrived. Return true if it was YOURS.
+ *
+ * Only for a device that drives [maxurl] itself - its replies travel the same cord as
+ * `fetchToFile()`'s, and the wrapper would otherwise drop them (no `currentFetch`).
+ * Match on the `response_dict` name you asked for.
+ */
+declare function onMaxurlReply(responseDictName: string): boolean;
 
 /** Live's tempo changed (and once on attach). */
 declare function onTempoChange(bpm: number): void;

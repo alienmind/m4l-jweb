@@ -1,217 +1,161 @@
 /**
- * wrapper/device.ts - extra [js] message handlers for THIS device repo.
+ * device.ts - the MAX CONFORMANCE CHECK.
  *
- * Compiled as part of the same TypeScript program as the packaged wrapper
- * sources and concatenated after them, so everything in core.ts and liveapi.ts
- * is visible here (post, outlet, buildStamp, deviceFolder...) with no imports.
+ * `tests/wrapper-max.test.mjs` runs the shipped wrapper against a FAKE Max and proves
+ * the code still honours the contract. It cannot prove the contract: the fake is our
+ * belief about Max, and a belief cannot falsify itself. If a Live update changes what
+ * [maxurl] does, that suite passes and every device breaks.
  *
- * ES5 ONLY. No let/const, no arrow functions, no template literals, no
- * promises. The build re-parses the emitted output with acorn at ecmaVersion 5
- * and refuses to package on failure - so you cannot ship this bug, but you can
- * waste an afternoon on it. Use `var` and `function`.
+ * This is the other half, and the only half that can fail for the right reason. It
+ * asserts, IN LIVE, the handful of Max behaviours the architecture actually rests on -
+ * each one measured once, each one load-bearing, each one silent when it breaks. Drop
+ * `hello-downloads` on a track, press the button, read the Max console (View -> Max
+ * Console).
  *
- * Everything below served the Stage 1 spikes (doc/TODO.md). Delete it once
- * the answers are recorded.
+ * RUN IT WHEN LIVE OR MAX IS UPDATED. That is the whole point of it existing.
+ *
+ * It is deliberately not automated: nothing can drive Live headlessly, and a check
+ * that lies about having run is worse than one you have to press a button for.
  */
 
-/**
- * The spike device's UI asks for a buffer~ load. See doc/TODO.md, spike 1.2.
- *
- * The question: can [js] tell a [buffer~] to read a real file off disk, and
- * confirm it actually landed? If yes, "disk is the audio transport" holds, and
- * an instrument device never has to push a single sample through the Max
- * message bridge.
- *
- * Pass an AUDIO file. The first cut of this spike pointed `replace` at the
- * wrapper's own extracted spike.html - chosen because it certainly exists - and
- * that was a mistake: buffer~ decodes audio, so an HTML file leaves it untouched
- * and the probe reports the buffer's declared size, which looks like a pass.
- * `jongly.aif` ships with Max and lives on its search path, so a bare filename
- * with no directory at all is the cleanest possible subject.
- *
- * NOTE the Buffer binding's exact API surface is PART of what this spike tests.
- * If `send` or `framecount` is not what Max's [js] exposes, the catch below is
- * the finding - post it and record it, do not work around it.
- *
- * buffer_load <path>   (an audio file: a bare `jongly.aif`, or any .wav on disk)
- */
-function buffer_load(): void {
-  var a = arrayfromargs(arguments);
-  var path = a.length ? String(a[0]) : "";
-  if (!path) {
-    post("spike: buffer_load needs a path\n");
+var CONFORMANCE_SRC = "";
+var CONFORMANCE_DST = "";
+var conformancePass = 0;
+var conformanceFail = 0;
+
+/** One MB of known bytes: big enough that a slow copy would be visible. */
+var CONFORMANCE_BYTES = 1048576;
+
+function check(name: string, ok: boolean, detail: string): void {
+  if (ok) conformancePass++;
+  else conformanceFail++;
+  post((ok ? "  PASS  " : "  FAIL  ") + name + " -> " + detail + "\n");
+}
+
+function conformanceFolder(): string | null {
+  var fp: string = this.patcher.filepath;
+  return fp && fp.length ? fp.replace(/\/[^\/]*$/, "") : null;
+}
+
+/** The app's button: `max_conformance`. */
+function max_conformance(): void {
+  var folder = conformanceFolder();
+  if (!folder) {
+    post("CONFORMANCE: the device is not saved - no folder to write in.\n");
     return;
   }
-  try {
-    var b = new Buffer("m4ljweb_spike");
-    // The baseline. The buffer~ is declared with no size, so this should be 0 -
-    // and printing it is what stops a later non-zero reading from being the
-    // buffer's own dimensions wearing the result's clothes.
-    post("spike: buffer before replace frames=" + b.framecount() + "\n");
-    // `replace` reads the file and RESIZES the buffer to fit it; `read` keeps
-    // the declared size. replace is what a sample player wants.
-    b.send("replace", path);
-    post("spike: buffer_load sent replace " + path + "\n");
-    // The read is asynchronous - the buffer will not have the file yet. Come
-    // back on the scheduler and report what actually landed.
-    var probe = new Task(function () {
-      try {
-        var frames = b.framecount();
-        var chans = b.channelcount();
-        // A non-zero sample proves bytes arrived, not just that a buffer exists.
-        var mid = frames > 2 ? b.peek(1, Math.floor(frames / 2), 1) : 0;
-        post("spike: buffer frames=" + frames + " channels=" + chans + " midsample=" + mid + "\n");
-        outlet(0, "buffer_result", frames, chans, mid);
-      } catch (e2) {
-        post("spike: buffer probe FAILED - " + (e2 as Error).message + "\n");
-        outlet(0, "buffer_result", -1, -1, 0);
-      }
-    }, this);
-    probe.schedule(500);
-  } catch (e) {
-    post("spike: buffer_load FAILED - " + (e as Error).message + "\n");
-    outlet(0, "buffer_result", -1, -1, 0);
-  }
+  CONFORMANCE_SRC = folder + "/conformance_source.bin";
+  CONFORMANCE_DST = folder + "/conformance_dest.bin";
+  conformancePass = 0;
+  conformanceFail = 0;
+
+  post("\n===== m4l-jweb: MAX CONFORMANCE =====\n");
+  post("Asserting the Max behaviours this architecture depends on.\n");
+
+  checkFileApi();
+  checkFileWrite();
+  checkMaxurlCopy(); // async: the verdict lands in onMaxurlReply()
 }
 
 /**
- * The path of the UI payload the wrapper already extracted - a real file,
- * guaranteed to exist on disk next to the .amxd.
+ * [js]'s `File` has NO rename and NO delete.
  *
- * UI_PAYLOAD_NAME, not a hard-coded "ui.html": each device's payload is named
- * after the device (`spike.html`), because every device in a repo extracts into
- * the same folder and a shared name would have them overwrite each other.
+ * The whole two-phase download exists because of this absence. If a future Max ADDS
+ * one, this fails - and that failure is good news: it means `fetchToFile()` can drop
+ * the file:// copy for a plain move. A check that only ever fails for bad reasons is a
+ * check nobody reads.
  */
-function buffer_probe_path(): void {
-  var folder = deviceFolder();
-  var name = typeof UI_PAYLOAD_NAME !== "undefined" ? UI_PAYLOAD_NAME : "ui.html";
-  outlet(0, "probe_path", folder ? folder + "/" + name : "");
+function checkFileApi(): void {
+  var f = new File(CONFORMANCE_SRC, "write");
+  var movers = ["rename", "move", "remove", "delete", "unlink", "copy"];
+  var found: string[] = [];
+  for (var i = 0; i < movers.length; i++) {
+    if (typeof (f as any)[movers[i]] !== "undefined") found.push(movers[i]);
+  }
+  var hasBytes = typeof f.writebytes === "function" && typeof (f as any).readbytes === "function";
+  if (f.isopen) f.close();
+
+  check(
+    "File has no way to move or delete a file",
+    found.length === 0,
+    found.length ? "FOUND: " + found.join(", ") + " - fetchToFile() can now be simplified!" : "as expected: open/close/read/write only",
+  );
+  check("File can read and write bytes", hasBytes, hasBytes ? "readbytes + writebytes present" : "MISSING - payload extraction cannot work");
+}
+
+/** `File.writebytes` truncates silently past ~16 KB, so the wrapper writes in 4 KB slices. */
+function checkFileWrite(): void {
+  var f = new File(CONFORMANCE_SRC, "write");
+  if (!f.isopen) f.open();
+  f.eof = 0;
+  var slice: number[] = [];
+  for (var i = 0; i < 4096; i++) slice.push(i % 256);
+  for (var w = 0; w < CONFORMANCE_BYTES / 4096; w++) f.writebytes(slice);
+  f.close();
+
+  var v = new File(CONFORMANCE_SRC);
+  var n = v.isopen ? v.eof : -1;
+  if (v.isopen) v.close();
+  check("File.writebytes in 4 KB slices writes every byte", n === CONFORMANCE_BYTES, n + " bytes written, expected " + CONFORMANCE_BYTES);
+
+  // ...and `eof = 0` is the only "delete" [js] has. The wrapper zeroes its .part files
+  // with it, because it cannot unlink them.
+  var t = new File(CONFORMANCE_SRC + ".tmp", "write");
+  if (!t.isopen) t.open();
+  t.writestring("some content");
+  t.eof = 0;
+  t.close();
+  var tv = new File(CONFORMANCE_SRC + ".tmp");
+  var tn = tv.isopen ? tv.eof : -1;
+  if (tv.isopen) tv.close();
+  check("assigning eof = 0 truncates a file", tn === 0, tn + " bytes left, expected 0");
 }
 
 /**
- * Send raw words to [maxurl] on the spare outlet. See doc/TODO.md, spike 1.3.
+ * THE ONE THAT MAKES `fetchToFile()` SAFE: [maxurl] copies a `file://` URL.
  *
- * Deliberately NOT a typed helper. Nobody here has confirmed maxurl's message
- * vocabulary inside Live, so guessing one in code would just bake the guess in.
- * The UI sends whatever you type; you watch what comes back. That is what a
- * spike is for.
- *
- * url_send <word> <word> ...    e.g. `url_send download <url> <path>`
+ * A download goes to `<dest>.part` and is only copied over `<dest>` once it has been
+ * validated - and libcurl does that copy, because [js] cannot move a file. If this
+ * ever stops working, a 404 goes back to destroying good cached files.
  */
-function url_send(): void {
-  var a = arrayfromargs(arguments);
-  if (!a.length) return;
-  // outlet 1 is the wrapper's spare/aux outlet; the spike chain wires it to maxurl.
-  (outlet as Function).apply(this, ([1] as unknown[]).concat(a));
-  post("spike: -> maxurl " + a.join(" ") + "\n");
+function checkMaxurlCopy(): void {
+  var d = new Dict();
+  d.set("url", encodeURI("file:///" + CONFORMANCE_SRC));
+  d.set("http_method", "get");
+  d.set("filename_out", CONFORMANCE_DST); // NOT "downloadfilename" - an unknown key is ignored
+  d.set("overwrite_output_file", 1); // ...defaults to 0: it would copy exactly once
+  d.set("response_dict", "m4ljweb_conformance_response");
+  outlet(1, "maxurl", "dictionary", d.name);
 }
 
 /**
- * Download a URL to a FILE on disk. See doc/TODO.md, spike 1.3.
- *
- * `url_send` above forwards raw words, and raw words turn out not to be enough:
- * per the maxurl reference, `get <url>` hands the BODY back through an outlet,
- * and the download-to-file form is not a flat message at all. It is a
- * `dictionary <name>` message carrying a dict whose `filename_out` key names the
- * output file. So [js] has to build the dict - nothing else in the patcher can -
- * and the Dict binding is therefore part of what this spike tests, exactly as
- * Buffer was for 1.2. See max.d.ts.
- *
- * Keys, from the reference and not from memory: url, http_method, filename_out,
- * overwrite_output_file, response_dict, headers, timeout.
- *
- * url_download <url> [dest]   dest defaults to spike_download.wav next to the .amxd
+ * The wrapper offers us [maxurl]'s reply before it assumes the reply is its own.
+ * Return true when it was ours.
  */
-function url_download(): void {
-  var a = arrayfromargs(arguments);
-  var url = a.length ? String(a[0]) : "";
-  if (!url) {
-    post("spike: url_download needs a url\n");
-    return;
+function onMaxurlReply(dictName: string): boolean {
+  if (dictName !== "m4ljweb_conformance_response") return false;
+
+  var d = new Dict(dictName);
+  var status = Number(d.get("status"));
+  var err = d.get("error");
+  var placed = new File(CONFORMANCE_DST);
+  var n = placed.isopen ? placed.eof : -1;
+  if (placed.isopen) placed.close();
+
+  check("[maxurl] copies a file:// URL to filename_out", n === CONFORMANCE_BYTES, n + " bytes at the destination, expected " + CONFORMANCE_BYTES);
+  // Measured: a local copy reports status 0, because no HTTP happened. finishPlace()
+  // validates on BYTES for exactly this reason - a 2xx check here would reject a good
+  // copy. If Max starts returning 200, that is fine; if it starts returning an ERROR,
+  // the copy is broken and the two-phase download has lost its mover.
+  check("...and reports no error doing it", !err, err ? "error: " + String(err) : "no error key (status " + status + ")");
+
+  post("===== " + conformancePass + " passed, " + conformanceFail + " failed =====\n");
+  if (conformanceFail > 0) {
+    post("A FAILURE HERE MEANS MAX CHANGED. The unit tests cannot see it: they run\n");
+    post("against a fake Max built from these very assumptions. Fix the wrapper, then\n");
+    post("update doc/ARCHITECTURE.md - 'What Max actually does' - and the fake in\n");
+    post("tests/wrapper-max.test.mjs, in that order.\n");
   }
-  // Default the destination next to the .amxd, where the UI payload already
-  // lands - a folder we know is writable, because the wrapper writes to it on
-  // every load.
-  var dest = a.length > 1 ? String(a[1]) : deviceFolder() + "/spike_download.wav";
-
-  try {
-    var d = new Dict("m4ljweb_spike_req");
-    d.clear();
-    d.set("url", url);
-    d.set("http_method", "get");
-    d.set("filename_out", dest);
-    d.set("overwrite_output_file", 1);
-    d.set("response_dict", "m4ljweb_spike_res");
-    d.set("timeout", 30);
-    post("spike: url_download req " + d.stringify() + "\n");
-
-    // outlet 1 is the wrapper's spare outlet; the spike chain wires it to maxurl.
-    outlet(1, "dictionary", "m4ljweb_spike_req");
-    outlet(0, "download_path", dest);
-    post("spike: url_download -> maxurl, dest " + dest + "\n");
-  } catch (e) {
-    post("spike: url_download FAILED - " + (e as Error).message + "\n");
-    post("spike: ^ if that is about Dict, THAT is the finding. Record it.\n");
-  }
-}
-
-/**
- * Does the file actually exist on disk, and how big is it?
- *
- * maxurl saying "done" is not the finding. The file is the finding. And this is
- * the project that already learned File.writebytes truncates silently past 16 KB,
- * so "a file appeared" is not the same as "the bytes are all there" - hence the
- * byte count, not just isopen.
- *
- * url_check <path>
- */
-function url_check(): void {
-  var a = arrayfromargs(arguments);
-  var path = a.length ? String(a[0]) : "";
-  if (!path) return;
-  try {
-    var f = new File(path, "read");
-    if (!f.isopen) {
-      post("spike: url_check NO FILE at " + path + "\n");
-      outlet(0, "url_check_result", 0);
-      return;
-    }
-    var bytes = f.eof;
-    f.close();
-    post("spike: url_check " + bytes + " bytes at " + path + "\n");
-    outlet(0, "url_check_result", bytes);
-  } catch (e) {
-    post("spike: url_check FAILED - " + (e as Error).message + "\n");
-    outlet(0, "url_check_result", -1);
-  }
-}
-
-/**
- * Whatever [maxurl] replied, from WHICHEVER outlet - the chain prefixes the
- * outlet index, because "which outlet does completion arrive on" is one of the
- * things the spikes had to find out and one of the things CLAUDE.md says never
- * to trust from memory.
- *
- * If the reply names a dictionary, dump it: maxurl's answer to a `dictionary`
- * request is itself a dict, and its contents (status code, error, headers) are
- * what tell an HTTP failure apart from a filesystem one.
- *
- * url_reply <outletIndex> <word> ...
- */
-function url_reply(): void {
-  var a = arrayfromargs(arguments);
-  post("spike: <- maxurl " + a.join(" ") + "\n");
-
-  for (var i = 0; i < a.length; i++) {
-    if (String(a[i]) === "dictionary" && i + 1 < a.length) {
-      try {
-        var res = new Dict(String(a[i + 1]));
-        post("spike: <- maxurl dict " + res.stringify() + "\n");
-      } catch (e) {
-        post("spike: could not read the reply dict - " + (e as Error).message + "\n");
-      }
-    }
-  }
-
-  (outlet as Function).apply(this, ([0, "url_result"] as unknown[]).concat(a));
+  post("\n");
+  return true;
 }

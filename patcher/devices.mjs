@@ -100,17 +100,60 @@ export default [
   },
   {
     /**
-     * Not a device - an instrument for answering the three Stage 1 questions
-     * that the rest of the plan is gated on. Build it, drag it onto a MIDI
-     * track, open the Max console, and follow doc/TODO.md.
-     *
-     * Delete this entry (and patcher/chains.mjs, and wrapper/device.ts) once
-     * the answers are recorded.
+     * hello-downloads
+     * Tests the fetch-to-disk capability, which bypasses the lack of disk access in [jweb].
+     * Demonstrates using the `download` chain that interfaces with `[maxurl]`.
      */
-    name: "spike",
-    type: "midi",
-    mode: "spike", // the wrapper and the UI both switch on this
-    chains: ["spike"],
+    name: "hello-downloads",
+    type: "audio",
+    chains: ["passthrough", "download"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
+     * hello-sampler - the first device in this repo that ORIGINATES a sound.
+     *
+     * An INSTRUMENT (`type: "instrument"`), which nothing else here builds: it sits on
+     * a MIDI track and is the source of that track's audio rather than a stage in
+     * someone else's signal path.
+     *
+     * The two chains are the whole sample-browser path, in order: `download` puts the
+     * file on disk ([maxurl] writes it; the bytes never cross the bridge), and
+     * `samples` reads it into a [buffer~] and plays it through [groove~] INTO THE
+     * TRACK. A page cannot preview a sample by playing it itself - [jweb] has no
+     * signal outlets, so its audio goes to the OS output device, past the fader and
+     * the monitor cue.
+     *
+     * `slots` names the buffers. One is enough for a preview; a drum map wants eight.
+     */
+    name: "hello-sampler",
+    type: "instrument",
+    chains: ["samples", "download"],
+    slots: ["preview"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
+     * hello-state
+     * Demonstrates the state persistence API (`useStateSync`).
+     * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
+     */
+    name: "hello-state",
+    type: "audio",
+    chains: ["passthrough"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
+     * hello-window
+     * Demonstrates the floating window API (`useWindow`): a second page, in a window
+     * of its own, for a UI that does not fit in the device view's fixed ~169 px. The
+     * window is declared in surface.ts; the build generates the subpatcher, its
+     * [jweb] and the [pcontrol] that opens it.
+     */
+    name: "hello-window",
+    type: "audio",
+    chains: ["passthrough"],
     unmatchedTo: "js",
   },
 ];

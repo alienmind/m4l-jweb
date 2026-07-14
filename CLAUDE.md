@@ -57,6 +57,35 @@ infrastructure carved into `packages/`.
 
 ## Facts that look like bugs
 
+- **NEVER INVENT A NAME MAX WILL LOOK UP** - not a `maxclass`, not a dictionary
+  key, not an attribute. Max does not validate them, it IGNORES what it does not
+  recognise, so a wrong name is not an error: it is a feature that silently does
+  nothing, in a patcher that loads and keeps every cord. This cost two features
+  weeks each (ARCHITECTURE.md, "Never invent a name Max is going to look up"):
+  - `maxclass: "pcontrol"` is not a box class. `pcontrol` is an OBJECT:
+    `maxclass: "newobj"`, `text: "pcontrol"`. Same for `dict`. A box with an
+    unknown maxclass, or an object box whose text names no object (`[open]`), does
+    not instantiate - and nothing reports it. A message box is
+    `maxclass: "message"` with the message in `text`.
+  - `[pcontrol]`'s messages are `open` and `close`. `wclose` is `[thispatcher]`'s.
+  - `[maxurl]`'s output-file key is **`filename_out`**, not `downloadfilename`, and
+    **`overwrite_output_file` defaults to 0** so it will not overwrite an existing
+    file. With the wrong key, every request returned HTTP 200 and wrote nothing.
+  - A `[pattr]` in a device saves into the Live set only with
+    **`parameter_enable`** (type 3 = blob, `parameter_invisible 1`). `@save` is not
+    a pattr attribute; `@autorestore` restores from the patcher, which is not where
+    a device's state lives.
+  - The names are ON DISK, inside Live. Read the refpage, and grep the factory
+    patchers for a key before you use it:
+    `C:\ProgramData\Ableton\Resources\Max\resources\docs\refpages\` and `...\help\`.
+- **Max dispatches a message on its FIRST WORD.** So an id belongs in the
+  ARGUMENTS, not baked into the selector: `sync_state <id> <json>`, never
+  `sync_state_<id>` - which looks up a handler no device has, lands in the
+  wrapper's `anything()` (whose whole job is to swallow other people's messages)
+  and is gone without a word. The BRIDGE dispatches on the selector too, which is
+  why the reply is `state_<id>`: the id sits on whichever side is doing the
+  looking-up. `[route]`'s per-id selectors (`set_<id>`, `window_<id>_open`) are
+  fine - a route matches the whole word.
 - **`jsarguments[0]` is the script name**, not the first argument. The device
   mode is at index 1.
 - **`route` strips the selector.** A bare selector arrives as a `bang`. If the
