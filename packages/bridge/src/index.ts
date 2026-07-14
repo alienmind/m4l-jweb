@@ -162,6 +162,12 @@ export const DEVICE_IN = {
 export const CHAIN_IN = {
   /** midiin -> UI: `notein <pitch> <velocity>`. Velocity 0 is a note-off. */
   notein: "notein",
+  /** download -> UI: `fetch_done <requestId> <bytes>`. */
+  fetch_done: "fetch_done",
+  /** download -> UI: `fetch_error <requestId> <msg>`. */
+  fetch_error: "fetch_error",
+  /** download -> UI: `fetch_progress <requestId> <downloaded> <total>`. */
+  fetch_progress: "fetch_progress",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -170,6 +176,8 @@ export const CHAIN_OUT = {
   midinote: "midinote",
   /** UI -> midiout: release every hanging note. */
   flush: "flush",
+  /** UI -> download: `fetch_to_file <requestId> <url> <destPath>`. */
+  fetch_to_file: "fetch_to_file",
 } as const;
 
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
@@ -219,6 +227,59 @@ export function onNote(fn: (pitch: number, velocity: number) => void): void {
  */
 export function flushNotes(): void {
   outlet(CHAIN_OUT.flush);
+}
+
+const fetchResolvers = new Map<
+  string,
+  {
+    resolve: (val: { bytes: number }) => void;
+    reject: (err: Error) => void;
+    onProgress?: (downloaded: number, total: number) => void;
+  }
+>();
+let fetchBound = false;
+
+/**
+ * Fetch a URL and save it directly to disk via Max's [maxurl].
+ * Requires the `download` chain in the device manifest.
+ *
+ * @param url The URL to download
+ * @param destPath The absolute path to save the file
+ * @param onProgress Optional callback for progress updates
+ * @returns A promise resolving to the downloaded file size in bytes
+ */
+export function fetchToFile(
+  url: string,
+  destPath: string,
+  onProgress?: (downloaded: number, total: number) => void
+): Promise<{ bytes: number }> {
+  if (!fetchBound) {
+    fetchBound = true;
+    bindInlet(CHAIN_IN.fetch_done, (id, bytes) => {
+      const p = fetchResolvers.get(String(id));
+      if (p) {
+        p.resolve({ bytes: Number(bytes) });
+        fetchResolvers.delete(String(id));
+      }
+    });
+    bindInlet(CHAIN_IN.fetch_error, (id, msg) => {
+      const p = fetchResolvers.get(String(id));
+      if (p) {
+        p.reject(new Error(String(msg)));
+        fetchResolvers.delete(String(id));
+      }
+    });
+    bindInlet(CHAIN_IN.fetch_progress, (id, downloaded, total) => {
+      const p = fetchResolvers.get(String(id));
+      if (p && p.onProgress) p.onProgress(Number(downloaded), Number(total));
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = Math.random().toString(36).substring(2, 10);
+    fetchResolvers.set(requestId, { resolve, reject, onProgress });
+    outlet(CHAIN_OUT.fetch_to_file, requestId, url, destPath);
+  });
 }
 
 /**

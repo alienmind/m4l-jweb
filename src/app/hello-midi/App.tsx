@@ -23,7 +23,7 @@
  */
 import { useRef, useState } from "react";
 import { flushNotes, onNote, sendNote } from "@m4l-jweb/bridge";
-import { useParam, useWindow, useStateSync } from "@m4l-jweb/surface/react";
+import { useParam } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
 import { useEffect } from "react";
@@ -63,8 +63,6 @@ export default function HelloMidi() {
    */
   const [rate, setRate] = useParam(surface, "rate");
   const [density, setDensity] = useParam(surface, "density");
-  const drumWindow = useWindow(surface, "testWindow");
-  const [config, setConfig] = useStateSync(surface, "config");
   const [notesSent, setNotesSent] = useState(0);
   const [lastIn, setLastIn] = useState<number | null>(null);
   const [workerTicks, setWorkerTicks] = useState(0);
@@ -177,7 +175,6 @@ export default function HelloMidi() {
           />
           <strong>{rate}</strong>
         </label>
-        <button onClick={() => drumWindow.open()} style={{ padding: "2px 6px" }}>Open Floating Window</button>
       </dd>
 
       <dt>density</dt>
@@ -188,9 +185,6 @@ export default function HelloMidi() {
             {Math.round(density)}% - vel {toVelocity(density)}
           </strong>
         </label>
-        <button onClick={() => setConfig({ testValue: Math.random() })} style={{ padding: "2px 6px" }}>
-          Update State: {(config as any)?.testValue?.toFixed(4)}
-        </button>
       </dd>
 
       <dt>sent</dt>

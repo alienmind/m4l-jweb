@@ -462,6 +462,34 @@ function driveChain(ctx) {
   }
 }
 
+/**
+ * "download" - a chain that exposes `[maxurl]` to `[js]` for fetching files to disk.
+ *
+ * It routes `[js]` outlet 1 to `[maxurl]`, and prepends the responses before sending
+ * them back to `[js]` inlet 0. The app sends `fetch_to_file`, `core.ts` orchestrates it.
+ */
+function downloadChain(ctx) {
+  const { boxes, lines, unmatchedId } = ctx; // unmatchedId is usually obj-js
+
+  // Create maxurl box
+  boxes.push(box("obj-maxurl", "maxurl"));
+
+  // Wire JS outlet 1 (aux) to maxurl via a route
+  boxes.push(box("obj-route-maxurl", "route maxurl", { numoutlets: 2, outlettype: ["", ""] }));
+  lines.push(line(unmatchedId, 1, "obj-route-maxurl", 0));
+  lines.push(line("obj-route-maxurl", 0, "obj-maxurl", 0));
+
+  // Wire maxurl outlets back to JS inlet 0
+  boxes.push(box("obj-prepend-maxurl-done", "prepend maxurl_done"));
+  boxes.push(box("obj-prepend-maxurl-progress", "prepend maxurl_progress"));
+
+  lines.push(line("obj-maxurl", 0, "obj-prepend-maxurl-done", 0));
+  lines.push(line("obj-maxurl", 1, "obj-prepend-maxurl-progress", 0));
+
+  lines.push(line("obj-prepend-maxurl-done", 0, unmatchedId, 0));
+  lines.push(line("obj-prepend-maxurl-progress", 0, unmatchedId, 0));
+}
+
 export const CHAINS = {
   midiin: midiInChain,
   midiout: midiOutChain,
@@ -469,6 +497,7 @@ export const CHAINS = {
   gain: gainChain,
   lowpass: lowpassChain,
   drive: driveChain,
+  download: downloadChain,
 };
 
 /** Add a chain to the vocabulary. Called before generatePatchers(). */

@@ -13,7 +13,7 @@ not one device's business logic.
 
 ## Priority 1: Core Library Enhancements
 
-### 1. Fetch-to-disk - and `[node.script]` is deleted
+### [DONE] 1. Fetch-to-disk - and `[node.script]` is deleted
 `[jweb]` can `fetch()` but cannot write to disk. The only escape hatch today is
 `[node.script]`, whose failure modes in Live run from silently ignoring `script start`
 to crashing the host: the least reliable infrastructure in the project. `[maxurl]`
@@ -118,3 +118,8 @@ Until Max provides a native `[jweb~]` object that exposes CEF's audio output as 
   them is how they drift. Its first step is a `Target` seam extracted from
   `packages/build` **while there is still only one target**, which is worth doing on its
   own merits.
+
+## Priority 4: Declarative Floating Windows
+This feature is currently parked and fully documented in [WINDOW.md](WINDOW.md). It is not completed yet, as we hit a roadblock with how Max's `[route]` object handles the raw messages coming out of the `[jweb]` dumpout.
+
+This is a non-blocking enhancement. It is only required if we decide to implement certain "bigger window" features—like porting the full strudel.cc code editor interface directly into Max for Live-which demand expansive screen real estate outside the standard Live device view. When we resume work on this, start by addressing the debug findings listed in `WINDOW.md`.4
