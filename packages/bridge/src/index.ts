@@ -180,6 +180,26 @@ export const CHAIN_OUT = {
   fetch_to_file: "fetch_to_file",
 } as const;
 
+/**
+ * Selectors the WRAPPER handles for a device that declares `state` in its surface.
+ *
+ * THE SLOT ID IS AN ARGUMENT, NOT PART OF THE SELECTOR. `sync_state <id> <json>`,
+ * never `sync_state_<id>`: Max dispatches a message on its first word, so an id
+ * baked into the selector goes looking for a handler no device has and is swallowed
+ * without a word. That shipped, and every write to a state slot was dropped.
+ *
+ * The reply comes back the other way (`state_<id> <json>`), because the BRIDGE
+ * dispatches on the selector too - one binding per slot means the app never unpacks
+ * an id. Two dispatchers, two conventions; the id sits on whichever side is doing
+ * the looking up. `useStateSync()` handles both, and neither name is yours to type.
+ */
+export const STATE_OUT = {
+  /** UI -> wrapper: send me slot `<id>`; reply on `state_<id>`. */
+  get_state: "get_state",
+  /** UI -> wrapper: `sync_state <id> <json>` - persist this slot in the Live set. */
+  sync_state: "sync_state",
+} as const;
+
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
 export interface Note {
   /** MIDI pitch, 0-127. */
@@ -248,11 +268,7 @@ let fetchBound = false;
  * @param onProgress Optional callback for progress updates
  * @returns A promise resolving to the downloaded file size in bytes
  */
-export function fetchToFile(
-  url: string,
-  destPath: string,
-  onProgress?: (downloaded: number, total: number) => void
-): Promise<{ bytes: number }> {
+export function fetchToFile(url: string, destPath: string, onProgress?: (downloaded: number, total: number) => void): Promise<{ bytes: number }> {
   if (!fetchBound) {
     fetchBound = true;
     bindInlet(CHAIN_IN.fetch_done, (id, bytes) => {
