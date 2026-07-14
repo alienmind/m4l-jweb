@@ -340,6 +340,7 @@ function processNextFetch(): void {
 }
 
 function fetch_to_file(requestId: string, url: string, destPath: string): void {
+  post("m4l-jweb: fetch_to_file called! id=" + requestId + " url=" + url + " dest=" + destPath + "\n");
   fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, phase: "head" });
   processNextFetch();
 }
@@ -348,6 +349,7 @@ function fetch_to_file(requestId: string, url: string, destPath: string): void {
  * Handle maxurl completion. It sends a dictionary containing `status` and `error`.
  */
 function maxurl_done(msgType: string, dictName: string): void {
+  post("m4l-jweb: maxurl_done called with " + msgType + " " + dictName + "\n");
   if (!currentFetch) return;
   if (msgType !== "dictionary") return;
 
