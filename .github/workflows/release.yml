@@ -1,0 +1,84 @@
+# Publish on tag: the npm packages, and a GitHub Release with the devices.
+#
+# Triggered by pushing a tag like `v0.6.0`. What you used to do by hand
+# (`npm login` && `pnpm release`) happens here instead, from a clean checkout that
+# has just proved it builds and passes its tests.
+#
+# THE TAG IS THE SOURCE OF TRUTH, AND IT IS CHECKED. A tag that does not match the
+# version in package.json is the one mistake this cannot recover from: npm refuses
+# to republish a version, so a wrong number is permanent. The job fails BEFORE it
+# publishes anything rather than after publishing half the packages.
+#
+# Set-up, once (see doc/RELEASING.md):
+#   npmjs.org  -> an automation access token, granted to the @m4l-jweb scope
+#   GitHub     -> Settings > Secrets and variables > Actions > New repository secret
+#                 named NPM_TOKEN
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # to create the GitHub Release
+  id-token: write # provenance: npm records WHICH workflow published each version
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org # writes the .npmrc npm auth needs
+
+      - run: pnpm install --frozen-lockfile
+
+      # The tag against the manifest, and every package against the root. A version
+      # bump that missed one package would publish a 0.6.0 that depends on a 0.5.0
+      # that no longer exists - and it cannot be taken back.
+      - name: the tag must be the version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          ROOT=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$ROOT" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $ROOT"
+            exit 1
+          fi
+          for pkg in packages/*/package.json; do
+            V=$(node -p "require('./$pkg').version")
+            if [ "$V" != "$ROOT" ]; then
+              echo "::error::$pkg is $V, but the release is $ROOT - every package ships together"
+              exit 1
+            fi
+          done
+          echo "releasing $ROOT"
+
+      - run: pnpm build
+      - run: pnpm test
+
+      # `workspace:*` deps are rewritten to the real version by pnpm on publish, which
+      # is why the check above matters: they all become "0.6.0" whether or not they are.
+      #
+      # --no-git-checks: the tag is a detached HEAD, which pnpm otherwise refuses.
+      - name: publish to npm
+        run: pnpm -r --filter=./packages/* publish --access public --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # The devices, for people who want to drop an .amxd into Live and never touch npm.
+      - name: github release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.amxd
+            dist/m4l-jweb.zip

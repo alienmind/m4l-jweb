@@ -1,0 +1,42 @@
+# CI - what must be true of every push.
+#
+# The build is the first assertion, and it is a real one: `pnpm build` emits every
+# .amxd WITH NO MAX INSTALLED. If a patcher is malformed, a box id is duplicated or
+# the wrapper is not ES5, the build fails here rather than in someone's Live set.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # tsc, the UI bundles, the wrapper (parsed with acorn at ecmaVersion 5), the
+      # patchers and the .amxd containers.
+      - run: pnpm build
+
+      # Container round-trip, ES5 gate, protocol lint, bundle separation.
+      - run: pnpm test
+
+      # The devices themselves, for anyone who wants to try a PR without building it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devices
+          path: dist/*.amxd
+          if-no-files-found: error
