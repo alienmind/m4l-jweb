@@ -5,9 +5,17 @@ not one device's business logic.
 
 - The **design** of what already exists is [ARCHITECTURE.md](ARCHITECTURE.md), which
   also records **what we measured in Live**. Read that section before building new features.
+- The **designs still being argued about** - dynamic chains, and how Strudel's own audio
+  could reach a track - are in [ENHANCEMENTS.md](ENHANCEMENTS.md). Read it before
+  building items 3 and 4 below: it argues that the most valuable version of both is not
+  the obvious one.
 - The two rules everything follows: **`[js]` is a control plane, not a data plane**
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike** that can fail in an afternoon rather than a week.
+
+**NEXT UP: item 2, the `samples` chain.** It is the last thing blocking `m4l-strudel`'s
+sample browser (a preview the user's track can actually hear), and it is the first device
+in this repo that would ORIGINATE a sound rather than process one.
 
 ---
 
@@ -53,7 +61,12 @@ survived a save, a close and a reopen of the set. The switch is `parameter_enabl
 the `[pattr]` (see ARCHITECTURE.md); `@save`/`@autorestore`, which it shipped with
 first, saved nothing at all.
 
-### 2. Sound from samples: the `samples` and `instrument` chains
+### 2. Sound from samples: the `samples` and `instrument` chains  ← **START HERE**
+**The highest-value item in this file**, because it is the only thing standing between
+`m4l-strudel`'s sample browser and a working device, and because everything downstream
+(the Strudel instrument, offline-rendered audio, previews) plays through a `[buffer~]`
+in the end.
+
 The download half is now shipped, so this is unblocked - but the `samples` chain can
 still be built and tested against an already-extracted payload first, so start there.
 
@@ -135,6 +148,13 @@ the SIGNAL domain (`cycle~`/`phasor~` into the target's inlet), with the app cho
 rate, depth and shape - three ordinary parameters - and Max doing the moving. The open
 question is the seam: how a chain declares "this inlet is modulatable" so an LFO can be
 patched onto it without every chain hand-rolling a summing junction.
+
+**And there is a second half we had missed.** `live.remote~` ships inside Live
+(`resources/externals/m4l/`) and, per its own reference, *"allows you to remotely control
+parameters in Ableton Live and Max for Live in realtime"* - **at signal rate, without
+writing automation**. So a pattern could modulate **a real Ableton device's** parameters,
+not just our own DSP, which is a far more interesting feature than an LFO on our filter.
+Spike it. See [ENHANCEMENTS.md](ENHANCEMENTS.md).
 
 **Unblocks** `m4l-strudel`'s pattern-driven modulation (its Phase 7.2), which is parked
 on exactly this.
