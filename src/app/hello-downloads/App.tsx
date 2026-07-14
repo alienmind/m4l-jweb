@@ -8,7 +8,7 @@ export default function HelloDownloads() {
   const [status, setStatus] = useState("Idle");
 
   async function testDownload() {
-    const destPath = "~/test_download.json";
+    const destPath = "test_download.json";
     const url = "https://jsonplaceholder.typicode.com/todos/1";
     
     setStatus("Downloading...");
@@ -16,7 +16,7 @@ export default function HelloDownloads() {
       const { bytes } = await fetchToFile(url, destPath, (downloaded, total) => {
          setStatus(`Progress: ${downloaded} / ${total}`);
       });
-      setStatus(`Success! Wrote ${bytes} bytes to Desktop.`);
+      setStatus(`Success! Wrote ${bytes} bytes to Device Folder.`);
     } catch (err: any) {
       setStatus(`Download failed: ${err.message}`);
     }
@@ -26,7 +26,7 @@ export default function HelloDownloads() {
     <Frame title="HELLO DOWNLOADS" device={device}>
        <dt>Action</dt>
        <dd>
-         <button onClick={testDownload}>Download JSON to Desktop</button>
+         <button onClick={testDownload}>Download JSON to Device Folder <em>(broken)</em></button>
        </dd>
        <dt>Status</dt>
        <dd>{status}</dd>

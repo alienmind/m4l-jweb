@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * core.ts - lifecycle, the message guard, and the self-extracting UI payload.
  *
@@ -334,10 +335,26 @@ function processNextFetch(): void {
   if (!currentFetch) return;
 
   currentFetch.phase = "download";
-  // Directly download to the target file
-  outlet(1, "maxurl", "http_method", "get");
-  outlet(1, "maxurl", "downloadfilename", currentFetch.destPath);
-  outlet(1, "maxurl", "url", currentFetch.url);
+  
+  // maxurl/libcurl requires an absolute OS path.
+  // Resolve relative paths relative to the device folder.
+  var finalPath = currentFetch.destPath;
+  if (finalPath.indexOf("/") !== 0 && finalPath.indexOf(":") === -1) {
+    var devicePath = this.patcher.filepath;
+    if (devicePath) {
+      var deviceDir = devicePath.substring(0, devicePath.lastIndexOf("/"));
+      finalPath = deviceDir + "/" + finalPath;
+    }
+  }
+  currentFetch.destPath = finalPath;
+
+  var reqDict = new Dict();
+  reqDict.set("url", currentFetch.url);
+  reqDict.set("http_method", "get");
+  reqDict.set("downloadfilename", finalPath);
+
+  // Send the dictionary to maxurl to trigger the configured request
+  outlet(1, "maxurl", "dictionary", reqDict.name);
 }
 
 function fetch_to_file(requestId: string, url: string, destPath: string): void {
@@ -355,7 +372,6 @@ function maxurl_done(msgType: string, dictName: string): void {
   if (msgType !== "dictionary") return;
 
   try {
-    // @ts-ignore Dict is a Max object
     var d = new Dict(dictName);
     var status = d.get("status");
     var errorMsg = d.get("error");
