@@ -11,18 +11,7 @@ not one device's business logic.
 
 ---
 
-## Priority 1: Small Things & Low-Hanging Fruits
-
-### Loose ends
-- **Live's per-device parameter budget.** A Surface with 60 params may hit a wall. No
-  device has come close, so nobody knows where it is.
-- **Retake the README screenshots** whenever the example devices change shape again.
-
----
-
-
-
-## Priority 3: Core Library Enhancements
+## Priority 1: Core Library Enhancements
 
 ### 1. Fetch-to-disk - and `[node.script]` is deleted
 `[jweb]` can `fetch()` but cannot write to disk. The only escape hatch today is
@@ -59,13 +48,17 @@ already-extracted payload first, so start there.
 
 **Unlocks** the first M4L-JWEB device that makes sound.
 
-### 3. Push banks
-Patcher-JSON archaeology: configure banks once in the Max editor, save, diff the JSON -
-the way the container format was found. **Write the round-trip test first; do not guess
-the shape.**
+### 2. Reversed-engineered Push Banks (Hardware Controller Mapping)
+Currently, `m4l-jweb` allows you to declare parameter banks (groupings of 8 parameters for hardware like Ableton Push) in `surface.ts`,
+and the web mock harness displays them perfectly. However, the build script does not yet inject this banking data into the generated `.amxd` file.
+As a result, Live falls back to displaying all parameters in a single, unbanked list.
 
-Nothing is blocked on it: Live falls back to declaration order and Push shows every
-parameter, and the harness's Push preview already renders the declared banks.
+To fix this, we need to reverse-engineer Max's undocumented JSON format for storing bank data:
+1. **Patcher-JSON archaeology:** Open a device in the Max editor, manually configure parameter banks, save it, and diff the resulting JSON to find exactly where and how Max stores this data.
+2. **Write the round-trip test first:** Max is extremely picky and will corrupt patches if the JSON is malformed. Do not guess the shape. Write a strict unit test against the known-good JSON before implementing the generator logic.
+
+### 3. Retake README Screenshots
+Whenever the example devices change shape again.
 
 ### 4. Extract the contract pattern - `defineWatch()`, `defineSamples()`
 **Only after Priority 3.2 has shipped**, when there are two real instances to generalise from.
@@ -95,9 +88,7 @@ symmetry.
 
 ---
 
-## Priority 4: Advanced Native Architectures
-
-### 1. Native Audio Bridge (JS to Max MSP) (FEAT-STRUDEL-002)
+## Priority 2: Native Audio Bridge (JS to Max MSP) (FEAT-STRUDEL-002)
 
 #### What
 A high-performance bridge mechanism to stream raw PCM audio bytes generated within the JS runtime (e.g., from WebAudio in the Chromium Embedded Framework, or a Node.js process) directly into Max's MSP signal graph (`~` cords). 
@@ -120,10 +111,7 @@ To achieve this, `m4l-jweb` would need a native C++ Max external or a local sock
 
 Until Max provides a native `[jweb~]` object that exposes CEF's audio output as a Max signal, true JS-generated audio instruments require significant native OS-level or C++ extensions beyond standard Max patching.
 
-### 2. Architectural Loose Ends
-- **Port a real device onto the template.** The pattern came out of a working Strudel
-  device; folding that back onto the packages is what will find the leaks.
-- **A VST3 backend**, so a device runs outside Live. Assessed in
+## Priority 3: **A VST3 backend**, so a device runs outside Live. Assessed in
   [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md): the app, the bridge, the surface and the
   harness port; the LiveAPI wrapper does not, and the headless build is what you trade
   away. **One repo, not a fork** - the shared traps *are* the product, and duplicating
