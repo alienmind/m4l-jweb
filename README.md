@@ -31,13 +31,18 @@ pnpm build            # .amxd files, no Max installed
 pnpm install:device   # into Ableton's User Library
 ```
 
-The repo builds two devices out of the box, and they are the examples:
+The repo builds several example devices out of the box to demonstrate the architecture:
 
 | Device | Type | What it is |
 |---|---|---|
 | **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
 | **hello-audio** | audio effect | Three effects in series - a lowpass, a soft-clipping drive and a level - each one a *chain* named in the manifest, each with its own Live parameter. |
 | **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/LISTENING.md](doc/LISTENING.md)**. |
+| **hello-downloads** | audio effect | Tests the fetch-to-disk capability. It uses a `download` chain to securely bypass `[jweb]`'s lack of disk access via Max's `[maxurl]`. |
+| **hello-state** | audio effect | Demonstrates state persistence (`useStateSync`). Proves arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored. |
+| **hello-window** | MIDI effect | Demonstrates the floating window API (`useWindow`). *Note: Currently PARKED due to Max message routing limits. See `doc/WINDOW.md`.* |
+
+> **Testing the feature examples:** Because `hello-downloads` and `hello-state` are compiled as **audio effects** with a `passthrough` audio chain, they won't swallow or block sound. You can drop them on the Master channel (or any audio track) to test their UI and features without disrupting your musical signal flow!
 
 Each lives in its own folder under `src/app/`, and each builds into its own
 `.amxd` carrying its own UI bundle. (`hello-audio-rev` is the exception that

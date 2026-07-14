@@ -105,8 +105,8 @@ export default [
      * Demonstrates using the `download` chain that interfaces with `[maxurl]`.
      */
     name: "hello-downloads",
-    type: "midi",
-    chains: ["download"],
+    type: "audio",
+    chains: ["passthrough", "download"],
     unmatchedTo: "js",
   },
   {
@@ -116,8 +116,8 @@ export default [
      * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
      */
     name: "hello-state",
-    type: "midi",
-    chains: ["midiin", "midiout"],
+    type: "audio",
+    chains: ["passthrough"],
     unmatchedTo: "js",
   },
   {
