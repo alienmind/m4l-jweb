@@ -91,7 +91,7 @@ test("window and state definitions are kept on the surface", () => {
   const s = defineSurface({
     params: { mix: dial({ range: [0, 1], default: 0.5, short: "Mix" }) },
     windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) },
-    state: { config: state({ default: { voices: 4 } }) }
+    state: { config: state({ default: { voices: 4 } }) },
   });
   expect(s.windows.map.title).toBe("Map");
   expect(s.state.config.default.voices).toBe(4);
