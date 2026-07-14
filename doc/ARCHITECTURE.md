@@ -24,6 +24,9 @@ diff, cannot review, cannot generate and cannot test; the "source" of a device i
 picture of it. Every practice a developer relies on - version control, code review,
 CI, refactoring by rename - stops at the edge of the Max window.
 
+Moreover, this framework enables LLM-assisted development of Max patches and devices, purely through declarative code;
+being code, it can truly assist you in creating and refactoring, just as it would with any other programming language.
+
 So: **declare the device, and generate the patcher.** Everything else in this
 document follows from taking that seriously.
 
@@ -403,29 +406,9 @@ parameters is what makes Push work at all. (The dev harness's Push preview alrea
 renders the declared banks; only Live does not read them yet.) Sequence in
 [TODO.md](TODO.md).
 
-## Declarative Floating Windows and State Persistence
+## Declarative State Persistence (JSON)
 
-Two additional primitives are generated from the same `surface.ts` declaration: floating windows and state persistence.
-
-### Floating Windows
-
-Max patches can open subpatchers in floating windows, but managing them manually is tedious. M4L-JWEB allows you to declare windows inside `defineSurface()`:
-
-```ts
-windows: {
-  drumMap: { title: "Drum Kit Mapping", width: 800, height: 600, entry: "DrumMap" }
-}
-```
-
-**How it works:** 
-- The build detects declared windows and uses `applyWindows()` to emit a `[pcontrol]` object wired to a subpatcher `[p <title>]` for each window.
-- Inside the subpatcher, a dedicated `[jweb]` object is generated, sized appropriately, with `openinpresentation: 1` enabled so it floats correctly.
-- The wrapper scripts extract the window's UI HTML bundle (produced by `build-ui.mjs` iterating over `process.env.WINDOW`) and sends a `url file://...` message exclusively to the subpatcher's `[jweb]`.
-- Your React code opens/closes the window by sending `window_<id>_open` or `window_<id>_close` messages via the bridge using the `useWindow(surface, id)` hook, triggering the `[pcontrol]` object.
-
-### State Persistence (JSON)
-
-Often an app needs to save configuration data that isn't a simple automation parameter (e.g. an array of drum mappings or complex JSON objects). M4L-JWEB provides a generic state store mechanism to save arbitrary JSON:
+Often an app needs to save configuration data that isn't a simple automation parameter (e.g. an array of drum mappings or complex JSON objects). M4L-JWEB provides a generic state store mechanism to save arbitrary JSON data persistently with the Ableton Live set.
 
 ```ts
 state: {
@@ -439,6 +422,26 @@ state: {
 - The `useStateSync(surface, id)` hook gives React a two-way binding. Writing to it sends `sync_state <id> <json_string>` across the bridge.
 - The `[js]` wrapper catches `sync_state`, reconstructs the string (which may have spaces), and parses it into the `[dict]`.
 - When the UI connects, it emits `get_state <id>` to retrieve the persisted values, ensuring the UI is immediately up to date with the saved Set.
+
+## Declarative Floating Windows (PARKED / UNTESTED)
+
+> [!WARNING]
+> This feature is currently **parked and known to be non-functional** in Max 8 due to internal message routing limitations between `[jweb]` and Max's windowing primitives. See [WINDOW.md](WINDOW.md) for full architectural details and the debug log of our attempts.
+
+Max patches can open subpatchers in floating windows, but managing them manually is tedious. M4L-JWEB allows you to declare windows inside `defineSurface()`:
+
+```ts
+windows: {
+  drumMap: { title: "Drum Kit Mapping", width: 800, height: 600, entry: "DrumMap" }
+}
+```
+
+**How is it supposed to work:** 
+- The build detects declared windows and uses `applyWindows()` to emit a `[pcontrol]` object wired to a subpatcher `[p <title>]` for each window.
+- Inside the subpatcher, a dedicated `[jweb]` object is generated, sized appropriately, with `openinpresentation: 1` enabled so it floats correctly.
+- The wrapper scripts extract the window's UI HTML bundle (produced by `build-ui.mjs` iterating over `process.env.WINDOW`) and sends a `url file://...` message exclusively to the subpatcher's `[jweb]`.
+- Your React code opens/closes the window by sending `window_<id>_open` or `window_<id>_close` messages via the bridge using the `useWindow(surface, id)` hook, triggering the `[pcontrol]` object.
+
 
 ## Developing without Live: the mocked harness
 

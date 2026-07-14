@@ -21,6 +21,9 @@ for (const dir of uiDirs) {
   delete process.env.WINDOW;
   await build();
 
+  const outDir = path.join(root, "dist", "ui", dir);
+  renameSync(path.join(outDir, "index.html"), path.join(outDir, "_main_index.html"));
+
   const surface = await loadSurface(root, dir);
   if (surface && surface.windows) {
     for (const winId of Object.keys(surface.windows)) {
@@ -29,10 +32,11 @@ for (const dir of uiDirs) {
       console.log(`\nm4l-jweb: bundling window ${winId} for ${dir}`);
       await build();
       
-      const outDir = path.join(root, "dist", "ui", dir);
       renameSync(path.join(outDir, "index.html"), path.join(outDir, `${winId}.html`));
     }
   }
+
+  renameSync(path.join(outDir, "_main_index.html"), path.join(outDir, "index.html"));
 }
 
 console.log(`\nm4l-jweb: ${uiDirs.length} UI bundle(s) -> dist/ui/`);

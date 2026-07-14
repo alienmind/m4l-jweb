@@ -8,6 +8,11 @@ manager, a typechecker, unit tests, CI. The device UI is a React app, and it can
 be run, simulated and tested **outside Ableton and outside Max** - against a
 mocked Live, in a browser.
 
+Moreover, because M4L-JWEB is based entirely on declarative code, it not only provides
+an improved developer experience, but also natively enables LLM-assisted development of
+Max patches and devices—just as an LLM would assist with any other text-based
+programming language.
+
 The glue that a device needs is provided rather than rewritten each time: the
 message bridge between the browser and Max, the `[js]` script that talks to
 Live's object model, the generated patcher, and the binary `.amxd` writer. So
