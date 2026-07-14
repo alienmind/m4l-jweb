@@ -298,40 +298,106 @@ test("a chain whose parameter is not declared fails the build, loudly", () => {
  * Windows and Persistence
  * ------------------------------------------------------------------ */
 
-test("applyWindows generates [pcontrol] and subpatcher with [jweb]", () => {
-  const s = defineSurface({
+const mapWindow = () =>
+  defineSurface({
     params: {},
-    windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) }
+    windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) },
   });
-  const c = compile(s);
 
-  // route
+test("a declared window compiles to a subpatcher holding its own [jweb]", () => {
+  const c = compile(mapWindow());
+
   expect(c.box("obj-windows-route").text).toBe("route window_map_open window_map_close");
-  
-  // pcontrol
-  expect(c.box("obj-window-map-pcontrol").maxclass).toBe("pcontrol");
-  
-  // subpatcher
+
   const sub = c.box("obj-window-map-sub");
   expect(sub.maxclass).toBe("newobj");
   expect(sub.text).toBe("p Map");
-  
-  // inner patcher
-  const innerBoxes = sub.patcher.boxes.map(b => b.box.maxclass);
-  expect(innerBoxes).toContain("jweb");
+
+  // The subpatcher must have an INLET, or Max refuses the cord from [pcontrol] -
+  // silently, when it saves. The window then never opens and nothing says why.
+  const inner = sub.patcher.boxes.map((b) => b.box.maxclass);
+  expect(inner).toContain("inlet");
+  expect(inner).toContain("jweb");
+  expect(c.cords).toContainEqual({ src: "obj-window-map-pcontrol", out: 0, dst: "obj-window-map-sub", in: 0 });
+
+  // The URL cannot be wired in from outside a subpatcher, so the wrapper sends it
+  // BY NAME (messnamed) to this receive.
+  const recv = sub.patcher.boxes.find((b) => b.box.text?.indexOf("r window-read-") === 0);
+  expect(recv.box.text).toBe("r window-read-map");
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } });
 });
 
-test("applyPersistence generates [dict] and [pattr]", () => {
-  const s = defineSurface({
-    params: {},
-    state: { config: state({ default: { voices: 4 } }) }
-  });
-  const c = compile(s);
+/**
+ * THE BUG THAT PARKED THIS FEATURE, and it was never [route]'s fault.
+ *
+ * `open` and `wclose` are MESSAGES sent to [pcontrol], so they are message boxes.
+ * They were generated as `newobj` - object boxes - whose text named an object
+ * ("open") that does not exist, and [pcontrol] was generated with `maxclass:
+ * "pcontrol"`, which is not a box class Max has. All three boxes failed to
+ * instantiate, kept their cords, and did nothing. The route matched perfectly and
+ * fired into three holes.
+ */
+test("the open/close boxes are MESSAGE boxes, and [pcontrol] is an object box", () => {
+  const c = compile(mapWindow());
 
-  expect(c.box("obj-state-config").maxclass).toBe("dict");
-  
+  // The words are [pcontrol]'s own: `open` and `close`. `wclose` is
+  // [thispatcher]'s, and pcontrol rejects it out loud.
+  for (const [tag, text] of [
+    ["open", "open"],
+    ["close", "close"],
+  ]) {
+    const msg = c.box(`obj-window-map-${tag}msg`);
+    expect(msg.maxclass, `[${text}( must be a message box, not an object named "${text}"`).toBe("message");
+    expect(msg.text).toBe(text);
+    expect(c.cords).toContainEqual({ src: `obj-window-map-${tag}msg`, out: 0, dst: "obj-window-map-pcontrol", in: 0 });
+  }
+
+  const pc = c.box("obj-window-map-pcontrol");
+  expect(pc.maxclass).toBe("newobj");
+  expect(pc.text).toBe("pcontrol");
+});
+
+test("the windows route is spliced into the app's stream in SERIES, not hung off [jweb]", () => {
+  // Two routes in parallel on [jweb]'s outlet means every unrouted message reaches
+  // the wrapper TWICE - `ui_ready` included. The windows route claimed [jweb]
+  // directly and left its unmatched outlet dangling, so it did both at once.
+  const c = compile(
+    defineSurface({
+      params: { cutoff: dial({ short: "Cut", range: [40, 18000], default: 1000, unit: "Hz" }) },
+      windows: { map: window({ title: "Map", width: 400, height: 300, entry: "MapApp" }) },
+    }),
+  );
+
+  expect(appFeeds(c)).toEqual([{ src: "obj-windows-route", out: 2, dst: "obj-js", in: 0, text: "route window_map_open window_map_close" }]);
+  // ...and it takes its input from the Surface's unmatched outlet, not from [jweb].
+  expect(c.feeding("obj-windows-route", 0)).toEqual([{ src: SURFACE_ROUTE, out: 1, dst: "obj-windows-route", in: 0, text: "route set_cutoff" }]);
+});
+
+test("a declared state slot compiles to a [dict] with a [pattr] bound to it", () => {
+  const c = compile(defineSurface({ params: {}, state: { config: state({ default: { voices: 4 } }) } }));
+
+  // `dict` is an OBJECT, not a box class: `maxclass: "dict"` never instantiates,
+  // and the pattr then binds to nothing - the same silent hole as [pcontrol] above.
+  const dict = c.box("obj-state-config");
+  expect(dict.maxclass).toBe("newobj");
+  expect(dict.text).toBe("dict obj-state-config");
+  // @bindto resolves a SCRIPTING name, which is what varname is.
+  expect(dict.varname).toBe("obj-state-config");
+
   const pattr = c.box("obj-pattr-config");
   expect(pattr.maxclass).toBe("newobj");
-  expect(pattr.text).toContain("pattr obj-pattr-config");
-  expect(pattr.text).toContain("@bindto obj-state-config");
+  expect(pattr.text).toBe("pattr obj-pattr-config @bindto obj-state-config");
+
+  // WHAT MAKES LIVE SAVE IT. A pattr persists in a PATCHER; Live saves the SET,
+  // and it only puts a pattr in it when the pattr is a Live parameter. Without
+  // this the slot round-trips inside the session and quietly loses everything the
+  // moment the set is closed - which is the failure mode you find out about last.
+  expect(pattr.saved_object_attributes.parameter_enable).toBe(1);
+  // A BLOB (type 3), and invisible: JSON is not a number, and a slot that offered
+  // itself to the automation lane would be lying to every Live UI that listed it.
+  expect(pattr.saved_attribute_attributes.valueof.parameter_type).toBe(3);
+  expect(pattr.saved_attribute_attributes.valueof.parameter_invisible).toBe(1);
+  // `@save` was here once. It is not a pattr attribute at all - Max says
+  // "pattr: 'save' is not a valid attribute argument" and carries on without it.
+  expect(pattr.text).not.toContain("@save");
 });
