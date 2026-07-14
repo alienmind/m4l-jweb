@@ -308,3 +308,114 @@ function b64decode(s: string): number[] {
   }
   return out;
 }
+
+/* ------------------------------------------------------------------ *
+ * Fetch-to-disk
+ *
+ * Implements fetch_to_file by orchestrating `[maxurl]` in the patcher.
+ * To avoid downloading an error page (e.g. 404) over a good cached file,
+ * it first sends a HEAD request. If it succeeds (200 OK), it sends a GET
+ * with `downloadfilename` to save the payload to disk.
+ * ------------------------------------------------------------------ */
+
+interface ActiveFetch {
+  requestId: string;
+  url: string;
+  destPath: string;
+  phase: "head" | "download";
+}
+
+var fetchQueue: ActiveFetch[] = [];
+var currentFetch: ActiveFetch | null = null;
+
+function processNextFetch(): void {
+  if (currentFetch || fetchQueue.length === 0) return;
+  currentFetch = fetchQueue.shift() || null;
+  if (!currentFetch) return;
+
+  // Start with a HEAD request to verify status
+  currentFetch.phase = "head";
+  outlet(1, "maxurl", "http_method", "head");
+  outlet(1, "maxurl", "url", currentFetch.url);
+}
+
+function fetch_to_file(requestId: string, url: string, destPath: string): void {
+  fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, phase: "head" });
+  processNextFetch();
+}
+
+/**
+ * Handle maxurl completion. It sends a dictionary containing `status` and `error`.
+ */
+function maxurl_done(msgType: string, dictName: string): void {
+  if (!currentFetch) return;
+  if (msgType !== "dictionary") return;
+
+  try {
+    // @ts-ignore Dict is a Max object
+    var d = new Dict(dictName);
+    var status = d.get("status");
+    var errorMsg = d.get("error");
+    
+    var success = (status === 200 || status === 201 || status === 304) && !errorMsg;
+
+    if (currentFetch.phase === "head") {
+      if (success) {
+        // HEAD succeeded, proceed to download to target file
+        currentFetch.phase = "download";
+        outlet(1, "maxurl", "http_method", "get"); // reset to get
+        outlet(1, "maxurl", "downloadfilename", currentFetch.destPath);
+        outlet(1, "maxurl", "action", "download");
+        outlet(1, "maxurl", "url", currentFetch.url);
+      } else {
+        // HEAD failed, report error without touching the file
+        var msg = errorMsg ? String(errorMsg) : "HTTP " + status;
+        outlet(0, "fetch_error", currentFetch.requestId, msg);
+        currentFetch = null;
+        processNextFetch();
+      }
+    } else {
+      // DOWNLOAD phase finished
+      if (success) {
+        // For downloads, maxurl doesn't easily expose the downloaded byte size in the done dictionary,
+        // but it does emit it in progress. The JS side will just resolve with 0 if unknown,
+        // or the client can rely on the last progress event.
+        // We can just report success.
+        // Try getting file size from disk since we wrote it
+        var bytes = 0;
+        try {
+          var f = new File(currentFetch.destPath);
+          if (f.isopen) {
+            bytes = f.eof;
+            f.close();
+          }
+        } catch (err) {}
+        
+        outlet(0, "fetch_done", currentFetch.requestId, bytes);
+      } else {
+        var msg2 = errorMsg ? String(errorMsg) : "HTTP " + status;
+        outlet(0, "fetch_error", currentFetch.requestId, msg2);
+      }
+      currentFetch = null;
+      processNextFetch();
+    }
+  } catch (e) {
+    post("m4l-jweb: maxurl_done error - " + (e as Error).message + "\n");
+    if (currentFetch) {
+      outlet(0, "fetch_error", currentFetch.requestId, "Internal wrapper error");
+      currentFetch = null;
+    }
+    processNextFetch();
+  }
+}
+
+/**
+ * Handle maxurl progress: `progress <downloaded> <total> <percent>`
+ */
+function maxurl_progress(downloaded: number, total: number, percent: number): void {
+  if (!currentFetch) return;
+  // Progress happens during download phase, but HEAD might also report it (with small sizes)
+  if (currentFetch.phase === "download") {
+    outlet(0, "fetch_progress", currentFetch.requestId, downloaded, total);
+  }
+}

@@ -98,4 +98,22 @@ export default [
     chains: ["gain", "drive", "lowpass"],
     unmatchedTo: "js",
   },
+  {
+    name: "hello-downloads",
+    type: "midi",
+    chains: ["download"],
+    unmatchedTo: "js",
+  },
+  {
+    name: "hello-state",
+    type: "midi",
+    chains: ["midiin", "midiout"],
+    unmatchedTo: "js",
+  },
+  {
+    name: "hello-window",
+    type: "midi",
+    chains: ["midiin", "midiout"],
+    unmatchedTo: "js",
+  },
 ];

@@ -8,6 +8,11 @@ manager, a typechecker, unit tests, CI. The device UI is a React app, and it can
 be run, simulated and tested **outside Ableton and outside Max** - against a
 mocked Live, in a browser.
 
+*(Quick remark: this project is a developer tool, not a DAW replacement.
+It doesn't replace Ableton Live or generate audio on its own.
+You will still need a licensed copy of Ableton Live (Suite or with Max for Live extras) to
+actually load these devices and produce sound!)*
+
 Moreover, because M4L-JWEB is based entirely on declarative code, it not only provides
 an improved developer experience, but also natively enables LLM-assisted development of
 Max patches and devices—just as an LLM would assist with any other text-based
