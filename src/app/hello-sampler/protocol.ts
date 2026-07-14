@@ -18,6 +18,7 @@ import { CHAIN_IN, CHAIN_OUT, DEVICE_IN } from "@m4l-jweb/bridge";
 export const IN = {
   ...DEVICE_IN,
   buffer_ready: CHAIN_IN.buffer_ready,
+  buffer_error: CHAIN_IN.buffer_error,
   fetch_done: CHAIN_IN.fetch_done,
   fetch_error: CHAIN_IN.fetch_error,
   fetch_progress: CHAIN_IN.fetch_progress,

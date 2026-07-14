@@ -214,6 +214,19 @@ test("a sample slot is a named [buffer~], and the player refers to it by that na
   expect(textOf(c, "obj-samples-groove")).toContain("groove~ buf-smp-preview 2");
 });
 
+test("a load goes through the WRAPPER, which is what resolves the path", () => {
+  const c = sampler();
+  // [buffer~] resolves a bare name against MAX'S SEARCH PATH, which does not contain
+  // the device's folder - so `preview.wav`, freshly downloaded next to the .amxd,
+  // reported "can't open" and the app's promise timed out. The wrapper resolves it
+  // (the same way fetchToFile does) and hands it back on its aux outlet as one symbol,
+  // spaces and all. So `buffer_load` must NOT be claimed from [jweb].
+  expect(textOf(c, "obj-samples-route")).toBe("route buffer_play buffer_stop");
+  expect(c.cords).toContainEqual({ src: "obj-js", out: 1, dst: "obj-samples-replaceroute", in: 0 });
+  expect(textOf(c, "obj-samples-replaceroute")).toBe("route buffer_replace");
+  expect(c.feeding("obj-samples-loadslot", 0)).toEqual(["obj-samples-replaceroute"]);
+});
+
 test("the buffer reports what it LOADED, from its read-completed outlet", () => {
   const c = sampler();
   // Outlet 1, not outlet 0: outlet 0 is a mouse position in the editing window. And
@@ -278,6 +291,6 @@ test("the samples chain hands on what it did not match, in series with the next 
   // would deliver every unrouted message twice instead.
   const c = sampler(["samples", "download"]);
   expect(c.feeding("obj-samples-route", 0)).toEqual(["obj-jweb"]);
-  expect(c.cords).toContainEqual({ src: "obj-samples-route", out: 3, dst: "obj-js", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-samples-route", out: 2, dst: "obj-js", in: 0 });
   expect(c.feeding("obj-js", 0)).not.toContain("obj-jweb");
 });

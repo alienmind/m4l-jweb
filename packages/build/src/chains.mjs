@@ -516,10 +516,12 @@ function downloadChain(ctx) {
  * "samples" - the first chain that ORIGINATES a sound: a named [buffer~] per slot,
  * loaded from a file on disk, played back through [groove~] into the signal path.
  *
- *   app -> buffer_load <slot> <path>  -> [buffer~ <name>]  (replace)
+ *   app -> buffer_load <slot> <path>  -> [js] (resolves the path)
+ *                                     -> buffer_replace -> [buffer~ <name>]
  *          buffer_play <slot>         -> [groove~] set + play
  *          buffer_stop                -> [groove~] stop
  *   app <- buffer_ready <slot> <sr> <ms> <chans>   when the read actually completed
+ *          buffer_error <slot> <msg>                when there was no file to read
  *
  * THE BYTES NEVER CROSS THE BRIDGE. [buffer~] reads the file itself; what travels in
  * Max messages is a path and, coming back, a description of what landed - the same
@@ -564,14 +566,26 @@ function downloadChain(ctx) {
  * gives you more.
  */
 function samplesChain(ctx) {
-  const { boxes, lines, device, jwebId } = ctx;
+  const { boxes, lines, device, jwebId, unmatchedId } = ctx;
   const slots = device?.slots ?? ["preview"];
   const bufName = (slot) => `buf-${device?.name}-${slot}`;
 
-  // [route buffer_load buffer_play buffer_stop] - outlet 3 is everything else, and
-  // it must go on to the next claimant (the Surface, the wrapper).
-  boxes.push(box("obj-samples-route", "route buffer_load buffer_play buffer_stop", { numoutlets: 4, outlettype: ["", "", "", ""] }));
-  claimAppMessages(ctx, "obj-samples-route", 3);
+  // `buffer_load` is NOT claimed from [jweb]. It goes on to the wrapper, which
+  // resolves the path and hands it back on its AUX OUTLET as `buffer_replace <slot>
+  // <abs path>` - the same shape the `download` chain takes `maxurl` in.
+  //
+  // The detour is the whole fix. The app writes a path relative to the device's
+  // folder (that is where fetchToFile puts the file), and [buffer~] does not resolve
+  // it that way: a bare name is looked up in MAX'S SEARCH PATH, which the device's
+  // folder is not in, so a file that was downloaded correctly reports "can't open".
+  // The resolved path then contains SPACES on a normal Live install ("Ableton
+  // Library"), and a path travelling through the patcher as message text would split
+  // there into atoms. Out of [js] it stays one symbol.
+  boxes.push(box("obj-samples-route", "route buffer_play buffer_stop", { numoutlets: 3, outlettype: ["", "", ""] }));
+  claimAppMessages(ctx, "obj-samples-route", 2);
+
+  boxes.push(box("obj-samples-replaceroute", "route buffer_replace", { numoutlets: 2, outlettype: ["", ""] }));
+  lines.push(line(unmatchedId, 1, "obj-samples-replaceroute", 0));
 
   // `route` strips the selector, so the slot name is now the first word of both
   // remaining messages: a second route per stream dispatches on it.
@@ -579,8 +593,8 @@ function samplesChain(ctx) {
   const slotOutlets = { numoutlets: slots.length + 1, outlettype: slots.map(() => "").concat("") };
   boxes.push(box("obj-samples-loadslot", `route ${slotList}`, slotOutlets));
   boxes.push(box("obj-samples-playslot", `route ${slotList}`, slotOutlets));
-  lines.push(line("obj-samples-route", 0, "obj-samples-loadslot", 0));
-  lines.push(line("obj-samples-route", 1, "obj-samples-playslot", 0));
+  lines.push(line("obj-samples-replaceroute", 0, "obj-samples-loadslot", 0));
+  lines.push(line("obj-samples-route", 0, "obj-samples-playslot", 0));
 
   // The player. `groove~ <buffer> 2` = two signal outlets (plus a loop-sync outlet),
   // and it MIXES a buffer with more channels down rather than dropping them.
@@ -600,7 +614,7 @@ function samplesChain(ctx) {
   // Stop: a bare `buffer_stop` arrives from [route] as a BANG - the word is gone -
   // so re-materialize it in a message box, or groove~ hears nothing it knows.
   boxes.push(box("obj-samples-stopmsg", "stop", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
-  lines.push(line("obj-samples-route", 2, "obj-samples-stopmsg", 0));
+  lines.push(line("obj-samples-route", 1, "obj-samples-stopmsg", 0));
   lines.push(line("obj-samples-stopmsg", 0, "obj-samples-groove", 0));
 
   slots.forEach((slot, i) => {
