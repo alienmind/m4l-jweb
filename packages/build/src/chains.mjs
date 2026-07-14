@@ -471,8 +471,8 @@ function driveChain(ctx) {
 function downloadChain(ctx) {
   const { boxes, lines, unmatchedId } = ctx; // unmatchedId is usually obj-js
 
-  // Create maxurl box
-  boxes.push(box("obj-maxurl", "maxurl"));
+  // Create maxurl box with correct number of outlets (3)
+  boxes.push(box("obj-maxurl", "maxurl", { numoutlets: 3, outlettype: ["", "", ""] }));
 
   // Wire JS outlet 1 (aux) to maxurl via a route
   boxes.push(box("obj-route-maxurl", "route maxurl", { numoutlets: 2, outlettype: ["", ""] }));
