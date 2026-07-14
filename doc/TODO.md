@@ -13,11 +13,28 @@ not one device's business logic.
 
 ## Priority 1: Core Library Enhancements
 
-### [PARKED] 1. Fetch-to-disk - and `[node.script]` is deleted (See [PARKED_FEATURES.md](PARKED_FEATURES.md) for details)
+### ~~1. Fetch-to-disk~~ - SHIPPED
+`fetchToFile(url, path)` + the `download` chain + `[maxurl]`. **Verified in Live.**
+
+A download goes to `<dest>.part`, is validated (status **and** the `error` key **and**
+the bytes on disk - each catches a failure the others call success), and only then is
+copied over the destination, **so a 404 can no longer destroy a good cached file**.
+`[js]` has no rename and no delete, so **`[maxurl]` performs the move**: libcurl speaks
+`file://`, and a GET of the .part file with `filename_out` set to the destination is a
+native streaming copy - 1 MB in 6 ms, measured, with no bytes through `[js]`. The
+leftover .part is truncated to zero, which is the closest thing to `delete` that [js]
+has. Pinned by `tests/wrapper-max.test.mjs`; the Max side is pinned by the conformance
+check in `wrapper/device.ts`.
+
+### ~~1b. State persistence~~ - SHIPPED
+`state: { x: state({ default }) }` + `useStateSync()`. **Verified in Live**: a value
+survived a save, a close and a reopen of the set. The switch is `parameter_enable` on
+the `[pattr]` (see ARCHITECTURE.md); `@save`/`@autorestore`, which it shipped with
+first, saved nothing at all.
 
 ### 2. Sound from samples: the `samples` and `instrument` chains
-The download half needs 1, but the `samples` chain can be built and tested against an
-already-extracted payload first, so start there.
+The download half is now shipped, so this is unblocked - but the `samples` chain can
+still be built and tested against an already-extracted payload first, so start there.
 
 - **`samples`** - a named `[buffer~]` per slot; `buffer_load <slot> <path>` replying
   `buffer_ready <slot> <frames> <ms>`. **Must not assume mono** (`replace` adopts the
@@ -101,4 +118,7 @@ Until Max provides a native `[jweb~]` object that exposes CEF's audio output as 
   `packages/build` **while there is still only one target**, which is worth doing on its
   own merits.
 
-### [PARKED] 4. Declarative Floating Windows - See [PARKED_FEATURES.md](PARKED_FEATURES.md) for details
+### ~~4. Declarative Floating Windows~~ - SHIPPED
+`windows: { x: window({ ... }) }` in `surface.ts` + `useWindow()`. **Verified in Live**
+with `hello-window`. Why it was broken for so long, and the rule it produced, are in
+ARCHITECTURE.md ("Never invent a name Max is going to look up").
