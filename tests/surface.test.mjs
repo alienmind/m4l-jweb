@@ -12,7 +12,7 @@
  * `pnpm build` and fails CI. It is only a less pretty error message.
  */
 import { expect, test } from "vitest";
-import { BANK_SIZE, defaults, defineSurface, dial, formatValue, menu, toggle, window, state } from "@m4l-jweb/surface";
+import { BANK_SIZE, defaults, defineSurface, dial, formatValue, isNative, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const ok = () =>
   defineSurface({
@@ -85,6 +85,44 @@ test("formatValue falls back sensibly when no format is given", () => {
   expect(formatValue(s.params.octave, 2)).toBe("2"); // step 1 -> integer
   expect(formatValue(s.params.running, true)).toBe("on");
   expect(formatValue(s.params.slot, "B")).toBe("B");
+});
+
+/* ------------------------------------------------------------------ *
+ * layout.native - which parameters render as native Max objects
+ * ------------------------------------------------------------------ */
+
+test("layout.native naming a parameter that does not exist is rejected", () => {
+  // A typo here would generate a live.* object with a presentation rect for a
+  // parameter, or (worse) reference one that is never emitted - silent in Live.
+  expect(() =>
+    defineSurface({
+      params: { cutoff: dial({ range: [0, 1], default: 0.5, short: "Cut" }) },
+      layout: { native: { params: ["resonance"] } },
+    }),
+  ).toThrow(/layout.native names "resonance", which is not a declared parameter/);
+});
+
+test("layout.native.rows outside 1..3 is rejected - the device view is 169 px tall", () => {
+  const s = { params: { a: dial({ range: [0, 1], default: 0, short: "A" }) } };
+  expect(() => defineSurface({ ...s, layout: { native: { params: ["a"], rows: 4 } } })).toThrow(/rows must be 1..3/);
+  expect(() => defineSurface({ ...s, layout: { native: { params: ["a"], rows: 0 } } })).toThrow(/rows must be 1..3/);
+  // 1..3 and the default (no rows) are all fine.
+  expect(() => defineSurface({ ...s, layout: { native: { params: ["a"], rows: 3 } } })).not.toThrow();
+  expect(() => defineSurface({ ...s, layout: { native: { params: ["a"] } } })).not.toThrow();
+});
+
+test("isNative reports whether a parameter is drawn by the device view", () => {
+  const s = defineSurface({
+    params: {
+      cutoff: dial({ range: [0, 1], default: 0.5, short: "Cut" }),
+      gain: dial({ range: [0, 1], default: 1, short: "Gain" }),
+    },
+    layout: { native: { params: ["cutoff"] } },
+  });
+  expect(isNative(s, "cutoff")).toBe(true);
+  expect(isNative(s, "gain")).toBe(false);
+  // A surface with no layout: nothing is native, so app code keeps every HTML control.
+  expect(isNative(defineSurface({ params: s.params }), "cutoff")).toBe(false);
 });
 
 test("window and state definitions are kept on the surface", () => {

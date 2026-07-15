@@ -58,4 +58,12 @@ export default defineSurface({
 
   // Eight parameters fit under Push's eight encoders, so these three are one bank.
   banks: [{ name: "Filter", params: ["cutoff", "drive", "gain"] }],
+
+  // Render all three parameters as NATIVE live.dial objects in the device view,
+  // laid out by the compiler in one column (three dials at rows: 3), with [jweb]
+  // shifted right to sit beside them. This is the demonstrator for the 30-minute
+  // Live check the roadmap calls for: confirm Live recomputes the device width
+  // from the wider presentation content. It is purely a presentation overlay - the
+  // dials are the same parameters, still readable app-side with useParam().
+  layout: { native: { params: ["cutoff", "drive", "gain"], rows: 3 } },
 });

@@ -27,7 +27,7 @@ import { expect, test } from "vitest";
 
 import { composePatcher } from "@m4l-jweb/build";
 import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
-import { SURFACE_ROUTE } from "@m4l-jweb/build/surface";
+import { SURFACE_ROUTE, computeNativeSlots } from "@m4l-jweb/build/surface";
 import { defineSurface, dial, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
@@ -292,6 +292,116 @@ test("a chain whose parameter is not declared fails the build, loudly", () => {
   // Max opens as a patcher with a missing object and no explanation.
   const s = defineSurface({ params: { brightness: dial({ range: [0, 1], default: 1, short: "Bright" }) } });
   expect(() => compile(s, { chains: ["lowpass"], device: { name: "hello-audio", type: "audio" } })).toThrow(/needs a parameter "cutoff"/);
+});
+
+/* ------------------------------------------------------------------ *
+ * layout.native - native dials in the device view
+ *
+ * The whole feature is a PRESENTATION overlay on the objects applySurface()
+ * already emits: a listed parameter gains `presentation`/`presentation_rect`/
+ * `varname`, [jweb] shifts right by the zone width, and NOTHING about the wiring
+ * changes. The load-bearing property is the last one - and the regression guard
+ * at the end pins that a surface with no `layout` is untouched.
+ * ------------------------------------------------------------------ */
+
+/** Do two [x, y, w, h] rects overlap (share any area)? */
+const overlaps = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+
+test("computeNativeSlots fills column-major, then overflows into the next column", () => {
+  // Four params at rows: 3 => a full first column (3) then one in a second column.
+  const s = defineSurface({
+    params: {
+      a: dial({ range: [0, 1], default: 0, short: "A" }),
+      b: dial({ range: [0, 1], default: 0, short: "B" }),
+      c: dial({ range: [0, 1], default: 0, short: "C" }),
+      d: dial({ range: [0, 1], default: 0, short: "D" }),
+    },
+    layout: { native: { params: ["a", "b", "c", "d"], rows: 3 } },
+  });
+  const { slots, width } = computeNativeSlots(s);
+  // First column: x constant, y stepping by the pitch.
+  expect(slots.get("a")).toEqual([8, 8, 44, 48]);
+  expect(slots.get("b")).toEqual([8, 64, 44, 48]);
+  expect(slots.get("c")).toEqual([8, 120, 44, 48]);
+  // Fourth wraps to a new column, back at the top row.
+  expect(slots.get("d")).toEqual([60, 8, 44, 48]);
+  // The zone spans both columns plus its margins: 8 + 44 + 8 + 44 + 8.
+  expect(width).toBe(112);
+});
+
+test("a surface with no native layout produces an empty zone", () => {
+  const s = defineSurface({ params: { a: dial({ range: [0, 1], default: 0, short: "A" }) } });
+  expect(computeNativeSlots(s)).toEqual({ slots: new Map(), width: 0 });
+});
+
+const fxLike = () =>
+  defineSurface({
+    params: {
+      cutoff: dial({ range: [40, 18000], unit: "Hz", default: 18000, short: "Cutoff" }),
+      drive: dial({ range: [0, 1], default: 0, short: "Drive" }),
+      room: dial({ range: [0, 1], default: 0, short: "Room" }),
+      gain: dial({ range: [0, 2], default: 1, short: "Gain" }),
+    },
+    // Only three of the four are native; `gain` stays an HTML control.
+    layout: { native: { params: ["cutoff", "drive", "room"], rows: 3 } },
+  });
+
+test("every listed parameter's object is shown in the device view, inside the zone", () => {
+  const c = compile(fxLike());
+  const { width } = computeNativeSlots(fxLike());
+
+  for (const id of ["cutoff", "drive", "room"]) {
+    const b = c.box(`obj-param-${id}`);
+    expect(b.presentation, `${id} must be shown`).toBe(1);
+    expect(b.varname).toBe(`param-${id}`); // prefixed so it cannot collide with obj-state-<id>
+    const [x, y, w, h] = b.presentation_rect;
+    // Inside the presentation zone: [0, 0, width, 169].
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(x + w).toBeLessThanOrEqual(width);
+    expect(y + h).toBeLessThanOrEqual(169);
+  }
+});
+
+test("no two native rects overlap", () => {
+  const c = compile(fxLike());
+  const rects = ["cutoff", "drive", "room"].map((id) => c.box(`obj-param-${id}`).presentation_rect);
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      expect(overlaps(rects[i], rects[j]), `${i} and ${j} overlap`).toBe(false);
+    }
+  }
+});
+
+test("a parameter NOT in layout.native carries no presentation - it stays an HTML control", () => {
+  const c = compile(fxLike());
+  const gain = c.box("obj-param-gain");
+  expect(gain).toBeDefined();
+  expect(gain).not.toHaveProperty("presentation");
+  expect(gain).not.toHaveProperty("presentation_rect");
+  // ...and its wiring is exactly the same as any other parameter's: the feature
+  // touches presentation only. The fan-out route still carries set_gain.
+  expect(c.box(SURFACE_ROUTE).text).toContain("set_gain");
+});
+
+test("[jweb] shifts right by the zone width, and its width is preserved", () => {
+  const c = compile(fxLike());
+  const { width } = computeNativeSlots(fxLike());
+  const jweb = c.box("obj-jweb");
+  // x moves to the zone width; y/w/h are exactly the template's [_, 0, 420, 169].
+  expect(jweb.presentation_rect).toEqual([width, 0, 420, 169]);
+});
+
+test("REGRESSION: a surface with no layout leaves the objects and [jweb] untouched", () => {
+  // The feature must be invisible until asked for. A no-layout surface's parameter
+  // objects carry no presentation keys, and [jweb] sits where the base template
+  // put it - `presentation_rect: [0, 0, 420, 169]`, unshifted.
+  const c = compile(oneDial);
+  const p = c.box("obj-param-cutoff");
+  expect(p).not.toHaveProperty("presentation");
+  expect(p).not.toHaveProperty("presentation_rect");
+  expect(p).not.toHaveProperty("varname");
+  expect(c.box("obj-jweb").presentation_rect).toEqual([0, 0, 420, 169]);
 });
 
 /* ------------------------------------------------------------------ *

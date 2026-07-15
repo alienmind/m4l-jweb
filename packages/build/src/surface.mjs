@@ -126,6 +126,60 @@ export async function loadSurface(root, uiDir) {
 
 const MAXCLASS = { dial: "live.dial", toggle: "live.toggle", menu: "live.menu" };
 
+/* ------------------------------------------------------------------ *
+ * Native declarative layout (surface `layout.native`)
+ *
+ * A parameter listed in `layout.native` renders as a native `live.*` object IN
+ * THE DEVICE VIEW, next to a `[jweb]` shifted right to make room. This is a pure
+ * PRESENTATION overlay: the dial the compiler already emits gains three keys
+ * (`presentation`, `presentation_rect`, `varname`) and nothing about its wiring,
+ * its fan-out or the app's `set_<id>` route changes. A dial that carries no rect
+ * is exactly today's invisible object.
+ * ------------------------------------------------------------------ */
+
+// The device view Live gives an M4L device. Height is fixed at ~169 px; the width
+// is whatever the presentation content needs, which is the whole mechanism this
+// relies on (Live recomputes device width from the presentation rects).
+const DEVICE_H = 169;
+const MARGIN = 8;
+// Per-kind native sizes, from Max's own live.* defaults. A live.dial includes its
+// own label under the knob, which is why it is taller than a bare toggle.
+const NATIVE_SIZE = { dial: [44, 48], toggle: [44, 15], menu: [100, 15] };
+// Vertical pitch: a dial is 48 px tall and wants 8 px of air beneath its label.
+const PITCH_Y = 56;
+
+/**
+ * `id -> presentation_rect` for every native parameter, plus the zone's total
+ * width (how far `[jweb]` shifts right). A pure function of the declaration, so
+ * `tests/` can drive it directly.
+ *
+ * Column-major: fills `rows` down the first column, then starts a new column to
+ * the right. Adding a parameter at the end therefore never reshuffles the ones
+ * before it - the reading order stays stable.
+ */
+export function computeNativeSlots(surface) {
+  const native = surface?.layout?.native;
+  if (!native || native.params.length === 0) return { slots: new Map(), width: 0 };
+  const rows = native.rows ?? 3;
+  const slots = new Map();
+  let row = 0;
+  let colW = 0;
+  let x = MARGIN;
+  for (const id of native.params) {
+    const [w, h] = NATIVE_SIZE[surface.params[id].kind];
+    if (row >= rows) {
+      // Column full: step right by the widest box in the column just finished.
+      row = 0;
+      x += colW + MARGIN;
+      colW = 0;
+    }
+    slots.set(id, [x, MARGIN + row * PITCH_Y, w, h]);
+    colW = Math.max(colW, w);
+    row += 1;
+  }
+  return { slots, width: x + colW + MARGIN };
+}
+
 /**
  * Max's `parameter_type`: 0 = float, 1 = int, 2 = enum.
  *
@@ -250,9 +304,15 @@ export function applySurface(ctx) {
   const { boxes, lines, surface, jwebId } = ctx;
   if (!surface || surface.ids.length === 0) return;
 
+  // Where the native dials go, if any were declared. `slots` is empty for a
+  // surface with no `layout`, and then this whole feature is inert - a param
+  // carries no presentation rect and stays the invisible object it is today.
+  const { slots, width: nativeW } = computeNativeSlots(surface);
+
   let x = 480;
   for (const id of surface.ids) {
     const spec = surface.params[id];
+    const rect = slots.get(id);
     boxes.push({
       box: {
         id: paramObject(id),
@@ -262,6 +322,12 @@ export function applySurface(ctx) {
         outlettype: [""],
         parameter_enable: 1,
         patching_rect: [x, 300, 44, 48],
+        // A native param is shown in the device view: it gets a presentation rect
+        // and a scripting name (prefixed `param-` so it cannot collide with a state
+        // dict's `obj-state-<id>` varname). Everything else about the box - the
+        // wiring below, the fan-out, useParam() - is UNCHANGED. Presentation is
+        // purely a display overlay on the same graph.
+        ...(rect ? { presentation: 1, presentation_rect: rect, varname: `param-${id}` } : {}),
         saved_attribute_attributes: { valueof: parameterAttrs(id, spec) },
       },
     });
@@ -271,6 +337,18 @@ export function applySurface(ctx) {
     lines.push(line(paramObject(id), 0, `obj-prepend-${id}`, 0));
     lines.push(line(`obj-prepend-${id}`, 0, jwebId, 0));
     x += 56;
+  }
+
+  // Shift [jweb] right by the native zone's width, so the dials sit to its left.
+  // WIDTH IS PRESERVED: the device gets wider, the web view does not get narrower
+  // (React layouts were built for 420 px). A surface with no native params has
+  // nativeW === 0 and leaves [jweb] exactly where the template put it.
+  if (nativeW > 0) {
+    const jweb = boxes.find((b) => b.box.id === jwebId)?.box;
+    if (jweb) {
+      const [, py, pw, ph] = jweb.presentation_rect ?? [0, 0, 420, DEVICE_H];
+      jweb.presentation_rect = [nativeW, py, pw, ph];
+    }
   }
 
   // Write direction: one route for every `set_<id>` the app can send. It goes at
