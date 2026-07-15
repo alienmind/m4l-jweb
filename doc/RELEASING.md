@@ -6,33 +6,36 @@ is no `npm login` and no `pnpm release` from a laptop any more - and that is the
 what ships is what CI built from a clean checkout, not what happened to be in someone's
 working tree.
 
-## The one-time set-up
+## The one-time set-up: TRUSTED PUBLISHING (no token)
 
-Both halves have to be done once, by someone with admin on the repo and publish rights on
-the `@m4l-jweb` npm scope.
+Done once, by someone with admin on the repo and publish rights on the `@m4l-jweb` scope.
 
-### 1. npmjs.org - a token CI can publish with
+npm now requires 2FA to publish, which a plain token cannot satisfy in CI (it fails with
+`EOTP`). The answer is **trusted publishing**: npm trusts THIS workflow to publish over
+OIDC, so there is no token anywhere - nothing to leak, nothing to expire.
 
-1. Log in as the account that owns the **`@m4l-jweb`** scope.
-2. **Avatar -> Access Tokens -> Generate New Token -> Granular Access Token**
-   (the classic "Automation" token also works; granular is narrower and preferred).
-3. Give it:
-   - **Expiration**: your call. A token that expires is a release that fails loudly one
-     day, which is better than a token that leaks quietly forever.
-   - **Packages and scopes**: **Read and write**, limited to the **`@m4l-jweb`** scope.
-   - **Organizations**: no access needed.
-4. Copy the token. npm shows it **once**.
+### 1. npmjs.org - trust the workflow, per package
 
-### 2. GitHub - give CI the token
+For **each** of the four packages (`@m4l-jweb/bridge`, `build`, `surface`, `wrapper`):
 
-**Settings -> Secrets and variables -> Actions -> New repository secret**
+1. Open the package page -> **Settings** -> **Trusted Publisher**.
+2. Choose **GitHub Actions** and fill in:
+   - **Organization or user**: `alienmind`
+   - **Repository**: `m4l-jweb`
+   - **Workflow filename**: `release.yml`
+   - **Environment**: leave blank (the workflow uses none).
+3. Save. Repeat for the other three packages.
 
-- **Name**: `NPM_TOKEN` (exactly - `.github/workflows/release.yml` reads this name)
-- **Secret**: the token from step 1
+A package must already exist on npm before it can be given a trusted publisher, which
+these do (they were first published with a token). Once trusted publishing is on, the old
+`NPM_TOKEN` secret is unused and can be deleted.
 
-Nothing else. `permissions:` in the workflow already grants what it needs to create the
-Release and to attach npm **provenance** (npm records which workflow, from which commit,
-published each version - visible as a "Provenance" badge on the package page).
+### 2. GitHub - nothing
+
+There is no secret to add. `permissions: id-token: write` in the workflow is the whole
+credential: pnpm (>= 10.12.1, pinned in `package.json`'s `packageManager`) exchanges the
+GitHub OIDC token for a short-lived npm credential and generates **provenance**
+automatically (visible as a "Provenance" badge on the package page).
 
 ## Cutting a release
 

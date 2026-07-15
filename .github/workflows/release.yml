@@ -9,10 +9,15 @@
 # to republish a version, so a wrong number is permanent. The job fails BEFORE it
 # publishes anything rather than after publishing half the packages.
 #
-# Set-up, once (see doc/RELEASING.md):
-#   npmjs.org  -> an automation access token, granted to the @m4l-jweb scope
-#   GitHub     -> Settings > Secrets and variables > Actions > New repository secret
-#                 named NPM_TOKEN
+# Set-up, once (see doc/RELEASING.md): TRUSTED PUBLISHING, no token at all.
+#   npmjs.org  -> each @m4l-jweb/* package -> Settings -> Trusted Publisher ->
+#                 GitHub Actions: owner `alienmind`, repo `m4l-jweb`, workflow
+#                 `release.yml`. npm then trusts THIS workflow to publish, over OIDC.
+#   Nothing in GitHub secrets: the `id-token: write` permission below is the whole
+#   credential. This is what npm's 2FA requirement pushes you to, and it is strictly
+#   better than a token - nothing to leak, nothing to expire, and npm records exactly
+#   which workflow run published each version. Needs pnpm >= 10.12.1 (pinned in
+#   package.json's packageManager) and the id-token permission.
 name: release
 
 on:
@@ -68,11 +73,12 @@ jobs:
       # is why the check above matters: they all become "0.6.0" whether or not they are.
       #
       # --no-git-checks: the tag is a detached HEAD, which pnpm otherwise refuses.
+      #
+      # NO TOKEN. With a Trusted Publisher configured on npm (see header) and
+      # `id-token: write` above, pnpm authenticates over OIDC and generates provenance
+      # automatically. There is nothing in `env` to leak.
       - name: publish to npm
         run: pnpm -r --filter=./packages/* publish --access public --no-git-checks --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       # The devices, for people who want to drop an .amxd into Live and never touch npm.
       - name: github release
