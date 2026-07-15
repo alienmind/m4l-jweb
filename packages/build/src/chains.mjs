@@ -363,7 +363,7 @@ function gainChain(ctx) {
  * chain that reintroduces a mapping like that DOUBLE-MAPS a parameter that already
  * carries its own curve, and lies to every readout while it does it.
  */
-function fanParamInto(ctx, paramId, dstId, dstInlet) {
+export function fanParamInto(ctx, paramId, dstId, dstInlet) {
   const [objId, objOut] = ctx.paramObject(paramId);
   const [routeId, routeOut] = ctx.paramValue(paramId);
   ctx.lines.push(line(objId, objOut, dstId, dstInlet));
@@ -611,6 +611,22 @@ function samplesChain(ctx) {
   );
   lines.push(line("obj-samples-rate", 0, "obj-samples-groove", 0));
 
+  // MONO FOLD. `groove~ <buf> 2` hard-wires two signal outlets to L and R, and a
+  // MONO buffer drives outlet 0 ONLY - so a mono file (most of tidal-drum-machines
+  // is mono) plays in one ear. The channel count is not a build-time fact: [info~]
+  // MEASURES it when the buffer loads. So gate the R channel at RUNTIME - a
+  // [selector~ 2] whose control says which groove~ outlet is the real right channel:
+  //   input 1 = groove~ outlet 1 (a stereo file's true R)
+  //   input 2 = groove~ outlet 0 (fold the mono signal to R as well)
+  // The control is the currently-loaded slot's channel count run through
+  // [expr ($i1==1)+1]: mono(1) -> 2 (fold), stereo(2) -> 1 (real R). The L channel
+  // always takes groove~ outlet 0, so it needs no gate.
+  boxes.push(box("obj-samples-rsel", "selector~ 2", { numinlets: 3, numoutlets: 1, outlettype: ["signal"] }));
+  boxes.push(box("obj-samples-rgate", "expr ($i1==1)+1", { numinlets: 1, numoutlets: 1, outlettype: ["int"] }));
+  lines.push(line("obj-samples-groove", 1, "obj-samples-rsel", 1)); // stereo R -> input 1
+  lines.push(line("obj-samples-groove", 0, "obj-samples-rsel", 2)); // mono fold -> input 2
+  lines.push(line("obj-samples-rgate", 0, "obj-samples-rsel", 0)); // which one, per loaded slot
+
   // Stop: a bare `buffer_stop` arrives from [route] as a BANG - the word is gone -
   // so re-materialize it in a message box, or groove~ hears nothing it knows.
   boxes.push(box("obj-samples-stopmsg", "stop", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
@@ -648,18 +664,29 @@ function samplesChain(ctx) {
     lines.push(line(`obj-samples-pack-${slot}`, 0, `obj-samples-ready-${slot}`, 0));
     lines.push(line(`obj-samples-ready-${slot}`, 0, jwebId, 0));
 
+    // Retain THIS slot's measured channel count, so play can re-assert the mono
+    // fold for whichever buffer is loaded into the one shared groove~. [info~]
+    // outlet 8 stores it in [f]'s cold inlet (no output); the play trigger bangs it
+    // out to the shared gate below. Every slot's [f] feeds that one gate.
+    boxes.push(box(`obj-samples-chans-${slot}`, "f", { numinlets: 2, numoutlets: 1, outlettype: [""] }));
+    lines.push(line(info, 8, `obj-samples-chans-${slot}`, 1)); // measured channels, cold-stored
+    lines.push(line(`obj-samples-chans-${slot}`, 0, "obj-samples-rgate", 0));
+
     // Play: pick the buffer, THEN start it. Two cords out of one outlet fire in an
     // order Max chooses, so the sequence goes through a [t b b] - right outlet
     // first - and never through a fan-out. Starting the OLD buffer and then
     // switching is exactly the bug that looks like "the wrong sample previewed".
-    boxes.push(box(`obj-samples-trig-${slot}`, "t b b", { numinlets: 1, numoutlets: 2, outlettype: ["bang", "bang"] }));
+    boxes.push(box(`obj-samples-trig-${slot}`, "t b b b", { numinlets: 1, numoutlets: 3, outlettype: ["bang", "bang", "bang"] }));
     boxes.push(box(`obj-samples-set-${slot}`, `set ${bufName(slot)}`, { maxclass: "message", numinlets: 2, numoutlets: 1 }));
     // A float in groove~'s left inlet is a playback POSITION in ms, and 0 is "from
     // the beginning" - which is also what starts it after a `stop`.
     boxes.push(box(`obj-samples-start-${slot}`, "0", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
 
+    // [t] fires right-to-left, so: set the fold gate, THEN the buffer, THEN start -
+    // the gate and the buffer are both in place before groove~ makes a sound.
     lines.push(line("obj-samples-playslot", i, `obj-samples-trig-${slot}`, 0));
-    lines.push(line(`obj-samples-trig-${slot}`, 1, `obj-samples-set-${slot}`, 0)); // right first: set the buffer
+    lines.push(line(`obj-samples-trig-${slot}`, 2, `obj-samples-chans-${slot}`, 0)); // first: assert the fold
+    lines.push(line(`obj-samples-trig-${slot}`, 1, `obj-samples-set-${slot}`, 0)); // then: set the buffer
     lines.push(line(`obj-samples-trig-${slot}`, 0, `obj-samples-start-${slot}`, 0)); // ...then play it
     lines.push(line(`obj-samples-set-${slot}`, 0, "obj-samples-groove", 0));
     lines.push(line(`obj-samples-start-${slot}`, 0, "obj-samples-groove", 0));
@@ -674,7 +701,10 @@ function samplesChain(ctx) {
     const [srcId, srcOut] = ctx.audioIn(ch);
     boxes.push(box(id, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
     lines.push(line(srcId, srcOut, id, 0));
-    lines.push(line("obj-samples-groove", ch, id, 1));
+    // L takes groove~ outlet 0 directly; R takes the mono-fold [selector~] instead
+    // of groove~ outlet 1, so a mono buffer reaches both ears.
+    if (ch === 0) lines.push(line("obj-samples-groove", 0, id, 1));
+    else lines.push(line("obj-samples-rsel", 0, id, 1));
     ctx.setAudioOut(ch, id, 0);
   }
 }

@@ -76,15 +76,40 @@ function reload(): void {
  */
 function anything(): void {}
 
+/* ------------------------------------------------------------------ *
+ * Who to answer
+ *
+ * A reply normally goes out outlet 0, to the device's OWN [jweb]. But a floating
+ * window's [jweb] lives inside a subpatcher, so there is no cord to it - the
+ * wrapper reaches it BY NAME, through its [r window-read-<id>] (see loadWindows).
+ *
+ * So a handler must not hard-code outlet(0): when it is answering a WINDOW it has
+ * to route to that window's receiver instead. `window()` below sets replyWindow
+ * for the duration of a window message's dispatch, and reply() honours it - so the
+ * same get_state()/ui_ready() serve the device view AND any window, unchanged.
+ * ------------------------------------------------------------------ */
+
+/** The window a reply should go to, or null for the device's own [jweb] (outlet 0). */
+var replyWindow: string | null = null;
+
+/** outlet(0, ...) that follows replyWindow - to a window's [r window-read-<id>] when one is set. */
+function reply(...args: unknown[]): void {
+  if (replyWindow !== null) {
+    (messnamed as any).apply(null, (["window-read-" + replyWindow] as any[]).concat(args));
+  } else {
+    (outlet as any).apply(null, ([0] as any[]).concat(args));
+  }
+}
+
 /**
  * The UI announces it finished loading. The page loads asynchronously, so never
  * assume it was listening when state last changed - resend all of it.
  */
 function ui_ready(): void {
-  outlet(0, "mode", MODE);
+  reply("mode", MODE);
   // The UI shows this next to its own baked-in version: a mismatch means a
   // mixed install (stale .amxd instance vs newer extracted UI, or vice versa).
-  outlet(0, "build", buildStamp());
+  reply("build", buildStamp());
   sendCurrentTempo(); // liveapi.ts
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
@@ -119,7 +144,7 @@ function get_state(id: string): void {
     // hands back is what came out of the set. An empty "{}" here after a reopen means
     // the [pattr] did not save - which is a failure with no other symptom.
     post("m4l-jweb: get_state " + id + " -> " + json + "\n");
-    outlet(0, "state_" + id, json);
+    reply("state_" + id, json);
   } catch (e) {
     post("m4l-jweb: get_state error for " + id + " - " + (e as Error).message + "\n");
   }
@@ -148,6 +173,41 @@ function sync_state(id: string): void {
     post("m4l-jweb: sync_state " + id + " <- " + json + " (dict now " + d.stringify() + ")\n");
   } catch (e) {
     post("m4l-jweb: sync_state error for " + id + " - " + (e as Error).message + "\n");
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Floating-window messages
+ *
+ * A window's page uses the ORDINARY bridge (`outlet(sel, ...)`), so it emits bare
+ * selectors just like the device view. They cannot arrive here bare, though: this
+ * [js] already has a get_state/ui_ready/etc, and a window's must not be mistaken
+ * for the device view's. So the subpatcher TAGS them - `[prepend window <id>]` on
+ * the window's [jweb] outlet (see applyWindows in surface.mjs) - and they land
+ * here as `window <id> <selector> <args...>`, dispatched on the first word.
+ *
+ * We then dispatch the INNER selector through the very same handlers, with
+ * replyWindow set so any reply routes back to the window and not the device view.
+ * That is what gives a window access to the device's state: `get_state`/
+ * `sync_state` reach the shared [dict], and `state_<id>` comes back to the window.
+ * Anything the library does not know goes to the device's own onWindowMessage().
+ * ------------------------------------------------------------------ */
+
+function window(id: string): void {
+  var selector = String(arguments[1]);
+  var args: unknown[] = [];
+  for (var i = 2; i < arguments.length; i++) args.push(arguments[i]);
+
+  var prev = replyWindow;
+  replyWindow = id;
+  try {
+    if (selector === "ui_ready") ui_ready();
+    else if (selector === "get_state") get_state(String(args[0]));
+    else if (selector === "sync_state") (sync_state as any).apply(null, args);
+    else if (typeof onWindowMessage === "function") (onWindowMessage as any).apply(null, [id, selector].concat(args as any[]));
+    else post("m4l-jweb: window " + id + " sent unhandled '" + selector + "'\n");
+  } finally {
+    replyWindow = prev;
   }
 }
 

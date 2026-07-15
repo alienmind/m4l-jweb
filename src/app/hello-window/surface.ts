@@ -6,11 +6,17 @@
  * holding its own [jweb] and a [pcontrol] that opens it, and `entry` names the
  * component it bundles - here Window.tsx, a page separate from App.tsx.
  */
-import { defineSurface, window } from "@m4l-jweb/surface";
+import { defineSurface, state, window } from "@m4l-jweb/surface";
 
 export default defineSurface({
   params: {},
   banks: [],
+  // A state slot the WINDOW reads and writes. It proves the window's [jweb] can
+  // now talk back to [js]: the window edits `note`, the wrapper writes it into the
+  // shared [dict], and it survives a save - the same slot the device view sees.
+  state: {
+    note: state({ default: { text: "" } }),
+  },
   windows: {
     testWindow: window({ title: "My Floating Window", width: 400, height: 300, entry: "Window" }),
   },

@@ -8,15 +8,20 @@
  * them from that declaration, so they carry the same guarantee with none of the
  * duplication.
  */
-import { DEVICE_IN } from "@m4l-jweb/bridge";
+import { DEVICE_IN, STATE_OUT } from "@m4l-jweb/bridge";
 
 /** Device -> UI. */
 export const IN = {
   ...DEVICE_IN,
 } as const;
 
-/** UI -> device. */
+/**
+ * UI -> device. `STATE_OUT` (`get_state`/`sync_state`) is spread in because the
+ * WINDOW now reads and writes the `note` slot - the same wrapper handlers the
+ * device view would use, reached from the window through the tagged return path.
+ */
 export const OUT = {
+  ...STATE_OUT,
   /** UI -> wrapper: page ready; send me the current state. */
   ui_ready: "ui_ready",
 } as const;
