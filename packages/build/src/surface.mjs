@@ -324,7 +324,7 @@ export function applySurface(ctx) {
  * ------------------------------------------------------------------------------
  */
 export function applyWindows(ctx) {
-  const { boxes, lines, surface } = ctx;
+  const { boxes, lines, surface, unmatchedId } = ctx;
   const windowIds = surface?.windows ? Object.keys(surface.windows) : [];
   if (windowIds.length === 0) return;
 
@@ -374,6 +374,12 @@ export function applyWindows(ctx) {
 
     const subpatcherId = `obj-window-${id}-sub`;
     lines.push(line(pcontrolId, 0, subpatcherId, 0));
+    // The window's [jweb] can now TALK BACK. Its output leaves the subpatcher on an
+    // [outlet] and this cord carries it to the wrapper's [js] - the same [js] the
+    // device view feeds. It is tagged `window <id>` inside (below), so the wrapper
+    // tells the two apart and can answer the right one. Without this the window's
+    // page could display but never send a message: the [jweb] outlet went nowhere.
+    lines.push(line(subpatcherId, 0, unmatchedId, 0));
     boxes.push({
       box: {
         id: subpatcherId,
@@ -383,7 +389,8 @@ export function applyWindows(ctx) {
         // subpatcher that has no inlets, so [pcontrol] would end up wired to
         // NOTHING - silently, in the saved file. That was attempt 1.
         numinlets: 1,
-        numoutlets: 0,
+        numoutlets: 1,
+        outlettype: [""],
         patching_rect: [16, 620, 120, 22],
         patcher: {
           fileversion: 1,
@@ -418,8 +425,30 @@ export function applyWindows(ctx) {
                 presentation_rect: [0, 0, spec.width, spec.height],
               },
             },
+            // TAG the window's messages with which window they are, so the wrapper's
+            // `window()` can answer THIS window (its [jweb] has no cord from [js], so
+            // a reply goes back by name). The page emits bare selectors; the tag is
+            // added here, in the patcher, not in the app - so a window page is an
+            // ordinary bridge client that happens to be in its own runtime.
+            {
+              box: {
+                id: "obj-tag",
+                maxclass: "newobj",
+                text: `prepend window ${id}`,
+                numinlets: 1,
+                numoutlets: 1,
+                outlettype: [""],
+                patching_rect: [16, 96 + spec.height + 16, 160, 22],
+              },
+            },
+            { box: { id: "obj-out", maxclass: "outlet", patching_rect: [16, 96 + spec.height + 48, 30, 30], numinlets: 1, numoutlets: 0 } },
           ],
-          lines: [{ patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } }],
+          lines: [
+            { patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } },
+            // [jweb] outlet 0 is the page's messages; tag them and send them out.
+            { patchline: { source: ["obj-jweb", 0], destination: ["obj-tag", 0] } },
+            { patchline: { source: ["obj-tag", 0], destination: ["obj-out", 0] } },
+          ],
         },
       },
     });

@@ -368,9 +368,29 @@ test("the windows route is spliced into the app's stream in SERIES, not hung off
     }),
   );
 
-  expect(appFeeds(c)).toEqual([{ src: "obj-windows-route", out: 2, dst: "obj-js", in: 0, text: "route window_map_open window_map_close" }]);
-  // ...and it takes its input from the Surface's unmatched outlet, not from [jweb].
+  // Two things feed [js] now: the windows route (the app's stream, in series) AND
+  // the window subpatcher's OWN outlet - the return path that lets the window's
+  // [jweb] talk back. The route is the one that must be in series; the subpatcher
+  // cord is the window speaking, tagged inside the [p].
+  expect(appFeeds(c)).toContainEqual({ src: "obj-windows-route", out: 2, dst: "obj-js", in: 0, text: "route window_map_open window_map_close" });
+  expect(appFeeds(c)).toContainEqual({ src: "obj-window-map-sub", out: 0, dst: "obj-js", in: 0, text: "p Map" });
+  // ...and the route takes its input from the Surface's unmatched outlet, not from [jweb].
   expect(c.feeding("obj-windows-route", 0)).toEqual([{ src: SURFACE_ROUTE, out: 1, dst: "obj-windows-route", in: 0, text: "route set_cutoff" }]);
+});
+
+test("the window subpatcher tags its [jweb] output and sends it out to [js]", () => {
+  // The whole point of the return path: a window's [jweb] outlet used to go nowhere,
+  // so the page could display but never send. Now it is tagged with the window id
+  // (so the wrapper can answer the right window) and routed out of the subpatcher.
+  const c = compile(mapWindow());
+  const sub = c.box("obj-window-map-sub").patcher;
+  const subBox = (id) => sub.boxes.find((b) => b.box.id === id)?.box;
+  const subCords = sub.lines.map(({ patchline: pl }) => ({ src: pl.source[0], out: pl.source[1], dst: pl.destination[0], in: pl.destination[1] }));
+
+  expect(subBox("obj-tag").text).toBe("prepend window map");
+  expect(subBox("obj-out").maxclass).toBe("outlet");
+  expect(subCords).toContainEqual({ src: "obj-jweb", out: 0, dst: "obj-tag", in: 0 });
+  expect(subCords).toContainEqual({ src: "obj-tag", out: 0, dst: "obj-out", in: 0 });
 });
 
 test("a declared state slot compiles to a [dict] with a [pattr] bound to it", () => {

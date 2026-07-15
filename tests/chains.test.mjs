@@ -22,7 +22,7 @@ import path from "node:path";
 import { expect, test } from "vitest";
 
 import { composePatcher } from "@m4l-jweb/build";
-import { box, line, registerChain } from "@m4l-jweb/build/chains";
+import { box, fanParamInto, line, registerChain } from "@m4l-jweb/build/chains";
 import { defineSurface, dial } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
@@ -248,6 +248,9 @@ test("play sets the buffer BEFORE it starts it, through a trigger and not a fan-
   // and switching after is exactly the bug that reads as "it previewed the wrong
   // sample" - so the order is a [t b b], whose right outlet fires first.
   expect(c.feeding("obj-samples-set-preview", 0)).toEqual(["obj-samples-trig-preview"]);
+  // [t b b b], firing right-to-left: assert the fold gate, then set the buffer, then start.
+  expect(textOf(c, "obj-samples-trig-preview")).toBe("t b b b");
+  expect(c.cords).toContainEqual({ src: "obj-samples-trig-preview", out: 2, dst: "obj-samples-chans-preview", in: 0 });
   expect(c.cords).toContainEqual({ src: "obj-samples-trig-preview", out: 1, dst: "obj-samples-set-preview", in: 0 });
   expect(c.cords).toContainEqual({ src: "obj-samples-trig-preview", out: 0, dst: "obj-samples-start-preview", in: 0 });
   for (const id of ["obj-samples-set-preview", "obj-samples-start-preview", "obj-samples-stopmsg"]) {
@@ -263,9 +266,28 @@ test("the preview SUMS into the signal path - it does not claim the stage", () =
   for (const ch of [0, 1]) {
     const mix = `obj-samples-mix-${"lr"[ch]}`;
     expect(c.feeding(mix, 0)).toEqual(["obj-plugin"]);
-    expect(c.feeding(mix, 1)).toEqual(["obj-samples-groove"]);
     expect(c.feeding("obj-plugout", ch)).toEqual([mix]);
   }
+  // L takes groove~ outlet 0 directly; R takes the mono-fold selector (see below).
+  expect(c.feeding("obj-samples-mix-l", 1)).toEqual(["obj-samples-groove"]);
+  expect(c.feeding("obj-samples-mix-r", 1)).toEqual(["obj-samples-rsel"]);
+});
+
+test("a MONO buffer folds to both ears - the R channel is gated by the measured channel count", () => {
+  const c = sampler();
+  // groove~ <buf> 2 puts a mono buffer on outlet 0 only, so R would be silent. A
+  // [selector~ 2] picks the real R (groove~ outlet 1) for a stereo file and folds
+  // outlet 0 into R for a mono one, driven by what [info~] MEASURED at load.
+  expect(textOf(c, "obj-samples-rsel")).toBe("selector~ 2");
+  expect(c.cords).toContainEqual({ src: "obj-samples-groove", out: 1, dst: "obj-samples-rsel", in: 1 }); // stereo R
+  expect(c.cords).toContainEqual({ src: "obj-samples-groove", out: 0, dst: "obj-samples-rsel", in: 2 }); // mono fold
+  // The control: the slot's channel count (info~ outlet 8, retained in [f]) mapped
+  // mono(1)->2, stereo(2)->1. It must NOT go straight to the pack's numbers only.
+  expect(textOf(c, "obj-samples-rgate")).toBe("expr ($i1==1)+1");
+  expect(textOf(c, "obj-samples-chans-preview")).toBe("f");
+  expect(c.cords).toContainEqual({ src: "obj-samples-info-preview", out: 8, dst: "obj-samples-chans-preview", in: 1 });
+  expect(c.feeding("obj-samples-rgate", 0)).toEqual(["obj-samples-chans-preview"]);
+  expect(c.feeding("obj-samples-rsel", 0)).toEqual(["obj-samples-rgate"]);
 });
 
 test("...and it still composes: an effect after it processes the sound it made", () => {
@@ -284,6 +306,15 @@ test("more than one slot is more than one buffer, dispatched by name", () => {
   expect(c.count("groove~ buf-smp-kick 2 @loop 0")).toBe(1);
   expect(textOf(c, "obj-samples-loadslot")).toBe("route kick snare");
   expect(c.cords).toContainEqual({ src: "obj-samples-playslot", out: 1, dst: "obj-samples-trig-snare", in: 0 });
+});
+
+test("fanParamInto is a public export - a device's own chain drives DSP from a parameter", () => {
+  // Not a codegen assertion but a CONTRACT one: `fanParamInto` is the one right way
+  // to wire a parameter into the thing it controls (both the object's outlet AND the
+  // route's, so the app's `set` write is not silently dropped). A sibling device repo
+  // carried a hand-copied version until this became a real export - if it stops being
+  // one, that copy is the bug it exists to prevent, back again with no error.
+  expect(typeof fanParamInto).toBe("function");
 });
 
 test("the samples chain hands on what it did not match, in series with the next claimant", () => {

@@ -187,3 +187,12 @@ declare function onMaxurlReply(responseDictName: string): boolean;
 
 /** Live's tempo changed (and once on attach). */
 declare function onTempoChange(bpm: number): void;
+
+/**
+ * A floating window's page sent a selector the library does not handle itself
+ * (i.e. not ui_ready/get_state/sync_state). `windowId` is which window; reply with
+ * `outlet(0, ...)` and it routes back to that window automatically (see reply() in
+ * core.ts). This is how a window editor - a drum map, a browser - talks to the
+ * device beyond shared state.
+ */
+declare function onWindowMessage(windowId: string, selector: string, ...args: unknown[]): void;
