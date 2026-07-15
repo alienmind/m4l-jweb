@@ -38,11 +38,14 @@ jobs:
       # action-setup@v4 ERRORS if it is told twice. Let the manifest be the source.
       - uses: pnpm/action-setup@v4
 
+      # NO `registry-url`. It makes setup-node write an .npmrc with
+      # `_authToken=${NODE_AUTH_TOKEN}` and export a placeholder token - and pnpm then
+      # authenticates with that empty token INSTEAD of OIDC, so trusted publishing never
+      # runs and the publish 404s. pnpm defaults to registry.npmjs.org anyway.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org # writes the .npmrc npm auth needs
 
       - run: pnpm install --frozen-lockfile
 
