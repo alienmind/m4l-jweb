@@ -16,8 +16,11 @@
 #   Nothing in GitHub secrets: the `id-token: write` permission below is the whole
 #   credential. This is what npm's 2FA requirement pushes you to, and it is strictly
 #   better than a token - nothing to leak, nothing to expire, and npm records exactly
-#   which workflow run published each version. Needs pnpm >= 10.12.1 (pinned in
-#   package.json's packageManager) and the id-token permission.
+#   which workflow run published each version.
+#
+#   OIDC trusted publishing lives in the NPM CLI (>= 11.5.1), not pnpm - so pnpm PACKS
+#   each package (rewriting `workspace:*` to the real version) and npm PUBLISHES the
+#   tarball. See the publish step.
 name: release
 
 on:
@@ -72,16 +75,26 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
-      # `workspace:*` deps are rewritten to the real version by pnpm on publish, which
-      # is why the check above matters: they all become "0.6.0" whether or not they are.
-      #
-      # --no-git-checks: the tag is a detached HEAD, which pnpm otherwise refuses.
-      #
-      # NO TOKEN. With a Trusted Publisher configured on npm (see header) and
-      # `id-token: write` above, pnpm authenticates over OIDC and generates provenance
-      # automatically. There is nothing in `env` to leak.
-      - name: publish to npm
-        run: pnpm -r --filter=./packages/* publish --access public --no-git-checks --provenance
+      # OIDC trusted publishing is an NPM-CLI feature (>= 11.5.1), not pnpm's - pnpm
+      # publish never does the token exchange, so it fails with ENEEDAUTH. Node 22 ships
+      # an older npm, so upgrade it here.
+      - name: npm that can do trusted publishing
+        run: npm install --global npm@latest
+
+      # So: pnpm PACKS (which rewrites `workspace:*` to the real version - the reason
+      # the version check above matters), and npm PUBLISHES the tarball over OIDC. With
+      # a Trusted Publisher configured on npm (see header) and `id-token: write` above,
+      # npm authenticates over OIDC and generates provenance. No token, nothing in `env`.
+      - name: publish to npm (pnpm packs, npm publishes over OIDC)
+        run: |
+          for dir in packages/*/; do
+            ( cd "$dir" && pnpm pack --pack-destination "$RUNNER_TEMP" )
+          done
+          for tgz in "$RUNNER_TEMP"/*.tgz; do
+            echo "::group::publish $(basename "$tgz")"
+            npm publish "$tgz" --access public --provenance
+            echo "::endgroup::"
+          done
 
       # The devices, for people who want to drop an .amxd into Live and never touch npm.
       - name: github release
