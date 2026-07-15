@@ -188,6 +188,8 @@ export const CHAIN_OUT = {
   buffer_play: "buffer_play",
   /** UI -> samples: `buffer_stop` - stop the preview. */
   buffer_stop: "buffer_stop",
+  /** UI -> instrument: `voice_play <pitch> <vel> <durMs> <channels>` - play one poly~ voice. */
+  voice_play: "voice_play",
 } as const;
 
 /**
@@ -404,6 +406,52 @@ export function playSample(slot: string): void {
 /** Stop the preview. One voice, so this stops whichever slot is sounding. */
 export function stopSample(): void {
   outlet(CHAIN_OUT.buffer_stop);
+}
+
+/* ------------------------------------------------------------------ *
+ * Instrument - the `instrument` chain ([poly~] voices)
+ * ------------------------------------------------------------------ */
+
+/** One played note, handed to the `instrument` chain's [poly~]. The app times it; Max allocates a voice. */
+export interface Voice {
+  /**
+   * Which slot's buffer to play, as a 0-based INDEX into the device's `slots` (the
+   * order declared in the manifest). The instrument is a keymap of named buffers, so a
+   * note names its sample; the app owns the slot order and passes the index.
+   */
+  slot: number;
+  /**
+   * Playback RATE. 1 plays the buffer at its recorded pitch; 2 is an octave up, 0.5 an
+   * octave down. EXPLICIT, so the app decides whether a note plays a dedicated sample
+   * (rate 1) or a repitched one - the chain does no pitch arithmetic.
+   */
+  rate: number;
+  /** 1-127. Scaled to amplitude in the voice. */
+  velocity: number;
+  /** How long to HOLD the voice, in ms - after which [poly~] frees it for re-use. */
+  durationMs: number;
+  /**
+   * That slot's channel count, as reported by `loadSample`'s `buffer_ready`. A mono
+   * buffer (1) is folded to both ears in the voice; pass what you measured, not what
+   * you hoped for. Defaults to 2 (no fold).
+   */
+  channels?: number;
+}
+
+/**
+ * Play one note through the `instrument` chain's [poly~].
+ *
+ * Requires the note's slot already loaded (via `loadSample`, the same call the sampler
+ * uses). Polyphony and voice-stealing are Max's job: send as many overlapping notes as
+ * you like - across any slots - and [poly~] hands each to a free voice, or steals the
+ * oldest. A chord is several `playVoice()` calls in the same tick.
+ *
+ * The note is a control-plane message, not audio: it says which sample, at what rate,
+ * how loud and how long to hold the voice, and Max makes the sound sample-accurately.
+ * Pass the `channels` you learned from `loadSample` so a mono sample folds to both ears.
+ */
+export function playVoice(v: Voice): void {
+  outlet(CHAIN_OUT.voice_play, v.slot, v.rate, v.velocity, v.durationMs, v.channels ?? 2);
 }
 
 /**

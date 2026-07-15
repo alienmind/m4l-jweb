@@ -196,7 +196,13 @@ export function composePatcher(base, d, surface) {
    *                    which updates it WITHOUT output, so the object would
    *                    never pass that value on. See surface.mjs.
    */
-  const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, ...surfaceContext(surface) };
+  // Extra frozen dependencies a chain contributes to the .amxd - a [poly~] voice
+  // patch, say, which Max cannot embed inline and must resolve as a named .maxpat
+  // from the device's own bundle (the same way a frozen M4L instrument ships its
+  // voice abstraction). A chain pushes { name, data } here; generatePatchers writes
+  // each next to the device patcher and packageDevices freezes it into the container.
+  const extras = [];
+  const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, extras, ...surfaceContext(surface) };
 
   openAudio(ctx);
 
@@ -212,6 +218,9 @@ export function composePatcher(base, d, surface) {
   closeAudio(ctx);
   assertUniqueBoxIds(boxes, d.name);
 
+  // Ride the chain-contributed extras out on the returned object. Destructuring
+  // `{ patcher }` (the tests, the writer) ignores it; the packager reads it.
+  p.extras = extras;
   return p;
 }
 
@@ -238,6 +247,15 @@ export async function generatePatchers(root) {
 
     const surface = await loadSurface(root, d.ui ?? d.name);
     const p = composePatcher(base, d, surface);
+
+    // A chain's frozen dependencies (e.g. a [poly~] voice patch) are written beside
+    // the device patcher and their names recorded in a sidecar, so packageDevices -
+    // a separate pass that only sees dist/ - knows which files to freeze into which
+    // device. Strip them from the patcher json itself; they are not part of it.
+    const extras = p.extras ?? [];
+    delete p.extras;
+    for (const ex of extras) writeFileSync(path.join(outDir, ex.name), typeof ex.data === "string" ? ex.data : JSON.stringify(ex.data));
+    writeFileSync(path.join(outDir, `${d.name}.extras.json`), JSON.stringify(extras.map((e) => e.name)));
 
     writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
     const params = surface ? surface.ids.join(", ") : "none";
@@ -321,13 +339,20 @@ export async function packageDevices(root) {
 
     if (payloads.length) wrapperData += extraPayloadsJs(payloads);
 
+    // Frozen dependencies: readable by Max-native objects only (a poly~ voice
+    // patcher, say), which is exactly why they can stay frozen rather than being
+    // extracted to disk like the UI. Two sources: manifest `extraFiles` (files in
+    // the repo) and chain-generated files recorded in the sidecar by generatePatchers.
+    const chainExtrasList = path.join(dist, "patchers", `${d.name}.extras.json`);
+    const chainExtras = existsSync(chainExtrasList)
+      ? JSON.parse(readFileSync(chainExtrasList, "utf8")).map((name) => ({ name, data: readFileSync(path.join(dist, "patchers", name)) }))
+      : [];
+
     const amxd = buildAmxd({
       patcherJson: readFileSync(path.join(dist, "patchers", `${d.name}.json`), "utf8"),
       wrapperJs: wrapperData,
       deviceName,
-      // Frozen dependencies: readable by Max-native objects only (a poly~
-      // voice patcher, say), which is exactly why they can stay frozen.
-      extras: (d.extraFiles ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) })),
+      extras: [...(d.extraFiles ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) })), ...chainExtras],
     });
     writeFileSync(path.join(outDir, deviceName), amxd);
     console.log(`m4l-jweb: ${deviceName} (${d.type}, ${amxd.length} bytes)`);
