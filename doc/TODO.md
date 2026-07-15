@@ -17,9 +17,10 @@ not one device's business logic.
 
 **NEXT UP: the `instrument` chain's polyphony (item 1 below).** The three P1 unblocks
 (#4-6) - a mono-fold bug, a one-line `export`, and a dead outlet in the window API - are
-DONE: #5 and #6 shipped and #6 is verified in Live (a floating window now reads and
-writes the device's state, both ways); #4's fold is written and passes the codegen tests
-but still wants a mono WAV played in Live to close. See [Shipped](#shipped).
+all DONE and shipped, and #4 and #6 are verified in Live (a mono sample folds to both
+ears; a floating window reads and writes the device's state, both ways). That clears the
+list of things blocking `m4l-strudel` today, so the marquee feature - `[poly~]` voices in
+the `instrument` chain - is what comes next. See [Shipped](#shipped).
 
 ---
 
@@ -40,20 +41,22 @@ its **#**.
 | 1 | — | Drum map + FX line surviving the set | state persistence | **shipped, taken** |
 | 2 | — | Downloading samples | fetch-to-disk | **shipped, taken** |
 | 3 | — | Previewing samples through the track | the `samples` chain | **shipped, taken** |
-| 4 | **P1** | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **fixed, pending Live.** A runtime gate (`[selector~ 2]` driven by the slot's measured channel count) folds `groove~` outlet 0 to R for a mono file. Passes the codegen tests; still wants a mono WAV played in Live to close. |
-| 5 | **P1** | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **shipped.** One-line `export`, pinned by a contract test. `m4l-strudel` can delete its copy. |
-| 6 | **P1** | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **shipped, verified in Live.** The window's `[jweb]` is tagged and routed back to `[js]`; a window reads and writes the device's shared state, and edits broadcast to every view. |
+| 4 | — | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **shipped, verified in Live.** A runtime gate (`[selector~ 2]` driven by the slot's measured channel count) folds `groove~` outlet 0 to R for a mono file; `hello-sampler` has a mono row to A/B it. |
+| 5 | — | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **shipped.** One-line `export`, pinned by a contract test. `m4l-strudel` can delete its copy. |
+| 6 | — | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **shipped, verified in Live.** The window's `[jweb]` is tagged and routed back to `[js]`; a window reads and writes the device's shared state, and edits broadcast to every view. |
 | 7 | P2 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (item 2) | open |
 | 8 | P2 | `.lpf(sine.range(200, 2000))` | modulation (item 3) | open |
 | 9 | P2 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | hard, and possibly never |
 
-**P1 - the three that block `m4l-strudel` today** (#4-6): two are defects in features that
-already shipped, one is a missing `export` keyword. All are small, and until they are done
-the sample browser and the drum-map editor cannot be finished. **Do these before the
-`instrument` chain below**, despite it being the marquee feature - a one-line export
-unblocks a whole device, and polyphony unblocks nothing that is waiting.
+**#4-6 are DONE** - the two shipped defects and the missing `export`. The sample browser
+and the drum-map editor are unblocked: a window can talk back to `[js]` and share the
+device's state (#6), a mono preview folds to both ears (#4), and a device's own chain can
+wire a parameter into DSP without copying `fanParamInto()` (#5). `m4l-strudel` can now
+adopt all three and delete its local workarounds.
 
-**P2 - the genuine new capabilities** (#7-9) are the numbered items in the sections below.
+**What is left is P2** (#7-9) - the genuine new capabilities, the numbered items in the
+sections below. The next one to build is the `instrument` chain (item 1): it blocks
+nobody waiting, but it is the marquee feature and the natural successor to `samples`.
 
 ---
 
@@ -250,6 +253,16 @@ item.
 Kept, rather than deleted, for one reason: **each of these was broken in a way that
 produced no error**, and the note says what the fix actually was. The full account of
 what Max does is ARCHITECTURE.md; this is the index into it.
+
+### ~~Mono sample folds to both ears~~ (#4) - SHIPPED, verified in Live
+`groove~ <buf> 2` hard-wires its two outlets to L/R, so a MONO buffer (most of
+tidal-drum-machines is mono) drove outlet 0 only and played in one ear. The channel
+count is not a build-time fact - `[info~]` MEASURES it when the buffer loads - so the
+fix is a runtime gate INSIDE the chain: each slot's count is retained in an `[f]`,
+re-asserted on play through a `[t b b b]`, and mapped by `[expr ($i1==1)+1]` to a
+`[selector~ 2]` that picks the real stereo R (`groove~` outlet 1) or folds the mono
+signal (outlet 0) into R. The L path is untouched. `hello-sampler` carries a stereo
+row and a mono row to A/B it; the mono one now plays centred.
 
 ### ~~Floating window that talks back~~ (#6) - SHIPPED, verified in Live
 The window's `[jweb]` outlet used to go nowhere - a page could display but never
