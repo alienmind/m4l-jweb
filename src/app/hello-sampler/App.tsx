@@ -17,37 +17,55 @@ import { Frame } from "../shared/Frame";
  *
  * It is an INSTRUMENT device (type: "instrument"), so it sits on a MIDI track and is
  * the source of that track's sound rather than a stage in someone else's signal path.
+ *
+ * TWO SLOTS, one STEREO and one MONO, so the mono-fold can be heard: `groove~ <buf> 2`
+ * drives outlet 0 only for a mono file, so without the samples chain's [selector~]
+ * gate a mono sample plays in one ear. Load the mono row and confirm it is centred.
  */
+
+/**
+ * `raw.githubusercontent.com`, not the `github.com/.../blob/...` page - that one
+ * serves HTML, which downloads perfectly and then fails to load as audio. And a WAV,
+ * not an MP3: [buffer~]'s `read`/`replace` takes AIFF/Next-Sun/WAV and NOT MP3.
+ */
+const SAMPLES = [
+  {
+    slot: "stereo",
+    label: "Stereo",
+    file: "stereo.wav",
+    url: "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/AJKPercusyn/ajkpercusyn-bd/Bassdrum.wav",
+  },
+  {
+    slot: "mono",
+    label: "Mono",
+    file: "mono.wav",
+    url: "https://raw.githubusercontent.com/Bubobubobubobubo/Dough-Juj/main/juj/PLE.wav",
+  },
+] as const;
+
 export default function HelloSampler() {
   const device = useDevice();
+  return (
+    <Frame title="HELLO SAMPLER" device={device}>
+      {SAMPLES.map((s) => (
+        <SampleRow key={s.slot} {...s} />
+      ))}
+    </Frame>
+  );
+}
+
+function SampleRow({ slot, label, file, url }: { slot: string; label: string; file: string; url: string }) {
   const [status, setStatus] = useState("Idle");
   const [loaded, setLoaded] = useState<LoadedSample | null>(null);
-
-  // A relative path lands next to the .amxd, in the device's own folder - the one
-  // place a device can always write, on both platforms.
-  const FILE = "preview.wav";
-  /**
-   * A WAV, and that is not a preference: [buffer~]'s `read`/`replace` takes AIFF,
-   * Next/Sun and WAV, per its reference page - and NOT MP3. (MP3, OGG, FLAC and M4A
-   * are [sfplay~]'s list, which streams from disk instead of filling a buffer, so it
-   * is a different chain and not this one.) A file it cannot read produces an error
-   * in the Max console and no reply at all, which is what loadSample() times out on.
-   *
-   * `raw.githubusercontent.com`, not the `github.com/.../blob/...` page - that one
-   * serves HTML, and an HTML file downloads perfectly and then fails to load as audio.
-   * The sample is from tidal-drum-machines, which is where m4l-strudel's own samples
-   * come from.
-   */
-  const URL = "https://raw.githubusercontent.com/geikha/tidal-drum-machines/main/machines/AJKPercusyn/ajkpercusyn-bd/Bassdrum.wav";
 
   async function fetchIt() {
     setLoaded(null);
     setStatus("Downloading...");
     try {
-      const { bytes } = await fetchToFile(URL, FILE, (downloaded, total) =>
+      const { bytes } = await fetchToFile(url, file, (downloaded, total) =>
         setStatus(total > 0 ? `Downloading... ${downloaded} / ${total} bytes` : `Downloading... ${downloaded} bytes`),
       );
-      setStatus(`Wrote ${bytes} bytes to ${FILE}. Now load it.`);
+      setStatus(`Wrote ${bytes} bytes to ${file}. Now load it.`);
     } catch (err) {
       setStatus(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -57,18 +75,19 @@ export default function HelloSampler() {
     setStatus("Loading into [buffer~]...");
     try {
       // What comes back is what [info~] measured, not what we hoped for: `replace`
-      // adopts the file's own channel count and sample rate.
-      const s = await loadSample("preview", FILE);
+      // adopts the file's own channel count and sample rate. The `channels` shown
+      // below is the ground truth for whether the fold is being exercised.
+      const s = await loadSample(slot, file);
       setLoaded(s);
-      setStatus("Loaded.");
+      setStatus(`Loaded ${s.channels === 1 ? "MONO" : `${s.channels} ch`}.`);
     } catch (err) {
       setStatus(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   return (
-    <Frame title="HELLO SAMPLER" device={device}>
-      <dt>Sample</dt>
+    <>
+      <dt>{label}</dt>
       <dd>
         <button onClick={fetchIt} style={{ padding: "4px 8px" }}>
           1. Fetch
@@ -76,21 +95,18 @@ export default function HelloSampler() {
         <button onClick={load} style={{ padding: "4px 8px" }}>
           2. Load
         </button>{" "}
-        <button onClick={() => playSample("preview")} disabled={!loaded} style={{ padding: "4px 8px" }}>
+        <button onClick={() => playSample(slot)} disabled={!loaded} style={{ padding: "4px 8px" }}>
           3. Play
         </button>{" "}
         <button onClick={stopSample} disabled={!loaded} style={{ padding: "4px 8px" }}>
           Stop
         </button>
+        <div style={{ marginTop: "2px", opacity: 0.75 }}>
+          {loaded
+            ? `${Math.round(loaded.durationMs)} ms, ${loaded.channels} ch, ${loaded.sampleRate} Hz (${loaded.frames} frames)`
+            : status}
+        </div>
       </dd>
-      <dt>Buffer</dt>
-      <dd>
-        {loaded
-          ? `${Math.round(loaded.durationMs)} ms, ${loaded.channels} ch, ${loaded.sampleRate} Hz (${loaded.frames} frames)`
-          : "empty - nothing has reported a completed read"}
-      </dd>
-      <dt>Status</dt>
-      <dd>{status}</dd>
-    </Frame>
+    </>
   );
 }

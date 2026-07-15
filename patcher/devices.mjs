@@ -129,7 +129,10 @@ export default [
     name: "hello-sampler",
     type: "instrument",
     chains: ["samples", "download"],
-    slots: ["preview"],
+    // Two slots, so mono-vs-stereo playback can be A/B'd in Live: a stereo file must
+    // keep its image, and a MONO file must fold to BOTH ears (the samples chain's
+    // [selector~] gate - see doc/TODO.md #4). Each slot is its own [buffer~].
+    slots: ["stereo", "mono"],
     unmatchedTo: "js",
   },
   {
