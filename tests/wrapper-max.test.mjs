@@ -138,6 +138,8 @@ function bootWrapper() {
   const posts = [];
   /** Everything the wrapper sent out, per outlet: [outletIndex, selector, ...args]. */
   const sent = [];
+  /** Everything the wrapper sent BY NAME (to a floating window's [r ...]): [receiver, ...args]. */
+  const named = [];
 
   const ctx = {
     // At [js] global scope `this` IS the jsthis object - that is how the wrapper finds
@@ -145,7 +147,7 @@ function bootWrapper() {
     patcher: { filepath: `${dir}/device.amxd` },
     post: (...a) => posts.push(a.join("")),
     outlet: (n, ...a) => sent.push([n, ...a]),
-    messnamed: () => {},
+    messnamed: (name, ...a) => named.push([name, ...a]),
     arrayfromargs: (args) => [...args],
     jsarguments: ["wrapper.js", "audio"],
     autowatch: 0,
@@ -184,8 +186,11 @@ function bootWrapper() {
     dicts,
     posts,
     sent,
+    named,
     /** The ARGUMENTS of every `<selector> ...` the wrapper sent to the UI on outlet 0. */
     toUi: (selector) => sent.filter(([n, sel]) => n === 0 && sel === selector).map(([, , ...args]) => args),
+    /** The ARGUMENTS of every `<selector> ...` the wrapper sent to a floating window BY NAME. */
+    toWindow: (id, selector) => named.filter(([r, sel]) => r === `window-read-${id}` && sel === selector).map(([, , ...args]) => args),
     /** The request dicts the wrapper handed [maxurl] (outlet 1). */
     maxurlRequests: () => sent.filter(([n, sel]) => n === 1 && sel === "maxurl").map(([, , , name]) => dicts.get(name)),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
@@ -379,6 +384,51 @@ test("ui_ready resends the state a page that loaded late has missed", () => {
   h.ctx.ui_ready();
   expect(h.toUi("mode")).toEqual([["audio"]]); // jsarguments[1] - [0] is the script name
   expect(h.toUi("build").length).toBe(1); // the stale-install stamp
+});
+
+/* ------------------------------------------------------------------ *
+ * Floating windows - the return path
+ *
+ * A window's [jweb] output arrives here tagged `window <id> <selector> ...`. The
+ * wrapper dispatches the inner selector through the SAME handlers the device view
+ * uses, but a reply must go back to the WINDOW - which has no cord from [js] - by
+ * name. reply() picks the path; these pin that it picks the right one.
+ * ------------------------------------------------------------------ */
+
+test("a window's get_state is answered to THAT window by name, not to the device view", () => {
+  h.ctx.sync_state("note", '{"text":"hi"}'); // seed the slot from the device view
+  h.ctx.window("testWindow", "get_state", "note");
+
+  // The reply reaches the window's [r window-read-testWindow], NOT outlet 0 - there
+  // is no cord into the subpatcher, so an outlet(0) reply would never arrive.
+  expect(h.toWindow("testWindow", "state_note")).toEqual([['{"text":"hi"}']]);
+  expect(h.toUi("state_note")).toEqual([]);
+});
+
+test("a window's sync_state reaches the shared dict and broadcasts to the device view", () => {
+  h.ctx.window("testWindow", "sync_state", "note", '{"text":"hey"}');
+
+  // Same [dict] the device view uses - that is what "shared state" means.
+  expect(h.dicts.get("obj-state-note")).toEqual({ text: "hey" });
+  // The device view is told, so a live edit in the window shows up there at once
+  // (the bug that shipped: the device view only saw the slot on its own load).
+  expect(h.toUi("state_note")).toEqual([['{"text":"hey"}']]);
+  // ...but the WRITER window is not echoed its own value - stateStore has no echo
+  // guard, so an echo could revert its input mid-typing.
+  expect(h.toWindow("testWindow", "state_note")).toEqual([]);
+});
+
+test("the device view writing a slot does not echo back to itself", () => {
+  h.ctx.sync_state("note", '{"text":"x"}');
+  // No other view exists here, and the writer is skipped - so nothing is broadcast.
+  expect(h.toUi("state_note")).toEqual([]);
+});
+
+test("a window message the library does not know reaches the device's onWindowMessage", () => {
+  const seen = [];
+  h.ctx.onWindowMessage = (...a) => seen.push(a);
+  h.ctx.window("editor", "cell_toggle", 3, 7);
+  expect(seen).toEqual([["editor", "cell_toggle", 3, 7]]);
 });
 
 /* ------------------------------------------------------------------ *
