@@ -92,13 +92,21 @@ function anything(): void {}
 /** The window a reply should go to, or null for the device's own [jweb] (outlet 0). */
 var replyWindow: string | null = null;
 
-/** outlet(0, ...) that follows replyWindow - to a window's [r window-read-<id>] when one is set. */
-function reply(...args: unknown[]): void {
-  if (replyWindow !== null) {
-    (messnamed as any).apply(null, (["window-read-" + replyWindow] as any[]).concat(args));
-  } else {
-    (outlet as any).apply(null, ([0] as any[]).concat(args));
-  }
+/**
+ * outlet(0, selector, value) that follows replyWindow - to a window's
+ * [r window-read-<id>] when one is set, to the device's own [jweb] otherwise.
+ *
+ * It takes a FIXED (selector, value) rather than a rest arg, and that is
+ * deliberate: `outlet` and `messnamed` are Max HOST functions, and calling
+ * `.apply` on them is not reliable across Max builds - when it fails it fails
+ * SILENTLY, and an exception here takes the whole ui_ready handshake (mode, build,
+ * the state resend) down with it, with no symptom but a device that never fills in
+ * its header. Every reply the wrapper sends is one selector and one value, so this
+ * is all it ever needs.
+ */
+function reply(selector: string, value: unknown): void {
+  if (replyWindow !== null) messnamed("window-read-" + replyWindow, selector, value);
+  else outlet(0, selector, value);
 }
 
 /**
@@ -171,8 +179,28 @@ function sync_state(id: string): void {
     // bound to nothing), both look exactly like a successful write from here. What the
     // dict says it holds is the only evidence.
     post("m4l-jweb: sync_state " + id + " <- " + json + " (dict now " + d.stringify() + ")\n");
+    // BROADCAST the new value to every OTHER view - the device UI and any other
+    // window - so a live edit in one page appears in the rest at once. Without this
+    // a second page only sees a slot when it next asks for it (on load), which is
+    // why an edit in the floating window never reached the device view. The WRITER
+    // is skipped: it already applied the value optimistically, and echoing it back
+    // could revert the control mid-typing (stateStore has no echo guard).
+    broadcastState(id, d.stringify());
   } catch (e) {
     post("m4l-jweb: sync_state error for " + id + " - " + (e as Error).message + "\n");
+  }
+}
+
+/**
+ * Push `state_<id> <json>` to every view except the one that wrote it (replyWindow:
+ * a window id, or null for the device view). A window is reached by name, the
+ * device view by outlet 0 - the same two paths reply() chooses between.
+ */
+function broadcastState(id: string, json: string): void {
+  if (replyWindow !== null) outlet(0, "state_" + id, json); // device view, unless it wrote
+  var ids = listWindowIds();
+  for (var i = 0; i < ids.length; i++) {
+    if (ids[i] !== replyWindow) messnamed("window-read-" + ids[i], "state_" + id, json);
   }
 }
 
@@ -239,29 +267,44 @@ function loadWebview(): void {
  *
  * A window's [jweb] lives inside a subpatcher, so there is no cord from this
  * [js] to it. `messnamed` reaches the [r window-read-<id>] the build put next to
- * it - naming the receiver instead of the cord.
- *
- * The window payloads are the extra payloads whose name is `<device>_<id>.html`
- * (packageDevices names them; the device's own UI is UI_PAYLOAD and is not in
- * this list). Strip that prefix EXPLICITLY: a regex like /^.*_/ is greedy, so a
- * window id with an underscore in it - `edit_grid` - would arrive as `grid`, and
- * the page would then load into a receiver nobody is listening on.
+ * it - naming the receiver instead of the cord. The ids come from listWindowIds().
  */
 function loadWindows(): void {
-  if (typeof EXTRA_PAYLOAD_NAMES === "undefined") return;
   var folder = deviceFolder();
   if (!folder) return;
 
-  var prefix = typeof UI_PAYLOAD_NAME !== "undefined" ? UI_PAYLOAD_NAME.replace(/\.html$/, "") + "_" : "";
+  var ids = listWindowIds();
+  var prefix = windowPrefix();
+  for (var i = 0; i < ids.length; i++) {
+    var winId = ids[i];
+    var winUrl = encodeURI("file:///" + folder + "/" + prefix + winId + ".html") + "?v=" + encodeURIComponent(buildStamp());
+    messnamed("window-read-" + winId, "url", winUrl);
+    post("m4l-jweb: window " + winId + " -> " + winUrl + "\n");
+  }
+}
+
+/** The `<device>_` prefix a window payload's name carries, so the device's own UI is not one. */
+function windowPrefix(): string {
+  return typeof UI_PAYLOAD_NAME !== "undefined" ? UI_PAYLOAD_NAME.replace(/\.html$/, "") + "_" : "";
+}
+
+/**
+ * The id of every floating window this device has, from its extracted payloads.
+ *
+ * Strip the `<device>_` prefix EXPLICITLY: a regex like /^.*_/ is greedy, so a
+ * window id with an underscore in it - `edit_grid` - would come back as `grid`.
+ */
+function listWindowIds(): string[] {
+  var ids: string[] = [];
+  if (typeof EXTRA_PAYLOAD_NAMES === "undefined") return ids;
+  var prefix = windowPrefix();
   for (var i = 0; i < EXTRA_PAYLOAD_NAMES.length; i++) {
     var name = EXTRA_PAYLOAD_NAMES[i];
     if (name.slice(-5) !== ".html") continue; // a sample, a preset, ...: not a window
     if (prefix && name.slice(0, prefix.length) !== prefix) continue;
-    var winId = name.slice(prefix.length, name.length - 5);
-    var winUrl = encodeURI("file:///" + folder + "/" + name) + "?v=" + encodeURIComponent(buildStamp());
-    messnamed("window-read-" + winId, "url", winUrl);
-    post("m4l-jweb: window " + winId + " -> " + winUrl + "\n");
+    ids.push(name.slice(prefix.length, name.length - 5));
   }
+  return ids;
 }
 
 function resolveUiUrl(): string | null {
