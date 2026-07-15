@@ -15,30 +15,44 @@ not one device's business logic.
 - **What has already shipped is at the [END of this file](#shipped)**, with what each one
   cost to get right. This half is what is still open.
 
-**NEXT UP: item 1, the `instrument` chain.** The `samples` chain ships (`hello-sampler`
-plays a WAV through the track - the first sound this repo has ever ORIGINATED), but it
-is ONE VOICE: a preview, not a sampler. Polyphony is what is left.
+**NEXT UP: the three P1 unblocks in the table below (#4-6)** - a mono-fold bug, a
+one-line `export`, and a dead outlet in the window API. They are small, and each one is
+blocking a `m4l-strudel` device *right now*. The marquee feature (the `instrument`
+chain's polyphony) is real work but blocks nobody waiting, so it comes after them.
 
 ---
 
 ## What `m4l-strudel` is waiting on
 
-The sibling repo parks a feature rather than working around the library, which is the
-right call - but it means its backlog is a live specification of this one's. As of
-0.6.0:
+The sibling repo parks a feature rather than working around the library, so its backlog is
+a live specification of this one's. `m4l-strudel` has now taken 0.6.0 and deleted its
+`[node.script]` - the last one in either repo - and the three bugs/gaps below came back
+from using the new APIs in anger. All are this library's, so they belong here.
 
-| `m4l-strudel` wants | Needs from here | State |
-|---|---|---|
-| Drum-map popup UI, sample browser window | Floating windows | **shipped** - unpark it |
-| Drum map + FX expression surviving the set | State persistence | **shipped** as `state()` + `useStateSync()` - unpark it |
-| Sample browser: downloading samples | Fetch-to-disk | **shipped** - unpark it |
-| Sample browser: previewing them **through the track** | the `samples` chain | **shipped** - unpark it |
-| `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (2) | open |
-| `.lpf(sine.range(200, 2000))` | modulation (3) | open |
-| A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | Priority 2 - hard, and possibly never |
+Priority is keyed on the **State** column: a **defect in something already shipped**, or a
+one-line unblock, is **P1** - it is small, it is concrete, and someone is stuck on it right
+now. A **genuinely new capability** is **P2**, however much it is wanted. Refer to a row by
+its **#**.
 
-Four of those are unblocked now. **The rest are the items below**, and they are ordered
-here in the order that repo needs them.
+| # | Prio | `m4l-strudel` wants | Needs from here | State |
+|---|---|---|---|---|
+| 1 | — | Drum map + FX line surviving the set | state persistence | **shipped, taken** |
+| 2 | — | Downloading samples | fetch-to-disk | **shipped, taken** |
+| 3 | — | Previewing samples through the track | the `samples` chain | **shipped, taken** |
+| 4 | **P1** | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **BUG.** `groove~ <buf> 2` hard-wires its two outlets to L/R, so a mono file plays in one ear (and most of tidal-drum-machines is mono). Fix in the chain, not the app: fold outlet 0 to both sides when mono - `loadSample()` already resolves the channel count. |
+| 5 | **P1** | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **declared, not exported.** `m4l-strudel` carries a copy (the one with the `set`-silences-the-outlet fix). One line to export. |
+| 6 | **P1** | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **UNUSABLE.** The window's `[jweb]` outlet is wired to nothing, so its page can display but never send a message. `hello-window` (static text) is the only page that works as built. |
+| 7 | P2 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (item 2) | open |
+| 8 | P2 | `.lpf(sine.range(200, 2000))` | modulation (item 3) | open |
+| 9 | P2 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | hard, and possibly never |
+
+**P1 - the three that block `m4l-strudel` today** (#4-6): two are defects in features that
+already shipped, one is a missing `export` keyword. All are small, and until they are done
+the sample browser and the drum-map editor cannot be finished. **Do these before the
+`instrument` chain below**, despite it being the marquee feature - a one-line export
+unblocks a whole device, and polyphony unblocks nothing that is waiting.
+
+**P2 - the genuine new capabilities** (#7-9) are the numbered items in the sections below.
 
 ---
 
