@@ -30,12 +30,15 @@ const BASE = path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "
 
 function compile(surface, device) {
   const base = JSON.parse(readFileSync(BASE, "utf8"));
-  const { patcher } = composePatcher(base, { name: "test", ...device }, surface);
+  const result = composePatcher(base, { name: "test", ...device }, surface);
+  const { patcher } = result;
   const { boxes, lines } = patcher;
   const cords = lines.map(({ patchline: pl }) => ({ src: pl.source[0], out: pl.source[1], dst: pl.destination[0], in: pl.destination[1] }));
   return {
     boxes,
     cords,
+    /** Frozen dependencies a chain contributed (a [poly~] voice patch, say). */
+    extras: result.extras ?? [],
     /** How many boxes carry this text - "one plugin~" is the whole point below. */
     count: (text) => boxes.filter((b) => b.box.text === text).length,
     has: (id) => boxes.some((b) => b.box.id === id),
@@ -324,4 +327,95 @@ test("the samples chain hands on what it did not match, in series with the next 
   expect(c.feeding("obj-samples-route", 0)).toEqual(["obj-jweb"]);
   expect(c.cords).toContainEqual({ src: "obj-samples-route", out: 2, dst: "obj-js", in: 0 });
   expect(c.feeding("obj-js", 0)).not.toContain("obj-jweb");
+});
+
+/* ------------------------------------------------------------------ *
+ * "instrument" - a [poly~] of sample voices over a keymap of buffers
+ * ------------------------------------------------------------------ */
+
+const instrument = (device = {}) => compile(null, { name: "inst", type: "instrument", chains: ["instrument"], slots: ["c", "e", "g"], ...device });
+const voiceOf = (c) => c.extras.find((e) => e.name === "inst-voice.maxpat").data.patcher;
+const voiceText = (c, id) => voiceOf(c).boxes.find((b) => b.box.id === id)?.box.text;
+const voiceHasLine = (c, s, so, d, di) => voiceOf(c).lines.some((l) => l.patchline.source[0] === s && l.patchline.source[1] === so && l.patchline.destination[0] === d && l.patchline.destination[1] === di);
+
+test("the instrument ships its [poly~] and a FROZEN voice patch, resolved by name", () => {
+  const c = instrument();
+  // Max cannot embed a poly~ voice inline (no factory device does), so the voice is a
+  // frozen .amxd dependency and poly~ names it without the extension.
+  expect(c.count("poly~ inst-voice 8")).toBe(1);
+  expect(c.extras.find((e) => e.name === "inst-voice.maxpat"), "the voice patch must be a frozen extra").toBeDefined();
+  expect(voiceOf(c).boxes.some((b) => b.box.text === "thispoly~")).toBe(true);
+  // groove~ starts on the FIRST slot's buffer; `set` switches it per note.
+  expect(voiceText(c, "v-groove")).toBe("groove~ buf-inst-c 2 @loop 0");
+});
+
+test("the voice is a KEYMAP: a slot index picks the buffer, and the rate is explicit", () => {
+  const c = instrument();
+  // slot -> [sel 0 1 2] -> one `set <buffer>` per slot (no start - the seq's 0 starts it).
+  expect(voiceText(c, "v-sel")).toBe("sel 0 1 2");
+  for (const [i, slot] of ["c", "e", "g"].entries()) {
+    expect(voiceText(c, `v-set-${i}`)).toBe(`set buf-inst-${slot}`);
+    expect(voiceHasLine(c, "v-sel", i, `v-set-${i}`, 0)).toBe(true);
+    expect(voiceHasLine(c, `v-set-${i}`, 0, "v-groove", 0)).toBe(true);
+  }
+  // rate is taken straight from the message (unpack outlet 1), NOT derived from a pitch.
+  expect(voiceText(c, "v-unpack")).toBe("unpack 0 0. 0 0 0");
+  expect(voiceHasLine(c, "v-unpack", 0, "v-sel", 0)).toBe(true); // slot
+  expect(voiceHasLine(c, "v-unpack", 1, "v-sig", 0)).toBe(true); // rate -> sig~
+  expect(voiceOf(c).boxes.every((b) => !String(b.box.text).includes("pow("))).toBe(true); // no repitch arithmetic
+});
+
+test("voice_play becomes a `note` message poly~ dispatches on to pick a free voice", () => {
+  const c = instrument();
+  // route strips the selector; prepend re-materializes `note`, which is poly~'s
+  // voice-allocation word (checked against Max's reference).
+  expect(textOf(c, "obj-instr-playroute")).toBe("route voice_play");
+  expect(c.feeding("obj-instr-playroute", 0)).toEqual(["obj-jweb"]); // claimed in series
+  expect(textOf(c, "obj-instr-note")).toBe("prepend note");
+  expect(c.feeding("obj-instr-note", 0)).toEqual(["obj-instr-playroute"]);
+  expect(c.feeding("obj-instr-poly", 0)).toEqual(["obj-instr-note"]);
+});
+
+test("a buffer per slot, dispatched by name, each reporting what info~ measured", () => {
+  const c = instrument();
+  // Same load path as samples: a bare buffer name resolves against Max's search path,
+  // not the device folder, so the wrapper resolves it and hands back buffer_replace.
+  expect(c.cords).toContainEqual({ src: "obj-js", out: 1, dst: "obj-instr-replaceroute", in: 0 });
+  expect(textOf(c, "obj-instr-loadslot")).toBe("route c e g"); // slot is a whole word
+  for (const [i, slot] of ["c", "e", "g"].entries()) {
+    expect(c.count(`buffer~ buf-inst-${slot}`)).toBe(1);
+    expect(c.feeding(`obj-instr-replace-${slot}`, 0)).toEqual(["obj-instr-loadslot"]);
+    expect(c.cords).toContainEqual({ src: `obj-instr-buf-${slot}`, out: 1, dst: `obj-instr-info-${slot}`, in: 0 }); // read-completed
+    expect(c.cords).toContainEqual({ src: `obj-instr-info-${slot}`, out: 0, dst: `obj-instr-pack-${slot}`, in: 0 }); // sample rate, hot
+    expect(textOf(c, `obj-instr-ready-${slot}`)).toBe(`prepend buffer_ready ${slot}`);
+    expect(c.feeding("obj-jweb", 0)).toContain(`obj-instr-ready-${slot}`);
+    expect(c.cords).toContainEqual({ src: "obj-instr-loadslot", out: i, dst: `obj-instr-replace-${slot}`, in: 0 });
+  }
+});
+
+test("the voices SUM into the signal path - an instrument originates sound", () => {
+  const c = instrument();
+  for (const ch of [0, 1]) {
+    const mix = `obj-instr-mix-${"lr"[ch]}`;
+    expect(c.feeding(mix, 0)).toEqual(["obj-plugin"]); // nothing at the input; poly~ added on top
+    expect(c.cords).toContainEqual({ src: "obj-instr-poly", out: ch, dst: mix, in: 1 });
+    expect(c.feeding("obj-plugout", ch)).toEqual([mix]);
+  }
+});
+
+test("the voice patch selects the buffer and sets rate BEFORE it starts the voice", () => {
+  // Starting groove~ before the buffer/rate is set plays the previous note. The list
+  // reaches unpack (right outlet of [t b l]) before the start bang (left), and the
+  // `set <buf>` message switches the buffer WITHOUT starting it.
+  const c = instrument();
+  expect(voiceHasLine(c, "v-trig", 1, "v-unpack", 0)).toBe(true); // list -> unpack (fires first)
+  expect(voiceHasLine(c, "v-trig", 0, "v-seq", 0)).toBe(true); // then the start sequence
+  expect(voiceHasLine(c, "v-seq", 0, "v-start", 0)).toBe(true); // 0 -> groove~ start
+  expect(voiceHasLine(c, "v-seq", 1, "v-busy", 0)).toBe(true); // 1 -> thispoly~ busy
+});
+
+test("the default instrument is a single slot", () => {
+  const c = compile(null, { name: "one", type: "instrument", chains: ["instrument"] });
+  expect(c.count("buffer~ buf-one-voice")).toBe(1);
+  expect(c.extras.find((e) => e.name === "one-voice.maxpat").data.patcher.boxes.find((b) => b.box.id === "v-groove").box.text).toBe("groove~ buf-one-voice 2 @loop 0");
 });

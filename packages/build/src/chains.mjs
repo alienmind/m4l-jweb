@@ -839,9 +839,242 @@ function reverbChain(ctx) {
   }
 }
 
+/**
+ * The [poly~] voice patch: ONE played note, start to finish, as its own patcher.
+ *
+ * [poly~] loads N copies of this and hands each `note` message to the first voice
+ * whose [thispoly~] is not busy - so polyphony and voice-stealing are Max's job, not
+ * the app's, which is the whole reason to spend a [poly~] rather than run N groove~s
+ * and a scheduler by hand. Max cannot embed this inline (no factory device does; they
+ * all ship it as a named .maxpat), so the build freezes it into the .amxd as a
+ * dependency and [poly~] resolves it by name from the device's own bundle - the same
+ * way `Analogue Drums.amxd` carries `analog.Kick~.maxpat` (checked on disk).
+ *
+ * MULTI-SAMPLE. A voice can play ANY of the device's slots - one named [buffer~] per
+ * slot - so the instrument is a keymap, not one repitched sample. The voice request at
+ * [in 1] is the list `slot rate velocity durMs channels`:
+ *   - slot       -> which buffer: [sel 0 1 ...] picks the matching `set <bufName>`
+ *                   message, so groove~ switches to that slot's buffer before it starts.
+ *   - rate       -> playback RATE straight into [sig~] -> groove~'s left (signal) inlet.
+ *                   EXPLICIT, not derived: the app decides whether a note plays a
+ *                   dedicated sample at rate 1 or a repitched one at rate 2, which is
+ *                   what makes this a multi-sample keymap rather than one stretched
+ *                   buffer. No pitch->rate arithmetic here.
+ *   - velocity   -> amplitude, /127, on both channels' [*~].
+ *   - durMs      -> when to FREE the voice: [delay durMs] -> 0 to [thispoly~] and
+ *                   `stop` to groove~. The app times the note; Max holds the voice
+ *                   exactly that long. A one-shot past the sample's end is silent
+ *                   anyway (@loop 0), so this only bounds the allocation.
+ *   - channels   -> the mono fold, the SAME runtime gate the samples chain uses: a
+ *                   mono buffer drives groove~ outlet 0 only, so a [selector~ 2] keyed
+ *                   on the measured channel count folds it into R (see samplesChain).
+ *
+ * The order is sequenced with [t]: the whole list reaches [unpack] (buffer selected,
+ * rate, gate and duration all set) BEFORE the voice marks itself busy and starts
+ * groove~ from 0. Buffer-select is separate from start - `set <buf>` switches the
+ * buffer WITHOUT playing, and only the seq's `0` starts it - so a note never begins on
+ * the previous note's buffer or rate.
+ */
+function instrumentVoicePatch(bufNames) {
+  let vy = 40;
+  const vbox = (id, text, extra = {}) => ({
+    box: { id, maxclass: "newobj", text, numinlets: 1, numoutlets: 1, outlettype: [""], patching_rect: [24, (vy += 30), 150, 22], ...extra },
+  });
+  const vmsg = (id, text) => ({
+    box: { id, maxclass: "message", text, numinlets: 2, numoutlets: 1, outlettype: [""], patching_rect: [200, (vy += 30), 90, 22] },
+  });
+
+  const L = (s, so, d, di) => ({ patchline: { source: [s, so], destination: [d, di] } });
+
+  const boxes = [
+    vbox("v-in", "in 1", { numinlets: 0, numoutlets: 1 }),
+    vbox("v-trig", "t b l", { numoutlets: 2, outlettype: ["bang", ""] }),
+    vbox("v-unpack", "unpack 0 0. 0 0 0", { numoutlets: 5, outlettype: ["int", "float", "int", "int", "int"] }),
+    vbox("v-seq", "t b b", { numoutlets: 2, outlettype: ["bang", "bang"] }),
+    vmsg("v-busy", "1"),
+    vmsg("v-start", "0"),
+    vbox("v-thispoly", "thispoly~", { numoutlets: 2, outlettype: ["int", "int"] }),
+    // slot -> which buffer. [sel] fires the matching outlet; the last (rightmost) is
+    // the no-match passthrough, left unwired.
+    vbox("v-sel", `sel ${bufNames.map((_, i) => i).join(" ")}`, { numoutlets: bufNames.length + 1, outlettype: bufNames.map(() => "bang").concat("") }),
+    vbox("v-sig", "sig~", { numoutlets: 1, outlettype: ["signal"] }),
+    vbox("v-vel", "/ 127.", { outlettype: ["float"] }),
+    // groove~ starts on the FIRST slot's buffer; `set` switches it per note.
+    vbox("v-groove", `groove~ ${bufNames[0]} 2 @loop 0`, { numinlets: 3, numoutlets: 3, outlettype: ["signal", "signal", "signal"] }),
+    vbox("v-gate", "expr ($i1==1)+1", { outlettype: ["int"] }),
+    vbox("v-rsel", "selector~ 2", { numinlets: 3, numoutlets: 1, outlettype: ["signal"] }),
+    vbox("v-ampL", "*~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }),
+    vbox("v-ampR", "*~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }),
+    vbox("v-del", "delay", { numinlets: 2, numoutlets: 1, outlettype: ["bang"] }),
+    vbox("v-free", "t b b", { numoutlets: 2, outlettype: ["bang", "bang"] }),
+    vmsg("v-freebusy", "0"),
+    vmsg("v-stop", "stop"),
+    vbox("v-out1", "out~ 1", { numinlets: 1, numoutlets: 0 }),
+    vbox("v-out2", "out~ 2", { numinlets: 1, numoutlets: 0 }),
+  ];
+
+  const lines = [
+    L("v-in", 0, "v-trig", 0),
+    // list first (right outlet), then the start sequence (left) - values before play.
+    L("v-trig", 1, "v-unpack", 0),
+    L("v-trig", 0, "v-seq", 0),
+    L("v-unpack", 0, "v-sel", 0), // slot -> pick a buffer
+    L("v-unpack", 1, "v-sig", 0), // rate (explicit) -> signal rate
+    L("v-sig", 0, "v-groove", 0),
+    L("v-unpack", 2, "v-vel", 0), // velocity -> amp
+    L("v-vel", 0, "v-ampL", 1),
+    L("v-vel", 0, "v-ampR", 1),
+    L("v-unpack", 3, "v-del", 1), // duration -> delay time (cold)
+    L("v-unpack", 4, "v-gate", 0), // channels -> mono fold gate
+    L("v-gate", 0, "v-rsel", 0),
+    // the start sequence: mark busy, then start groove~ from 0 AND arm the free timer.
+    L("v-seq", 1, "v-busy", 0),
+    L("v-busy", 0, "v-thispoly", 0),
+    L("v-seq", 0, "v-start", 0),
+    L("v-start", 0, "v-groove", 0),
+    L("v-seq", 0, "v-del", 0), // bang the delay: it fires after durMs
+    // groove~ out: L direct, R via the mono-fold selector (stereo R vs. folded mono).
+    L("v-groove", 0, "v-ampL", 0),
+    L("v-groove", 1, "v-rsel", 1), // stereo R
+    L("v-groove", 0, "v-rsel", 2), // mono fold
+    L("v-rsel", 0, "v-ampR", 0),
+    L("v-ampL", 0, "v-out1", 0),
+    L("v-ampR", 0, "v-out2", 0),
+    // free the voice when the note's duration elapses.
+    L("v-del", 0, "v-free", 0),
+    L("v-free", 1, "v-freebusy", 0),
+    L("v-freebusy", 0, "v-thispoly", 0),
+    L("v-free", 0, "v-stop", 0),
+    L("v-stop", 0, "v-groove", 0),
+  ];
+
+  // One `set <buffer>, ` message per slot: [sel] outlet i switches groove~ to that
+  // slot's buffer WITHOUT starting it (the seq's `0` does that). A trailing comma
+  // would start it; there is none, deliberately.
+  bufNames.forEach((buf, i) => {
+    const setId = `v-set-${i}`;
+    boxes.push(vmsg(setId, `set ${buf}`));
+    lines.push(L("v-sel", i, setId, 0));
+    lines.push(L(setId, 0, "v-groove", 0));
+  });
+
+  return {
+    patcher: {
+      fileversion: 1,
+      appversion: { major: 8, minor: 0, revision: 0, architecture: "x64", modernui: 1 },
+      rect: [100, 100, 320, 600],
+      boxes,
+      lines,
+    },
+  };
+}
+
+/**
+ * "instrument" - the marquee: a [poly~] of sample voices over a KEYMAP of named
+ * buffers, PLAYED by the note contract the bridge exports. `samples` made the first
+ * sound as ONE preview voice; this is the other half - N voices, N buffers, Max doing
+ * the allocation and stealing.
+ *
+ *   app -> voice_play <slot> <rate> <vel> <durMs> <chans>  -> [route] -> [prepend note] -> [poly~]
+ *          buffer_load <slot> <path>                       -> [js] resolves -> [buffer~ <slot>]
+ *   app <- buffer_ready <slot> <sr> <ms> <chans>            when that slot's read completed
+ *
+ * The load path is the samples chain's, deliberately: the bytes never cross the bridge
+ * ([buffer~] reads the file, the wrapper resolves the path on its aux outlet), and the
+ * reply reports what [info~] MEASURED, not what was asked for. Every slot is its own
+ * named [buffer~]; the voice picks one per note by index and plays it at the rate the
+ * app chose - so a dedicated sample plays at rate 1 and a repitched one at rate 2,
+ * which is the app's decision, not the chain's.
+ *
+ * `slots: ["c", "e", "g"]` in the manifest is three buffers; the default is one
+ * ("voice"). The buffer NAMES are `buf-<device>-<slot>`, global to Max - so two copies
+ * of the device on two tracks name their buffers alike (harmless for a demo, the drum-
+ * rack instance problem noted in doc/TODO.md).
+ *
+ * It SUMS into the signal path ([+~]): an instrument makes sound where there was none
+ * at its input, so there is nothing to claim a stage over.
+ */
+function instrumentChain(ctx) {
+  const { boxes, lines, device, jwebId, unmatchedId } = ctx;
+  const slots = device?.slots ?? ["voice"];
+  const bufName = (slot) => `buf-${device?.name}-${slot}`;
+  const voices = device?.voices ?? 8;
+  const voiceFile = `${device?.name}-voice.maxpat`;
+
+  // The frozen voice patch (a keymap of every slot's buffer), and the [poly~] that
+  // loads N copies of it.
+  ctx.extras.push({ name: voiceFile, data: instrumentVoicePatch(slots.map(bufName)) });
+  // [poly~]'s name is the file WITHOUT its extension, per Max's abstraction lookup.
+  boxes.push(
+    box(`obj-instr-poly`, `poly~ ${voiceFile.replace(/\.maxpat$/, "")} ${voices}`, {
+      numinlets: 1,
+      numoutlets: 2,
+      outlettype: ["signal", "signal"],
+    }),
+  );
+
+  // voice_play -> `note <slot> <rate> <vel> <durMs> <chans>` -> poly~. `route` strips
+  // the selector, leaving the bare args; `prepend note` is the word poly~ dispatches on
+  // to pick a free voice. Claimed in series so ui_ready still reaches the wrapper.
+  boxes.push(box("obj-instr-playroute", "route voice_play", { numoutlets: 2, outlettype: ["", ""] }));
+  claimAppMessages(ctx, "obj-instr-playroute", 1);
+  boxes.push(box("obj-instr-note", "prepend note"));
+  lines.push(line("obj-instr-playroute", 0, "obj-instr-note", 0));
+  lines.push(line("obj-instr-note", 0, "obj-instr-poly", 0));
+
+  // The load path, from the wrapper's aux outlet - identical in shape to samples: a
+  // bare buffer name resolves against MAX'S SEARCH PATH, not the device folder, so the
+  // wrapper resolves it and hands back `buffer_replace <slot> <abs path>`. One buffer
+  // per slot, dispatched by slot name (route matches a whole word).
+  boxes.push(box("obj-instr-replaceroute", "route buffer_replace", { numoutlets: 2, outlettype: ["", ""] }));
+  lines.push(line(unmatchedId, 1, "obj-instr-replaceroute", 0));
+  boxes.push(box("obj-instr-loadslot", `route ${slots.join(" ")}`, { numoutlets: slots.length + 1, outlettype: slots.map(() => "").concat("") }));
+  lines.push(line("obj-instr-replaceroute", 0, "obj-instr-loadslot", 0));
+
+  slots.forEach((slot, i) => {
+    const buf = `obj-instr-buf-${slot}`;
+    const info = `obj-instr-info-${slot}`;
+    boxes.push(box(buf, `buffer~ ${bufName(slot)}`, { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
+    boxes.push(box(`obj-instr-replace-${slot}`, "prepend replace"));
+    lines.push(line("obj-instr-loadslot", i, `obj-instr-replace-${slot}`, 0));
+    lines.push(line(`obj-instr-replace-${slot}`, 0, buf, 0));
+
+    // Report what LOADED, from the read-completed outlet (1). info~ fires right-to-left,
+    // so the sample rate (outlet 0) arrives last and drives [pack]'s hot inlet.
+    boxes.push(
+      box(info, `info~ ${bufName(slot)}`, {
+        numinlets: 1,
+        numoutlets: 10,
+        outlettype: ["float", "list", "float", "float", "float", "float", "float", "", "int", ""],
+      }),
+    );
+    boxes.push(box(`obj-instr-pack-${slot}`, "pack 0. 0. 0", { numinlets: 3, numoutlets: 1, outlettype: [""] }));
+    boxes.push(box(`obj-instr-ready-${slot}`, `prepend buffer_ready ${slot}`));
+    lines.push(line(buf, 1, info, 0));
+    lines.push(line(info, 8, `obj-instr-pack-${slot}`, 2)); // channels
+    lines.push(line(info, 6, `obj-instr-pack-${slot}`, 1)); // duration ms
+    lines.push(line(info, 0, `obj-instr-pack-${slot}`, 0)); // sample rate, hot
+    lines.push(line(`obj-instr-pack-${slot}`, 0, `obj-instr-ready-${slot}`, 0));
+    lines.push(line(`obj-instr-ready-${slot}`, 0, jwebId, 0));
+  });
+
+  // Sum the voices into the signal path - an instrument originates sound.
+  for (const [ch, id] of [
+    [0, "obj-instr-mix-l"],
+    [1, "obj-instr-mix-r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    boxes.push(box(id, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, id, 0));
+    lines.push(line("obj-instr-poly", ch, id, 1));
+    ctx.setAudioOut(ch, id, 0);
+  }
+}
+
 export const CHAINS = {
   midiin: midiInChain,
   samples: samplesChain,
+  instrument: instrumentChain,
   midiout: midiOutChain,
   passthrough: passthroughChain,
   gain: gainChain,

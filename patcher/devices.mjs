@@ -144,6 +144,31 @@ export default [
   },
   {
     /**
+     * hello-instrument - the marquee: a POLYPHONIC repitched sampler.
+     *
+     * Where hello-sampler plays one preview voice through a single [groove~], this
+     * plays N voices through a [poly~], so overlapping notes each get their own voice
+     * and Max steals the oldest when they run out. The `instrument` chain freezes the
+     * voice patch (`hello-instrument-voice.maxpat`) into the .amxd as a dependency,
+     * the same way a factory M4L instrument ships its voice abstraction.
+     *
+     * `download` puts a WAV on disk and `instrument` reads it into the shared
+     * [buffer~] and plays it, repitched per note, through the track. ONE slot: a
+     * repitched one-shot sampler is a whole instrument; a per-pad drum rack is the
+     * next step, not this.
+     */
+    name: "hello-instrument",
+    type: "instrument",
+    chains: ["instrument", "download"],
+    // MULTI-SAMPLE: one [buffer~] per note of the base octave (C, E, G). A voice picks
+    // one by slot index and plays it - at rate 1 for the note itself, rate 2 for the
+    // octave above (repitched), which is what makes this a multi-sample keymap test.
+    slots: ["c", "e", "g"],
+    voices: 8,
+    unmatchedTo: "js",
+  },
+  {
+    /**
      * hello-state
      * Demonstrates the state persistence API (`useStateSync`).
      * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
