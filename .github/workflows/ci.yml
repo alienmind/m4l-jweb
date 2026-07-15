@@ -16,9 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` - it is pinned in package.json's `packageManager` field, and
+      # action-setup@v4 ERRORS if it is told twice ("Multiple versions of pnpm
+      # specified"). Let the manifest be the one source of truth.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
