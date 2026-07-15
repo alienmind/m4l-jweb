@@ -7,20 +7,23 @@ not one device's business logic.
   also records **what we measured in Live**. Read that section before building new features.
 - The **designs still being argued about** - dynamic chains, and how Strudel's own audio
   could reach a track - are in [ENHANCEMENTS.md](ENHANCEMENTS.md). Read it before
-  building items 2 and 3 below: it argues that the most valuable version of both is not
-  the obvious one.
+  building item **2B** and item 3 below: it argues that the most valuable version of both
+  is not the obvious one. Item **2A** (the static FX chains) needs none of that - it is a
+  `packages/build` job and is the thing `m4l-strudel` is blocked on now.
 - The two rules everything follows: **`[js]` is a control plane, not a data plane**
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike** that can fail in an afternoon rather than a week.
 - **What has already shipped is at the [END of this file](#shipped)**, with what each one
   cost to get right. This half is what is still open.
 
-**NEXT UP: the `instrument` chain's polyphony (item 1 below).** The three P1 unblocks
-(#4-6) - a mono-fold bug, a one-line `export`, and a dead outlet in the window API - are
-all DONE and shipped, and #4 and #6 are verified in Live (a mono sample folds to both
-ears; a floating window reads and writes the device's state, both ways). That clears the
-list of things blocking `m4l-strudel` today, so the marquee feature - `[poly~]` voices in
-the `instrument` chain - is what comes next. See [Shipped](#shipped).
+**NEXT UP: Push banks (item 4).** The marquee - `[poly~]` voices in the `instrument`
+chain (item 1) - is BUILT and its polyphony is confirmed in Live, now multi-sample; and
+the static FX vocabulary (item **2A**: `delay` + `reverb` + the neutrality contract) is
+built and tested. Both still owe a Live listening pass, and 2A owes its adoption in
+`m4l-strudel`'s manifest - but neither blocks the next build. That next build is **item 4,
+Push banks**, chosen because it is the stated precondition for item 6 (extract the
+contract pattern): item 6 lifts a codegen from TWO finished declaration instances, and
+Push banks is the second one. See [Shipped](#shipped) and items 1, 2A, 4 below.
 
 ---
 
@@ -44,7 +47,7 @@ its **#**.
 | 4 | — | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **shipped, verified in Live.** A runtime gate (`[selector~ 2]` driven by the slot's measured channel count) folds `groove~` outlet 0 to R for a mono file; `hello-sampler` has a mono row to A/B it. |
 | 5 | — | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **shipped.** One-line `export`, pinned by a contract test. `m4l-strudel` can delete its copy. |
 | 6 | — | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **shipped, verified in Live.** The window's `[jweb]` is tagged and routed back to `[js]`; a window reads and writes the device's shared state, and edits broadcast to every view. |
-| 7 | P2 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (item 2) | open |
+| 7 | P2 | `.room()` and `.delay()` making sound | the static FX chains + the neutrality contract (item **2A**, no spike) | **built + tested**, awaiting a Live listening check and manifest adoption |
 | 8 | P2 | `.lpf(sine.range(200, 2000))` | modulation (item 3) | open |
 | 9 | P2 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | hard, and possibly never |
 
@@ -62,7 +65,21 @@ nobody waiting, but it is the marquee feature and the natural successor to `samp
 
 ## Priority 1: Core Library Enhancements
 
-### 1. The `instrument` chain: polyphony  ← **START HERE**
+### 1. The `instrument` chain: polyphony  ← **BUILT, AWAITING LIVE VERIFICATION**
+
+> **Status (built; polyphony CONFIRMED in Live, multi-sample awaiting a check).** The
+> `instrument` chain, a `playVoice()` bridge API, and `hello-instrument` are implemented
+> and pass the build and the codegen/protocol tests. The `[poly~]` voice patch is
+> generated per device and FROZEN into the `.amxd` as a named dependency, the way
+> `Analogue Drums.amxd` ships `analog.Kick~.maxpat` (checked on disk) - which de-risked
+> the one real unknown (Max cannot embed a poly~ voice inline). **A user confirmed it
+> plays and stacks voices in Live**, so `[poly~]` DOES resolve our wrapper-built frozen
+> voice. It is now MULTI-SAMPLE: N named buffers (`slots: ["c","e","g"]`), the voice
+> picking one by index (`sel`) and playing it at an EXPLICIT rate - so a note plays a
+> dedicated sample at rate 1 or a repitched one at rate 2, the app's choice. Samples
+> ship in the repo (`samples/piano/`), served from `main`. Still owed a listening pass
+> on the multi-sample keymap + mono fold; a per-pad drum rack across DIFFERENT devices
+> and the global-buffer-name instance problem remain open.
 
 `samples` shipped and made the first sound (see [Shipped](#shipped)) - but deliberately
 as ONE voice, because a sample browser needs a preview, not a sampler.
@@ -88,62 +105,105 @@ they are not in the same state:
 | **Originating** audio - the device makes the sound itself (`buffer~`, `groove~`) | **works** (`samples`, verified in Live); polyphony is this item |
 | **JS-generated** audio - a WebAudio synth in `[jweb]` reaching the track | Priority 2, and it needs a C++ external |
 
-### 2. The rack: a chain vocabulary, and the NEUTRALITY CONTRACT it needs first
+### 2. The FX vocabulary: a static chain per Strudel effect, and the NEUTRALITY CONTRACT
 
-> [!WARNING]
-> **DO NOT START THIS UNTIL SPIKE 1 IN [ENHANCEMENTS.md](ENHANCEMENTS.md) HAS RUN.**
->
-> If a Max device can create **real Ableton devices** next to itself (`load_item` -
-> undocumented on disk, one afternoon to settle), then an `.lpf(800).gain(1.2)` should
-> populate an **Auto Filter** and a **Utility** in the user's own rack - Ableton's DSP,
-> their automation lanes, their presets, their undo, *and their third-party plugins* -
-> rather than run through a filter we ported.
->
-> Everything below then becomes **unnecessary**: the frozen order, the wet-only reverb
-> with no neutral setting, the always-running stages, the CPU muting, this whole
-> contract. They are all artifacts of *us* owning the graph. Hand the graph to Live and
-> they do not get solved - they cease to exist.
->
-> Keep this item as the FALLBACK, and for the two things a device chain genuinely cannot
-> do: an effect Live has no device for, and anything that must change per-hap faster than
-> a parameter can be set.
+This item was one convoluted thing - "the rack" - that folded a job we can do **today,
+with no spike**, into one that is **gated on an undocumented Live API**. They are now
+split. **2A is the unblock and has no dependency; 2B is the future and needs Spike 1.**
+Do 2A first; 2B may never be needed.
 
-`m4l-strudel` refuses `.room()`, `.delay()`, `.crush()` and `.hpf()` honestly ("no Max
-chain yet") because this vocabulary does not exist. It is four chains and one rule, and
-**the rule is the load-bearing half.**
+#### 2A. The static FX chains `m4l-strudel` is blocked on  ← **BUILT + TESTED, awaiting a listening check**
 
-**The neutrality contract.** The DSP graph is written at BUILD time and the app only
-chooses values, so **every stage is always in the signal path** - including the ones
-today's line never mentions. That is fine for `gain` (1.0) and `lowpass` (18 kHz),
-which are naturally transparent, and it is a trap for a reverb: `cverb~` is **wet-only**,
-so a rack with one in it is a rack you cannot switch off. Six such effects is six
-colourations a user cannot remove and cannot find.
+> **Status.** The `delay` and `reverb` chains and the neutrality contract
+> (`CHAIN_NEUTRAL`, `WET_DRY_CHAINS`) are implemented in `packages/build/src/chains.mjs`
+> and pinned by `tests/neutrality.test.mjs` and `tests/chains.test.mjs`. `lowpass`,
+> `drive` and `gain` already existed. What is NOT done, and is the only thing between
+> this and "shipped": the null-test is STRUCTURAL (it proves the dry wire survives at
+> unity and the wet path is gain-0 at neutral, with no Max in the loop), so a listening
+> check in Live - a `hello-fx` device, or `m4l-strudel`'s own `fx` - is still owed, plus
+> wiring `"delay"`/`"reverb"` into `m4l-strudel`'s manifest to actually adopt them.
+
+`m4l-strudel`'s **`fx`** device already declares the parameters
+(`src/app/fx/surface.ts`: `cutoff`, `drive`, `delay`, `delaytime`, `delayfeedback`,
+`room`, `gain`) and its UI already writes them from a `.lpf(800).room(0.3)` line. What is
+missing is the **DSP behind two of them**: `.delay()` and `.room()` are recognised and
+then refused ("no Max chain yet"). This is entirely a `packages/build` job - a couple of
+build-time chains - and it needs **nothing from Live's undocumented API**. It is the
+whole of what unblocks the FX device now.
+
+**The order is frozen and chosen once** - `filter -> drive -> delay -> reverb -> gain` -
+because `chains: [...]` is a series written at BUILD time. `.lpf(800).room(0.5)` and
+`.room(0.5).lpf(800)` produce the *same* signal path, and the honest thing is for the
+library to say so rather than let a device imply otherwise. We are not reordering stages
+per line; we are shipping a fixed, always-present pipeline whose stages sit at neutral
+until the line names them.
+
+**The chains** (Live's own install has every object - **checked on disk**, not remembered:
+`resources/docs/refpages/msp-ref/` and `resources/externals/m4l/`):
+
+| chain | object(s) | params (already in `fx/surface.ts`) | neutral (a straight wire) |
+|---|---|---|---|
+| `lowpass` | `onepole~` | `cutoff` | 18 kHz — **shipped** |
+| `drive` | `overdrive~` | `drive` | 1× — **shipped** |
+| **`delay`** | `tapin~`/`tapout~`, feedback via `*~` | `delay` (dry/wet), `delaytime`, `delayfeedback` | `delay` = 0 (fully dry) |
+| **`reverb`** | `cverb~` (`externals/m4l/cverb~.mxe64`) | `room` (dry/wet) | `room` = 0 (fully dry) |
+| `gain` | `*~` | `gain` | 1× — **shipped** |
+
+So 2A is really **two new chains** - `delay` and `reverb` - plus the contract below; the
+other three already exist and are what `hello-audio` is built from.
+
+**The neutrality contract - the load-bearing half.** The DSP graph is written at BUILD
+time and the app only chooses values, so **every stage is always in the signal path**,
+including the ones today's line never mentions. That is fine for `gain` (1.0), `lowpass`
+(18 kHz) and `drive` (1×), which are naturally transparent, and it is a **trap for a
+reverb**: `cverb~` is **wet-only**, so a rack with one in it is a rack you cannot switch
+off. Every always-present stage that colours the signal at rest is a colouration a user
+cannot remove and cannot find.
 
 So a chain must **declare** the setting at which it is bit-identical to a wire, and the
 build must be able to check it:
 
 - a `neutral` field on the chain (the parameter values that make it a straight wire), and
-- a test that asserts it - null-test the stage: identical input and output samples, not
-  "sounds about right".
-- a wet-only stage therefore **must** carry its own dry/wet, because it has no neutral
-  setting without one. That is a property of the chain, not something a device remembers
-  to add.
+- a test that asserts it — **null-test the stage**: identical input and output samples at
+  the neutral setting, not "sounds about right".
+- a **wet-only stage therefore must carry its own dry/wet**, because it has no neutral
+  setting without one. That is a property of the CHAIN, not something a device remembers
+  to add — which is exactly why `reverb` (and `delay`, whose dry tail is the same problem)
+  owns a `delay`/`room` mix parameter rather than trusting the caller.
 
-**The chains** (Live's own install already has the objects - checked, not remembered):
-- **`reverb`** - `cverb~`, which ships inside Live (`resources/externals/m4l/`). Mono, so
-  one per channel; wet-only, so it needs the dry/wet above.
-- **`delay`** - `tapin~`/`tapout~` with feedback through `*~`. `.delay()`,
-  `.delaytime()` and `.delayfeedback()` map straight onto it.
-- **`hpf`** - the sibling of `lowpass`, and the cheapest one here.
-- **`crush`** - a bitcrusher (`degrade~`/`downsamp~`). Neutral at full bit depth.
+**Scope of 2A, and what it does NOT include.** `crush` (`degrade~`/`downsamp~`, neutral
+at full bit depth) and `hpf` (the cheap sibling of `lowpass`) are the same shape and are
+**easy follow-ons**, but the `fx` surface does not declare them yet, so they are not part
+of the unblock — add them when `m4l-strudel` asks. The point of 2A is: **make the effects
+the FX device already promises actually make sound**, with the neutrality contract that
+keeps the always-present stages honest.
 
-**The order is frozen and must be chosen once** - `filter -> drive -> delay -> reverb ->
-gain` - because `chains: [...]` is a series written at build time. `.lpf(800).room(0.5)`
-and `.room(0.5).lpf(800)` will produce the *same* signal path, and the honest thing is
-for the library to say so rather than let a device imply otherwise.
+#### 2B. The dynamic rack: hand the graph to Live (FALLBACK, needs Spike 1)
 
-**Which effects earn a permanent place is the real question**, since each one costs DSP
-whether or not the app's line mentions it.
+> [!WARNING]
+> **DO NOT START 2B UNTIL SPIKE 1 IN [ENHANCEMENTS.md](ENHANCEMENTS.md) HAS RUN.**
+
+If a Max device can create **real Ableton devices** next to itself (`load_item` -
+undocumented on disk, one afternoon to settle in Spike 1), then an `.lpf(800).gain(1.2)`
+should populate an **Auto Filter** and a **Utility** in the user's own rack - Ableton's
+DSP, their automation lanes, their presets, their undo, *and their third-party plugins* -
+rather than run through filters we ported.
+
+Where that lands, a good deal of 2A's machinery becomes **unnecessary** for the effects
+Live already has a device for: the frozen order, the wet-only-reverb problem, the
+always-running stages, the CPU cost of stages nobody named. Those are artifacts of *us*
+owning the graph; hand it to Live and they cease to exist rather than getting solved.
+
+**But 2A is not wasted, and it is not merely a fallback.** It is the correct home for the
+two things a device chain does that a real Ableton device cannot: **an effect Live has no
+device for**, and **anything that must change per-hap faster than a parameter can be set**
+(which is item 3, modulation). So 2A ships now as the working FX vocabulary, and 2B — *if*
+Spike 1 succeeds — later moves the *Live-native* subset of it into the user's own rack,
+leaving 2A to own the rest.
+
+**Which effects earn a permanent always-on place** is the question 2B answers by making it
+moot for anything Live can host; until then, 2A keeps the pipeline short and every stage
+neutral at rest.
 
 ### 3. Modulation: a parameter that moves faster than the bridge
 `.lpf(sine.range(200, 2000))` describes **continuous** modulation. Sending it as
