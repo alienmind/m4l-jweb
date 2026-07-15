@@ -185,6 +185,30 @@ export interface Bank<K extends string> {
 }
 
 /**
+ * Which parameters render as NATIVE `live.*` objects in the device view, and how
+ * they are laid out.
+ *
+ * The compiler ALREADY generates a `live.dial` / `live.toggle` / `live.menu` for
+ * every declared parameter; they are invisible today only because they carry no
+ * `presentation` attribute, and Live shows the presentation view. Naming a
+ * parameter here makes the SAME object visible - a presentation overlay on codegen
+ * that already exists, with no wiring change: it is the same parameter, the same
+ * fan-out graph, `useParam()` still reads it, now drawn by Max instead of React.
+ */
+export interface NativeLayout<K extends string = string> {
+  /**
+   * In display order: fills rows top-to-bottom, then overflows into the next
+   * column (column-major, so adding a parameter does not reshuffle the rest).
+   */
+  params: readonly K[];
+  /**
+   * Max rows per column. Default 3 - the device view is a fixed ~169 px tall and a
+   * `live.dial` needs a 56 px pitch, so only 3 fit vertically.
+   */
+  rows?: number;
+}
+
+/**
  * The declaration. `P`, `S` and `W` are inferred from what you write - they exist so
  * that `useParam`, `useStateSync` and `useWindow` are typed against THIS surface: a
  * parameter, slot or window that is not declared here is a build error at the call
@@ -199,6 +223,8 @@ export interface SurfaceDef<
   banks?: readonly Bank<Extract<keyof P, string>>[];
   windows?: W;
   state?: S;
+  /** Which parameters render as native Max objects in the device view. */
+  layout?: { native?: NativeLayout<Extract<keyof P, string>> };
 }
 
 export interface Surface<
@@ -265,8 +291,29 @@ export function defineSurface<
     }
   }
 
+  // A native layout may only name parameters that exist, and may not ask for more
+  // rows than the device view holds. Both throw here, at build time, for the same
+  // reason the bank checks do: a typo would otherwise generate a cord from a box
+  // that never gets a presentation rect, or overflow a 169 px view silently.
+  const native = def.layout?.native;
+  if (native) {
+    for (const id of native.params) {
+      if (!def.params[id]) throw new Error(`surface: layout.native names "${id}", which is not a declared parameter`);
+    }
+    const rows = native.rows ?? 3;
+    if (rows < 1 || rows > 3) throw new Error(`surface: layout.native.rows must be 1..3 - the device view is 169 px tall`);
+  }
+
   return { ...def, ids };
 }
+
+/**
+ * Does this parameter render as a native Max object? App code uses it to stop
+ * drawing an HTML control the device view now owns. Cheap and honest: a parameter
+ * that is not in `layout.native` is still an HTML control, so `useParam()` stays
+ * the source of truth either way.
+ */
+export const isNative = (surface: Surface, id: string): boolean => !!surface.layout?.native?.params.includes(id as never);
 
 /** The default value of every parameter. The app's initial state, before Live replies. */
 export function defaults<P extends Record<string, ParamSpec>>(surface: Surface<P>): { [K in keyof P]: ParamValue<P[K]> } {
