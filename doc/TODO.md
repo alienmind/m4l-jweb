@@ -15,10 +15,11 @@ not one device's business logic.
 - **What has already shipped is at the [END of this file](#shipped)**, with what each one
   cost to get right. This half is what is still open.
 
-**NEXT UP: the three P1 unblocks in the table below (#4-6)** - a mono-fold bug, a
-one-line `export`, and a dead outlet in the window API. They are small, and each one is
-blocking a `m4l-strudel` device *right now*. The marquee feature (the `instrument`
-chain's polyphony) is real work but blocks nobody waiting, so it comes after them.
+**NEXT UP: the `instrument` chain's polyphony (item 1 below).** The three P1 unblocks
+(#4-6) - a mono-fold bug, a one-line `export`, and a dead outlet in the window API - are
+DONE: #5 and #6 shipped and #6 is verified in Live (a floating window now reads and
+writes the device's state, both ways); #4's fold is written and passes the codegen tests
+but still wants a mono WAV played in Live to close. See [Shipped](#shipped).
 
 ---
 
@@ -39,9 +40,9 @@ its **#**.
 | 1 | — | Drum map + FX line surviving the set | state persistence | **shipped, taken** |
 | 2 | — | Downloading samples | fetch-to-disk | **shipped, taken** |
 | 3 | — | Previewing samples through the track | the `samples` chain | **shipped, taken** |
-| 4 | **P1** | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **BUG.** `groove~ <buf> 2` hard-wires its two outlets to L/R, so a mono file plays in one ear (and most of tidal-drum-machines is mono). Fix in the chain, not the app: fold outlet 0 to both sides when mono - `loadSample()` already resolves the channel count. |
-| 5 | **P1** | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **declared, not exported.** `m4l-strudel` carries a copy (the one with the `set`-silences-the-outlet fix). One line to export. |
-| 6 | **P1** | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **UNUSABLE.** The window's `[jweb]` outlet is wired to nothing, so its page can display but never send a message. `hello-window` (static text) is the only page that works as built. |
+| 4 | **P1** | A mono sample in both ears, not one | `samples` to fold a mono buffer to both channels | **fixed, pending Live.** A runtime gate (`[selector~ 2]` driven by the slot's measured channel count) folds `groove~` outlet 0 to R for a mono file. Passes the codegen tests; still wants a mono WAV played in Live to close. |
+| 5 | **P1** | A device-specific chain that drives DSP from a parameter | `fanParamInto()` exported from `@m4l-jweb/build/chains` | **shipped.** One-line `export`, pinned by a contract test. `m4l-strudel` can delete its copy. |
+| 6 | **P1** | An editor in a floating window (drum map, browser) | a route from the window's `[jweb]` back to `[js]`, and access to its state | **shipped, verified in Live.** The window's `[jweb]` is tagged and routed back to `[js]`; a window reads and writes the device's shared state, and edits broadcast to every view. |
 | 7 | P2 | `.room() .delay() .crush() .hpf()` | the rack + the neutrality contract (item 2) | open |
 | 8 | P2 | `.lpf(sine.range(200, 2000))` | modulation (item 3) | open |
 | 9 | P2 | A Strudel **instrument** (WebAudio into MSP) | the native audio bridge | hard, and possibly never |
@@ -249,6 +250,28 @@ item.
 Kept, rather than deleted, for one reason: **each of these was broken in a way that
 produced no error**, and the note says what the fix actually was. The full account of
 what Max does is ARCHITECTURE.md; this is the index into it.
+
+### ~~Floating window that talks back~~ (#6) - SHIPPED, verified in Live
+The window's `[jweb]` outlet used to go nowhere - a page could display but never
+send. Its output is now tagged `window <id> ...` inside the subpatcher and routed to
+`[js]`; the wrapper's `window()` dispatches the inner selector through the same
+handlers, with `reply()` sending answers back to the asking window BY NAME
+(`messnamed`) - a window has no cord from `[js]`. So a window reads and writes the
+device's persisted state (the shared `[dict]`), and `sync_state` broadcasts each edit
+to every OTHER view, so the device UI and any window stay in sync live.
+
+**One trap, silent, in Live only:** `reply()` first used `outlet.apply`/`messnamed.apply`.
+Those are Max HOST functions and `.apply` on them is not reliable - it failed silently
+and took the whole `ui_ready` handshake with it (the header read `wrapper -` and no
+state arrived). Every reply is one selector and one value, so `reply()` takes a fixed
+`(selector, value)`. The Node mock supports `.apply`, so the suite could not catch it;
+`tests/wrapper-max.test.mjs` now pins the routing instead. `hello-window` demonstrates
+it: a persisted note the window edits and the device view reads back.
+
+### ~~`fanParamInto()` exported~~ (#5) - SHIPPED
+`@m4l-jweb/build/chains` now exports it, so a device's own chain wires a parameter into
+DSP with the `set`-silences-the-outlet fix already in it, instead of carrying a copy.
+Pinned by a contract test in `tests/chains.test.mjs`.
 
 ### ~~Fetch-to-disk~~ - SHIPPED, verified in Live
 `fetchToFile(url, path)` + the `download` chain + `[maxurl]`.
