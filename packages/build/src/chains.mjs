@@ -709,6 +709,136 @@ function samplesChain(ctx) {
   }
 }
 
+/**
+ * "delay" - a feedback delay, sent from a dry/wet knob: `.delay()`, `.delaytime()`
+ * and `.delayfeedback()` mapped straight onto Max's delay line.
+ *
+ *   dry -->[+~ fbsum]-->[tapin~ 2000]-->[tapout~ 250]--+--> wet
+ *           ^                                          |
+ *           +----------[*~ feedback]<-----------------+
+ *   out = dry + delay * wet
+ *
+ * SEND-STYLE, WHICH IS WHAT MAKES IT NEUTRAL. The dry input reaches the output
+ * summing [+~] at UNITY, untouched; the delayed signal is scaled by the `delay`
+ * mix and added on top. At `delay` = 0 the wet [*~] contributes exactly 0.0, so the
+ * output is bit-for-bit the input - a straight wire, which is the neutrality
+ * contract this chain declares in CHAIN_NEUTRAL below. That is the whole reason a
+ * wet path is SUMMED rather than crossfaded: `dry + 0` is identity, `dry*1 + wet*0`
+ * is too but invites a `1 - mix` no one can null-test by eye.
+ *
+ * tapin~/tapout~, per Max's reference (read on disk, not remembered): tapin~ writes
+ * a signal into a delay line; tapout~ reads it back, and the connection between them
+ * is NOT a signal cord - it is the delay-line link. tapout~'s inlet 0 takes BOTH
+ * that link and the delay time (a float in ms), the same way groove~'s left inlet
+ * takes a signal and messages at once. `tapin~ 2000` sizes the line to the top of
+ * `delaytime`'s range; a delay time past the max is silently clamped, so the max is
+ * a real limit, not decoration.
+ *
+ * Feedback closes the loop THROUGH a [+~] before tapin~, so the delayed signal is
+ * re-injected with the dry input rather than replacing it. At `delayfeedback` = 0
+ * the loop gain is 0 and you get a single echo.
+ *
+ * Requires `delay`, `delaytime`, `delayfeedback` in the device's surface (or point
+ * the chain at other names with `delayParam` / `delaytimeParam` /
+ * `delayfeedbackParam`). All in REAL units: the mix and feedback are 0-1, the time
+ * is in ms - the chain does no arithmetic on any of them.
+ */
+function delayChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const mixParam = requireParam(ctx, "delay", device?.delayParam ?? "delay", "delayParam");
+  const timeParam = requireParam(ctx, "delay", device?.delaytimeParam ?? "delaytime", "delaytimeParam");
+  const fbParam = requireParam(ctx, "delay", device?.delayfeedbackParam ?? "delayfeedback", "delayfeedbackParam");
+
+  for (const [ch, s] of [
+    [0, "l"],
+    [1, "r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const fbsum = `obj-delay-fbsum-${s}`;
+    const tin = `obj-delay-tapin-${s}`;
+    const tout = `obj-delay-tapout-${s}`;
+    const fb = `obj-delay-fb-${s}`;
+    const wet = `obj-delay-wet-${s}`;
+    const mix = `obj-delay-mix-${s}`;
+
+    boxes.push(box(fbsum, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(tin, "tapin~ 2000", { numinlets: 1, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(tout, "tapout~ 250", { numinlets: 1, numoutlets: 1, outlettype: ["signal"] }));
+    // A float, not int - the feedback and wet gains start at 0.0 so the stage is a
+    // wire until its parameters load, and the right inlets stay in float mode.
+    boxes.push(box(fb, "*~ 0.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(wet, "*~ 0.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(mix, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+
+    // dry (+ feedback) into the delay line
+    lines.push(line(srcId, srcOut, fbsum, 0));
+    lines.push(line(fb, 0, fbsum, 1));
+    lines.push(line(fbsum, 0, tin, 0));
+    lines.push(line(tin, 0, tout, 0)); // the delay-line link, not a signal cord
+    fanParamInto(ctx, timeParam, tout, 0); // delay time, ms, into tapout~'s inlet
+
+    // feedback loop: the tap, scaled, back to the sum
+    lines.push(line(tout, 0, fb, 0));
+    fanParamInto(ctx, fbParam, fb, 1);
+
+    // the send: dry at unity + the tap scaled by `delay`
+    lines.push(line(tout, 0, wet, 0));
+    fanParamInto(ctx, mixParam, wet, 1);
+    lines.push(line(srcId, srcOut, mix, 0));
+    lines.push(line(wet, 0, mix, 1));
+    ctx.setAudioOut(ch, mix, 0);
+  }
+}
+
+/**
+ * "reverb" - `cverb~` sent from a dry/wet knob (`.room()`).
+ *
+ *   dry --+--------------------> [+~ mix] --> out
+ *         |                        ^
+ *         +-->[cverb~]-->[*~ room]-+
+ *
+ * cverb~ SHIPS INSIDE LIVE (`resources/externals/m4l/cverb~.mxe64`, checked on disk)
+ * and is MONAURAL and WET-ONLY: its output is pure reverberation, no dry component.
+ * A wet-only object dropped straight in the path is a colouration you cannot switch
+ * off - the exact trap the neutrality contract exists to forbid. So the dry/wet is a
+ * property of THIS chain, not something a device is trusted to remember: the dry
+ * signal reaches the output [+~] at unity, and the reverb is scaled by `room` and
+ * summed on top. At `room` = 0 the wet [*~] is 0.0 and the output is the input,
+ * bit-for-bit (CHAIN_NEUTRAL below).
+ *
+ * Mono, so one cverb~ per channel. The reverb TIME is fixed at the object's argument
+ * - the `fx` surface exposes only the send (`room`), not a time - so there is no
+ * parameter for it; add one and fan it into inlet 1 (signal/float, reverb time in
+ * ms, per the reference) if a device wants it.
+ *
+ * Requires `room` in the device's surface (or `roomParam`), 0-1.
+ */
+function reverbChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const mixParam = requireParam(ctx, "reverb", device?.roomParam ?? "room", "roomParam");
+
+  for (const [ch, s] of [
+    [0, "l"],
+    [1, "r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const rv = `obj-reverb-cverb-${s}`;
+    const wet = `obj-reverb-wet-${s}`;
+    const mix = `obj-reverb-mix-${s}`;
+
+    boxes.push(box(rv, "cverb~ 2000.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(wet, "*~ 0.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(mix, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+
+    lines.push(line(srcId, srcOut, rv, 0));
+    lines.push(line(rv, 0, wet, 0));
+    fanParamInto(ctx, mixParam, wet, 1);
+    lines.push(line(srcId, srcOut, mix, 0)); // dry at unity
+    lines.push(line(wet, 0, mix, 1)); // + reverb scaled by `room`
+    ctx.setAudioOut(ch, mix, 0);
+  }
+}
+
 export const CHAINS = {
   midiin: midiInChain,
   samples: samplesChain,
@@ -717,8 +847,42 @@ export const CHAINS = {
   gain: gainChain,
   lowpass: lowpassChain,
   drive: driveChain,
+  delay: delayChain,
+  reverb: reverbChain,
   download: downloadChain,
 };
+
+/**
+ * The NEUTRALITY CONTRACT: the parameter value at which each stage is a straight
+ * wire - identical input and output samples.
+ *
+ * The DSP graph is written at BUILD time and every stage is ALWAYS in the signal
+ * path, including the ones a device's line never mentions. That is only safe if each
+ * stage has a setting where it does nothing, and if the library can say what it is.
+ * Two kinds of stage reach neutral two ways:
+ *
+ *   naturally transparent - `gain` (1.0), `lowpass` (18 kHz, nothing left to remove),
+ *     `drive` (1x): the DSP object itself is a wire at that value.
+ *   send-style wet/dry - `delay` (0), `reverb` (0): the wet branch is scaled to 0.0
+ *     and summed onto an untouched dry path, so the output is `dry + 0`. A WET-ONLY
+ *     object (cverb~) has NO neutral of its own - it must carry this dry/wet, which
+ *     is why it is a property of the chain and pinned here, not left to a device.
+ *
+ * `tests/neutrality.test.mjs` null-tests the send-style stages structurally (the dry
+ * wire survives at unity and the only other path is gain-0), which is what can be
+ * proven with no Max in the loop; the bit-exact acoustic check is a listening test,
+ * the same standing as hello-audio.
+ */
+export const CHAIN_NEUTRAL = {
+  gain: { gain: 1 },
+  lowpass: { cutoff: 18000 },
+  drive: { drive: 1 },
+  delay: { delay: 0 },
+  reverb: { room: 0 },
+};
+
+/** The send-style chains: wet-only or naturally additive, neutral by a 0 mix they own. */
+export const WET_DRY_CHAINS = ["delay", "reverb"];
 
 /** Add a chain to the vocabulary. Called before generatePatchers(). */
 export function registerChain(name, fn) {

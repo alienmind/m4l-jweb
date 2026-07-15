@@ -13,6 +13,13 @@
  *                               it computes WHEN, Max places it precisely.
  *                 "lowpass"     onepole~ in the signal path, on a `cutoff` param.
  *                 "gain"        *~ in the signal path, on a `gain` param.
+ *                 "delay"       feedback delay sent from a dry/wet knob: `delay`,
+ *                               `delaytime`, `delayfeedback`. Neutral (a wire) at
+ *                               delay = 0 - the dry path is untouched, the tap is
+ *                               summed on top.
+ *                 "reverb"      cverb~ (ships in Live) sent from a `room` knob.
+ *                               Wet-only, so the dry/wet is the chain's own;
+ *                               neutral at room = 0.
  *                 "passthrough" nothing at all - an audio effect that passes its
  *                               input through untouched.
  *
