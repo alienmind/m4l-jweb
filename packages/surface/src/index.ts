@@ -206,6 +206,15 @@ export interface NativeLayout<K extends string = string> {
    * `live.dial` needs a 56 px pitch, so only 3 fit vertically.
    */
   rows?: number;
+  /**
+   * LAYERED "two screens" instead of side-by-side. When true, `[jweb]` is built
+   * full-width and the dials OVERLAP its left, and the app flips between them with
+   * `useNativePanel` (hide one layer, show the other) - because runtime reposition
+   * of native objects does not work in a frozen M4L device, only hide/show does.
+   * When false (the default), the dials sit BESIDE a right-shifted `[jweb]`, both
+   * visible at once.
+   */
+  panel?: boolean;
 }
 
 /**
