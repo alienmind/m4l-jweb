@@ -376,61 +376,32 @@ export function applySurface(ctx) {
 /**
  * Runtime show/hide of native dials - the `layout.native` visibility override.
  *
+ * `layout.native` makes a parameter a native `live.*` object, and its presentation
+ * is STATIC: `presentation: 1` is stamped into the .amxd at build time, so every
+ * listed dial is always visible. A device like the fx line wants the opposite - a
+ * stage the current line does not name should not clutter the view, the way its old
+ * HTML slider was simply not rendered. React can hide a slider; a native object
+ * cannot hide itself, so the app drives it from outside via `native_show`/
+ * `native_hide <varname>` (useNativeVisibility).
+ *
  * ------------------------------------------------------------------------------
- * WHY THIS EXISTS. `layout.native` makes a parameter a native `live.*` object, and
- * its presentation is STATIC: `presentation: 1` is stamped into the .amxd at build
- * time, so every listed dial is always visible. A device like the fx line wants the
- * opposite - a stage the current line does not name should not clutter the view, the
- * way its old HTML slider was simply not rendered. React can hide a slider; a native
- * object cannot hide itself.
+ * THIS IS A SPIKE, and its FIRST mechanism already FAILED IN LIVE.
  *
- * So the app drives it from outside: it sends `native_show <varname>` /
- * `native_hide <varname>`, and a `[thispatcher]` runs `script show`/`script hide` on
- * the object by its SCRIPTING NAME (`param-<id>`, the varname applySurface() gave it).
- * The parameter is untouched - a hidden dial still automates, MIDI-maps and reaches
- * Push; only its visibility in the device view changes.
+ * Attempt 1 (this codegen, now retired): a `[thispatcher]` running `script hide
+ * <varname>`. Verified in Live - the dials did NOT disappear. `script hide` acts on
+ * the PATCHING canvas; the M4L device view is the PRESENTATION, and `script` has no
+ * documented reach into it.
  *
- * SPIKE, UNVERIFIED IN LIVE. Whether `script hide` removes a `live.dial` from the
- * M4L device PRESENTATION view (not just the patching view) is the whole open
- * question - `script` is documented against the patching canvas. Build it, test it in
- * Live. If hide does not reach the presentation, the fallback options, in order:
- *   1. `script move <name> <x> <y>` the object far off-screen (patching coords only,
- *      so this shares the same unknown);
- *   2. give the device BOTH a native dial and its old HTML control, and hide the
- *      native one's ROW by shrinking the native zone - a build-time choice, not
- *      runtime;
- *   3. the honest retreat: that device keeps HTML controls and does not adopt
- *      `layout.native` (native layout stays valid for always-visible surfaces).
+ * Attempt 2 (current): the wrapper's [js] handles `native_show`/`native_hide` and
+ * manipulates the object through the Maxobj API (`this.patcher.getnamed(varname)`),
+ * with console diagnostics. So this codegen no longer claims the messages - it lets
+ * them fall through to the wrapper. See `native_show`/`native_hide` in core.ts.
+ *
+ * If attempt 2 also fails to reach the presentation, the honest conclusion is that a
+ * frozen M4L device cannot hide a native object at runtime, and the fallback is a
+ * build-time choice (fewer native params, or a device keeps HTML controls).
  * ------------------------------------------------------------------------------
  */
-export function applyNativeControl(ctx) {
-  const { boxes, lines, surface } = ctx;
-  const native = surface?.layout?.native;
-  if (!native || native.params.length === 0) return;
-
-  // In series with every other claimant of the app's message stream (the Surface
-  // route, the windows route): take what they did not match, hand the rest on.
-  const routeId = "obj-native-route";
-  boxes.push(box(routeId, "route native_show native_hide", { numoutlets: 3, outlettype: ["", "", ""] }));
-  claimAppMessages(ctx, routeId, 2);
-
-  // [thispatcher] is the object that scripts the patcher it lives in. `script show`
-  // / `script hide` name the target by its scripting name.
-  const thisId = "obj-native-thispatcher";
-  boxes.push(box(thisId, "thispatcher", { numinlets: 1, numoutlets: 1, outlettype: [""] }));
-
-  // `route` STRIPS the selector, leaving the bare varname (`param-cutoff`). Re-wrap
-  // it as the scripting message and send it into [thispatcher].
-  for (const [outlet, verb] of [
-    [0, "show"],
-    [1, "hide"],
-  ]) {
-    const prepId = `obj-native-${verb}`;
-    boxes.push(box(prepId, `prepend script ${verb}`));
-    lines.push(line(routeId, outlet, prepId, 0));
-    lines.push(line(prepId, 0, thisId, 0));
-  }
-}
 
 /**
  * Compile a declared `window` into the patcher: a subpatcher holding its own
