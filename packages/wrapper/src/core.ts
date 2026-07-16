@@ -205,6 +205,48 @@ function broadcastState(id: string, json: string): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Native dial visibility (layout.native runtime show/hide) - SPIKE
+ *
+ * The app (useNativeVisibility) sends `native_show`/`native_hide <varname>` to hide a
+ * native `live.*` object the current state does not use - the dynamic visibility a
+ * static `presentation` attribute cannot give. We reach the object through the Maxobj
+ * API (`this.patcher.getnamed`, the same `this.patcher` deviceFolder() uses) and set
+ * its `hidden` flag, LOGGING what we find.
+ *
+ * The open question, and the whole point of the spike: whether `hidden` (or anything
+ * reachable from here) makes a native object leave the M4L device PRESENTATION view
+ * at runtime. A first attempt - a `[thispatcher]` running `script hide` - was tried
+ * and did NOT work (script acts on the patching canvas, not the presentation). If
+ * this one also fails, a frozen M4L device cannot hide a native object at runtime and
+ * the fallback is a build-time choice. Watch the Max console for the lines below.
+ * ------------------------------------------------------------------ */
+
+function native_show(varname: string): void {
+  setNativeHidden(varname, 0);
+}
+function native_hide(varname: string): void {
+  setNativeHidden(varname, 1);
+}
+
+function setNativeHidden(varname: string, hidden: number): void {
+  try {
+    // `this.patcher` is the device patcher (Max's global object IS the jsthis, so a
+    // plainly-called function still sees it - deviceFolder() relies on the same).
+    var obj = this.patcher.getnamed(varname);
+    if (!obj) {
+      post("m4l-jweb: native " + varname + " -> getnamed() null (no such scripting name)\n");
+      return;
+    }
+    // `hidden` is the documented Maxobj visibility toggle. Whether it reaches the
+    // PRESENTATION view is exactly what this spike measures.
+    obj.hidden = hidden;
+    post("m4l-jweb: native " + (hidden ? "hide" : "show") + " " + varname + " (maxclass " + obj.maxclass + ", hidden now " + obj.hidden + ")\n");
+  } catch (e) {
+    post("m4l-jweb: native " + varname + " error: " + (e as Error).message + "\n");
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Floating-window messages
  *
  * A window's page uses the ORDINARY bridge (`outlet(sel, ...)`), so it emits bare
