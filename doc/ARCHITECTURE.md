@@ -406,6 +406,49 @@ parameters is what makes Push work at all. (The dev harness's Push preview alrea
 renders the declared banks; only Live does not read them yet.) Sequence in
 [TODO.md](TODO.md).
 
+## Native layout: dials in the device view, and the two-screen panel
+
+The same declaration that puts a parameter on Push can also make it VISIBLE in the
+device view as a native `live.*` object. `surface.ts` says which:
+
+```ts
+layout: { native: { params: ["cutoff", "gain"], rows: 2, panel: true, switch: "back" } }
+```
+
+The dials the compiler already generates are invisible today only because they carry no
+`presentation` attribute. So `layout.native` is a presentation OVERLAY on codegen that
+already exists - `computeNativeSlots()` fills a column-major grid and stamps
+`presentation: 1` + a `presentation_rect` + a `param-<id>` scripting name onto the listed
+boxes. **No wiring changes:** the fan-out, the `set_<id>` route and `useParam()` are
+untouched. A native dial is the same parameter with the same graph, now drawn by Max.
+
+The `button` kind (`live.text`, toggle mode) belongs here too: a labelled button where a
+`live.toggle` is a mute square. Same 0/1 value; `text`/`texton` carries the label.
+
+### Why it is TWO SCREENS, not a reflow
+
+The obvious design - a narrow `[jweb]` beside always-visible dials, dials appearing and
+disappearing and repacking with the device state - **is not buildable**, because a frozen
+M4L device cannot reposition a native object at runtime (see "A native object's
+visibility and position at runtime" in the measured facts). It CAN hide and show them. So:
+
+- `layout.native.panel` builds `[jweb]` FULL-WIDTH with the dials layered over its left.
+- `useNativePanel(surface)` flips between two screens by hiding one layer: **web mode**
+  shows `[jweb]` and hides every dial (the app's own UI); **native mode** hides `[jweb]`
+  and shows every dial (a control panel). Only one layer is ever visible, so their
+  overlap and z-order never matter.
+- `layout.native.switch` is the view toggle - pinned top-right (over where the web UI
+  paints its own switch button) and OUT of the dial grid, shown in the panel as the way
+  back, since the web UI is hidden there.
+
+The app sends `native_show`/`native_hide <varname>`; the wrapper's `setNativeHidden()`
+does `this.patcher.getnamed(varname).hidden = ...`. That one Maxobj call is the whole
+runtime mechanism - the rest is layout arithmetic done at build time.
+
+`m4l-strudel`'s fx device is the first consumer: its seven dials are the panel, and its
+"Back" `button` the switch. Automation, MIDI-map and Push work on the native dials
+exactly as on any factory device.
+
 ## State: the JSON a parameter cannot hold
 
 A parameter is a number. Live automates it, Push shows it, and an automation lane can
@@ -914,34 +957,40 @@ pnpm workspace, consumed by the device repo at the root, published to npm);
 `m4l-jweb init` with a drift test; one bundle per device; the mocked-Live harness;
 the library-owned selector contracts; **the Surface** (parameters declared once and
 generated into objects, wiring, selectors, hooks and mocks - confirmed in Live, on a
-Push); and **composable audio chains** (the build owns `plugin~`/`plugout~`, a chain
-claims a stage, and the order of the list is the signal path - confirmed by ear).
+Push); **composable audio chains** (the build owns `plugin~`/`plugout~`, a chain
+claims a stage, and the order of the list is the signal path - confirmed by ear);
+**fetch-to-disk** (the last `[node.script]` deleted); **`buffer~`/`poly~` sample
+playback** (the `samples` and `instrument` chains - the latter's polyphony confirmed in
+Live); and **native layout** (`layout.native` dials in the device view, and the
+two-screen panel - see the section above, verified in Live).
 
 **Every Stage 1 spike has been run, in Live** - `set` semantics, `[buffer~]` driven
 from `[js]`, and `[maxurl]` streaming a URL to disk, including both of its failure
 modes. What they measured is at the end of this document. Nothing downstream is gated
 on an unknown any more.
 
-**What remains:**
+**What remains** (in priority order, detailed in [TODO.md](TODO.md)):
 
-- **Fetch-to-disk, which deletes `[node.script]`** - the least reliable
-  infrastructure in the project, replaced by Max-native objects alone.
-- **`buffer~`/`poly~` sample playback** - instrument devices, and the route to the
-  first device here that makes sound from samples.
-- **Push banks.** Needs patcher-JSON archaeology. Parameters reach Push without
-  them; banks make the pages read like a performance surface.
-- **Modulating a parameter**, gated on one cheap spike: Live parameters have a value
-  *and* a modulation amount, and only value is modelled today.
-- **Port a real device onto the template** as the proof. The pattern came out of a
-  working Strudel device; folding that back onto the packages is what will find the
-  leaks.
-- **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
-  Nobody has checked.
+- **Spike R1: the dynamic rack.** Can a device create real Ableton devices next to
+  itself (`live_app browser` / `load_item`)? An afternoon, falsifiable; decides whether
+  Translate mode exists or falls back to "adopt, don't create".
+- **Modulating a parameter** - the `remote` chain. Live parameters have a value *and* a
+  modulation amount, and only value is modelled today; `live.remote~` per slot,
+  signal-rate.
+- **The `state()` default seed** - a fresh instance's dict is empty, so `default` is a
+  lie until first write. A dict-embed spike, then a test that the pattr restore beats the
+  seed.
+- **Push banks.** Needs patcher-JSON archaeology. Parameters reach Push without them;
+  banks make the pages read like a performance surface.
+- **Installers copy `presets/`** - the small step that lets a consumer ship a rack
+  preset as its front door.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
   every DAW instead of only Live. Assessed in
-  **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of this architecture is not
-  actually about Max, but the LiveAPI wrapper does not port and the headless build is
-  the price. Not started.
+  **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of this architecture is not actually
+  about Max, but the LiveAPI wrapper does not port and the headless build is the price.
+  Not started.
+- **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
+  Nobody has checked.
 
 
 ---
@@ -979,6 +1028,29 @@ found the hard way, in a shipped device whose filter never moved.
 A `parameter_enable`d dial also reaches Push with **no extra wiring at all**, in both
 directions, named from `parameter_shortname`. "Generated parameters get Push and MIDI
 mapping for free" is confirmed on hardware, not assumed.
+
+### A native object's visibility and position at runtime
+
+**Measured in Live, on a frozen M4L device: `obj.hidden` WORKS; `obj.presentation_rect`
+does NOT.** Both reached from `[js]` as `this.patcher.getnamed("<varname>")` (Max's
+global object IS the jsthis, so a plainly-called wrapper function sees `this.patcher`).
+
+- Setting `.hidden = 1 / 0` hides and shows the object in the DEVICE (presentation)
+  view - a `live.dial`, a `live.text`, the whole `[jweb]`, all of them. Confirmed: the
+  dials a fx line names stay while the rest vanish; the entire `[jweb]` can be hidden to
+  reveal native objects beneath it.
+- Setting `.presentation_rect = [x, y, w, h]` is ACCEPTED - reading it back returns the
+  new value - but is **never redrawn**. The object does not move or resize, even after
+  toggling its visibility (the obvious thing to try: a presentation object might re-read
+  its rect on a visibility change - it does not). A `[thispatcher]` `script hide`/`script
+  move` attempt failed the same way, because `script` acts on the PATCHING canvas, not
+  the presentation.
+
+So a device view can HIDE and SHOW native objects at will, but their LAYOUT is fixed at
+build time. That is the whole reason the fx device is TWO SCREENS layered and flipped
+with hide/show, rather than one view that reflows its dials (see "Native layout" above).
+A reflow API (`useNativeLayout` / a `native_rect` wrapper handler) was built, measured to
+not work, and removed rather than shipped.
 
 ### `[pattr]`: what actually saves into the Live SET
 
