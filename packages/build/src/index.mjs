@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
-import { applySurface, applyWindows, applyPersistence, loadSurface, surfaceContext } from "./surface.mjs";
+import { applySurface, applyNativeControl, applyWindows, applyPersistence, loadSurface, surfaceContext } from "./surface.mjs";
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -213,6 +213,7 @@ export function composePatcher(base, d, surface) {
   }
 
   applySurface(ctx);
+  applyNativeControl(ctx);
   applyWindows(ctx);
   applyPersistence(ctx);
   closeAudio(ctx);
