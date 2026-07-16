@@ -348,6 +348,10 @@ export function applySurface(ctx) {
     if (jweb) {
       const [, py, pw, ph] = jweb.presentation_rect ?? [0, 0, 420, DEVICE_H];
       jweb.presentation_rect = [nativeW, py, pw, ph];
+      // Give [jweb] a scripting name so the wrapper can reposition it at runtime
+      // (useNativeLayout grows it left as dials hide). Must equal JWEB_VARNAME in
+      // @m4l-jweb/surface - the one string the app and this codegen must agree on.
+      jweb.varname = "obj-jweb";
     }
   }
 

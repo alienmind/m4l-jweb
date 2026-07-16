@@ -237,12 +237,35 @@ function setNativeHidden(varname: string, hidden: number): void {
       post("m4l-jweb: native " + varname + " -> getnamed() null (no such scripting name)\n");
       return;
     }
-    // `hidden` is the documented Maxobj visibility toggle. Whether it reaches the
-    // PRESENTATION view is exactly what this spike measures.
+    // `hidden` is the documented Maxobj visibility toggle. CONFIRMED in Live: it
+    // reaches the M4L PRESENTATION view, so a native dial the state does not use
+    // vanishes from the device view.
     obj.hidden = hidden;
-    post("m4l-jweb: native " + (hidden ? "hide" : "show") + " " + varname + " (maxclass " + obj.maxclass + ", hidden now " + obj.hidden + ")\n");
   } catch (e) {
     post("m4l-jweb: native " + varname + " error: " + (e as Error).message + "\n");
+  }
+}
+
+/**
+ * Move/resize a native object in the presentation view: `native_rect <varname> <x>
+ * <y> <w> <h>`. This is what lets the app REFLOW the visible dials (pack them with no
+ * gaps) and grow [jweb] into the reclaimed space (see useNativeLayout).
+ *
+ * SPIKE: whether `presentation_rect` is settable on a Maxobj at runtime in the M4L
+ * presentation view is the open question. `hidden` proved to work; this reads the
+ * value back and logs it, so the console says whether it took.
+ */
+function native_rect(varname: string, x: number, y: number, w: number, h: number): void {
+  try {
+    var obj = this.patcher.getnamed(varname);
+    if (!obj) {
+      post("m4l-jweb: native_rect " + varname + " -> getnamed() null\n");
+      return;
+    }
+    obj.presentation_rect = [x, y, w, h];
+    post("m4l-jweb: native_rect " + varname + " -> [" + x + " " + y + " " + w + " " + h + "] (now " + obj.presentation_rect + ")\n");
+  } catch (e) {
+    post("m4l-jweb: native_rect " + varname + " error: " + (e as Error).message + "\n");
   }
 }
 
