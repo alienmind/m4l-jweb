@@ -68,6 +68,29 @@ export function useWindow<
 }
 
 /**
+ * Show or hide a NATIVE dial in the device view at runtime.
+ *
+ * `layout.native` makes a parameter a native `live.*` object, but its presentation
+ * is STATIC - the dial is always visible. This is the runtime override: the app says
+ * which native params should be shown, and a `[thispatcher]` runs `script show`/
+ * `script hide` on the object by its scripting name (`param-<id>`, see
+ * `applyNativeControl` in @m4l-jweb/build). The parameter itself is untouched - a
+ * hidden dial still automates, MIDI-maps and reaches Push; only visibility changes.
+ *
+ * Returns a stable `(id, visible) => void`. Drive it from an effect that mirrors the
+ * app's own "which stages are active" state, e.g. `useEffect` over the shown set.
+ */
+export function useNativeVisibility<P extends Record<string, ParamSpec>>(
+  _surface: Surface<P>,
+): (id: Extract<keyof P, string>, visible: boolean) => void {
+  return useCallback((id: Extract<keyof P, string>, visible: boolean) => {
+    // The varname applySurface() gave the object is `param-<id>`. Keep this prefix
+    // in step with that codegen - it is the one string both sides must agree on.
+    outlet(visible ? "native_show" : "native_hide", `param-${id}`);
+  }, []);
+}
+
+/**
  * A two-way binding to a JSON state slot, persisted in the Live SET.
  *
  * `[value, setValue]`, like useState - except the value survives saving, closing

@@ -404,6 +404,31 @@ test("REGRESSION: a surface with no layout leaves the objects and [jweb] untouch
   expect(c.box("obj-jweb").presentation_rect).toEqual([0, 0, 420, 169]);
 });
 
+test("layout.native emits the runtime show/hide path: a route into [thispatcher]", () => {
+  // The visibility override (useNativeVisibility): the app sends `native_show`/
+  // `native_hide <varname>`, and [thispatcher] runs `script show`/`script hide` on
+  // the object by its scripting name. Wired in SERIES off the app stream, like the
+  // Surface route and the windows route.
+  const c = compile(fxLike());
+  expect(c.box("obj-native-route").text).toBe("route native_show native_hide");
+  expect(c.box("obj-native-thispatcher").text).toBe("thispatcher");
+  expect(c.box("obj-native-show").text).toBe("prepend script show");
+  expect(c.box("obj-native-hide").text).toBe("prepend script hide");
+  // show off outlet 0, hide off outlet 1, each through its prepend into thispatcher.
+  expect(c.cords).toContainEqual({ src: "obj-native-route", out: 0, dst: "obj-native-show", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-native-route", out: 1, dst: "obj-native-hide", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-native-show", out: 0, dst: "obj-native-thispatcher", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-native-hide", out: 0, dst: "obj-native-thispatcher", in: 0 });
+  // ...and the route's unmatched outlet still carries everything else to the wrapper.
+  expect(c.cords).toContainEqual({ src: "obj-native-route", out: 2, dst: "obj-js", in: 0 });
+});
+
+test("a surface with no native layout emits no thispatcher control path", () => {
+  const c = compile(oneDial);
+  expect(c.box("obj-native-route")).toBeUndefined();
+  expect(c.box("obj-native-thispatcher")).toBeUndefined();
+});
+
 /* ------------------------------------------------------------------ *
  * Windows and Persistence
  * ------------------------------------------------------------------ */
