@@ -22,7 +22,19 @@ says, and it unblocks `m4l-strudel`'s pattern modulation.
 
 # What comes next (priority order)
 
-## 1. Spike R1: the dynamic rack - hand the graph to Live  ← **NEXT, spike-gated**
+## 0. `hpf` and `crush` chains  ← **LOW-HANGING FRUIT, DO FIRST**
+
+The cheap siblings of chains that already ship, and the only two effects `m4l-strudel`'s
+fx device still refuses. Add both to `packages/build/src/chains.mjs`, neutral at rest
+(frozen-graph law), pinned by `tests/neutrality.test.mjs`:
+
+- **`hpf`** - a high-pass next to `lowpass`, neutral (a wire) at 0 Hz.
+- **`crush`** - bit/rate reduction (`degrade~`/`downsamp~`), neutral at full bit depth.
+
+Then `m4l-strudel` declares the two params and drops them from its "refused" list. Small
+and self-contained; do it before the spike-gated work.
+
+## 1. Spike R1: the dynamic rack - hand the graph to Live  ← **spike-gated**
 
 > [!WARNING]
 > **DO NOT build the reconciler (2B) until this spike has run.**
