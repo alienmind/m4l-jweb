@@ -153,32 +153,29 @@ export function useNativeLayout<P extends Record<string, ParamSpec>>(
  * a frozen M4L device (measured: `presentation_rect` writes are stored but never
  * redrawn), but `hidden` DOES. So instead of reflowing dials, we layer them:
  *
- *   "web"    - show [jweb] (full width), hide every native dial. The React UI.
- *   "native" - hide [jweb], show every native dial. A control panel.
+ *   "web"    - show [jweb] (full width), hide every native dial and the switch. The
+ *              web UI paints its own switch button; the native one would only fight
+ *              it for the same top-right spot.
+ *   "native" - hide [jweb], show every native dial AND the switch - which is the way
+ *              back, since the web UI is hidden here.
  *
- * `keep` names native params that stay visible in BOTH modes - the switch back from
- * native mode has to be a native control, since the web UI is hidden there.
- *
- * Only `hidden` is used, so this actually works where reflow could not.
+ * Only `hidden` is used, so this actually works where reflow could not, and no layer
+ * is ever visible at the same time as another - so z-order never matters.
  */
 export function useNativePanel<P extends Record<string, ParamSpec>>(
   surface: Surface<P>,
-  keep: readonly Extract<keyof P, string>[] = [],
 ): (mode: "web" | "native") => void {
-  const keepKey = keep.join(",");
   return useCallback(
     (mode: "web" | "native") => {
-      const all = (surface.layout?.native?.params ?? []) as readonly string[];
+      const native = surface.layout?.native;
+      if (!native) return;
       const web = mode === "web";
+      const toggle = (varname: string) => outlet(web ? "native_hide" : "native_show", varname);
       outlet(web ? "native_show" : "native_hide", JWEB_VARNAME);
-      for (const id of all) {
-        // A kept control (the switch back) is always shown; every other dial follows
-        // the mode - hidden under the web UI, shown in the native panel.
-        if (keepKey.split(",").indexOf(id) >= 0) outlet("native_show", `param-${id}`);
-        else outlet(web ? "native_hide" : "native_show", `param-${id}`);
-      }
+      for (const id of native.params as readonly string[]) toggle(`param-${id}`);
+      if (native.switch) toggle(`param-${native.switch}`);
     },
-    [surface, keepKey],
+    [surface],
   );
 }
 

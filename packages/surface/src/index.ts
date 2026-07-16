@@ -215,6 +215,14 @@ export interface NativeLayout<K extends string = string> {
    * visible at once.
    */
   panel?: boolean;
+  /**
+   * A parameter that is the VIEW SWITCH, not a grid dial: pinned to the top-right
+   * (over the web UI's own switch button, so the control stays in one place across
+   * both views), kept out of the `params` grid, and shown in both modes. Meant for a
+   * toggle in a `panel` layout - the way back from the native panel, since the web
+   * UI is hidden there.
+   */
+  switch?: K;
 }
 
 /**
@@ -311,6 +319,9 @@ export function defineSurface<
     }
     const rows = native.rows ?? 3;
     if (rows < 1 || rows > 3) throw new Error(`surface: layout.native.rows must be 1..3 - the device view is 169 px tall`);
+    if (native.switch !== undefined && !def.params[native.switch]) {
+      throw new Error(`surface: layout.native.switch names "${native.switch}", which is not a declared parameter`);
+    }
   }
 
   return { ...def, ids };

@@ -307,12 +307,26 @@ export function applySurface(ctx) {
   // Where the native dials go, if any were declared. `slots` is empty for a
   // surface with no `layout`, and then this whole feature is inert - a param
   // carries no presentation rect and stays the invisible object it is today.
+  const native = surface.layout?.native;
   const { slots, width: nativeW } = computeNativeSlots(surface);
+
+  // The view switch (panel layouts) is NOT a grid dial: it is pinned to the
+  // top-right, over where the web UI paints its own switch button, so the control
+  // stays in one place when the app flips between the two views. It is excluded from
+  // `computeNativeSlots` (it is not in `native.params`), so give it a rect here.
+  const switchId = native?.switch;
+  const jwebBox = boxes.find((b) => b.box.id === jwebId)?.box;
+  const [, , jpw] = jwebBox?.presentation_rect ?? [0, 0, 420, DEVICE_H];
+  let switchRect = null;
+  if (switchId) {
+    const [sw, sh] = NATIVE_SIZE[surface.params[switchId].kind];
+    switchRect = [jpw - sw - MARGIN, MARGIN, sw, sh];
+  }
 
   let x = 480;
   for (const id of surface.ids) {
     const spec = surface.params[id];
-    const rect = slots.get(id);
+    const rect = id === switchId ? switchRect : slots.get(id);
     boxes.push({
       box: {
         id: paramObject(id),
@@ -339,29 +353,24 @@ export function applySurface(ctx) {
     x += 56;
   }
 
-  // Shift [jweb] right by the native zone's width, so the dials sit to its left.
-  // WIDTH IS PRESERVED: the device gets wider, the web view does not get narrower
-  // (React layouts were built for 420 px). A surface with no native params has
-  // nativeW === 0 and leaves [jweb] exactly where the template put it.
-  if (nativeW > 0) {
-    const jweb = boxes.find((b) => b.box.id === jwebId)?.box;
-    if (jweb) {
-      const [, py, pw, ph] = jweb.presentation_rect ?? [0, 0, 420, DEVICE_H];
-      if (surface.layout.native.panel) {
-        // LAYERED two-screen: [jweb] covers the whole device and the dials overlap
-        // its left. The app shows one layer at a time (useNativePanel), so the
-        // overlap is never seen - and web mode fills the full width, no reserved
-        // strip. The frame is the wider of the web UI and the knob zone.
-        jweb.presentation_rect = [0, py, Math.max(pw, nativeW), ph];
-      } else {
-        // Side-by-side: the dials to the left, [jweb] shifted right, both visible.
-        jweb.presentation_rect = [nativeW, py, pw, ph];
-      }
-      // Give [jweb] a scripting name so the wrapper can hide/show it at runtime
-      // (useNativePanel). Must equal JWEB_VARNAME in @m4l-jweb/surface - the one
-      // string the app and this codegen must agree on.
-      jweb.varname = "obj-jweb";
+  // Position [jweb] for the native layout. WIDTH is preserved (React layouts were
+  // built for 420 px). A surface with no native content leaves [jweb] where the
+  // template put it.
+  if ((nativeW > 0 || switchId) && jwebBox) {
+    const [, py, pw, ph] = jwebBox.presentation_rect ?? [0, 0, 420, DEVICE_H];
+    if (native.panel) {
+      // LAYERED two-screen: [jweb] covers the whole device and the dials overlap its
+      // left. The app shows one layer at a time (useNativePanel), so the overlap is
+      // never seen - web mode fills the full width, no reserved strip.
+      jwebBox.presentation_rect = [0, py, Math.max(pw, nativeW), ph];
+    } else {
+      // Side-by-side: the dials to the left, [jweb] shifted right, both visible.
+      jwebBox.presentation_rect = [nativeW, py, pw, ph];
     }
+    // Give [jweb] a scripting name so the wrapper can hide/show it at runtime
+    // (useNativePanel). Must equal JWEB_VARNAME in @m4l-jweb/surface - the one string
+    // the app and this codegen must agree on.
+    jwebBox.varname = "obj-jweb";
   }
 
   // Write direction: one route for every `set_<id>` the app can send. It goes at
