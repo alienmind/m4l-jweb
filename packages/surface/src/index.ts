@@ -315,6 +315,62 @@ export function defineSurface<
  */
 export const isNative = (surface: Surface, id: string): boolean => !!surface.layout?.native?.params.includes(id as never);
 
+/**
+ * Native object sizes and layout metrics. Shared by the BUILD (the initial static
+ * layout, `computeNativeSlots` in @m4l-jweb/build) and the APP (runtime reflow,
+ * `computeNativeLayout` below). Keep the two in step - they encode the same grid.
+ */
+export const NATIVE_METRICS = {
+  /** The device view is a fixed ~169 px tall. */
+  deviceH: 169,
+  margin: 8,
+  /** A live.dial is 48 px tall and wants air beneath its label. */
+  pitchY: 56,
+  /** The web view is built for 420 px and keeps that as its natural width. */
+  jwebW: 420,
+  /** Per-kind native sizes, from Max's own live.* defaults. */
+  size: { dial: [44, 48], toggle: [44, 15], menu: [100, 15] } as Record<string, readonly [number, number]>,
+};
+
+/**
+ * The scripting name the build gives `[jweb]` when a surface declares native
+ * layout, so the app can reposition it at runtime (see `useNativeLayout`).
+ */
+export const JWEB_VARNAME = "obj-jweb";
+
+/**
+ * Column-major layout for a set of native params, computed at RUNTIME so the app
+ * can REFLOW the visible dials as the state changes - packing them top-left with no
+ * gaps where a hidden dial used to be. Mirrors the build's `computeNativeSlots`, but
+ * over an arbitrary `visible` subset rather than every declared param.
+ *
+ * Returns each id's `[x, y, w, h]` presentation rect and the zone's total width
+ * (how far `[jweb]` starts from the left).
+ */
+export function computeNativeLayout(
+  surface: { params: Record<string, ParamSpec>; layout?: { native?: NativeLayout } },
+  visible: readonly string[],
+  rows: number = surface.layout?.native?.rows ?? 3,
+): { rects: Record<string, [number, number, number, number]>; width: number } {
+  const { margin, pitchY, size } = NATIVE_METRICS;
+  const rects: Record<string, [number, number, number, number]> = {};
+  let row = 0;
+  let colW = 0;
+  let x = margin;
+  for (const id of visible) {
+    const [w, h] = size[surface.params[id].kind];
+    if (row >= rows) {
+      row = 0;
+      x += colW + margin;
+      colW = 0;
+    }
+    rects[id] = [x, margin + row * pitchY, w, h];
+    colW = Math.max(colW, w);
+    row += 1;
+  }
+  return { rects, width: visible.length ? x + colW + margin : 0 };
+}
+
 /** The default value of every parameter. The app's initial state, before Live replies. */
 export function defaults<P extends Record<string, ParamSpec>>(surface: Surface<P>): { [K in keyof P]: ParamValue<P[K]> } {
   const out = {} as { [K in keyof P]: ParamValue<P[K]> };
