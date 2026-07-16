@@ -347,10 +347,19 @@ export function applySurface(ctx) {
     const jweb = boxes.find((b) => b.box.id === jwebId)?.box;
     if (jweb) {
       const [, py, pw, ph] = jweb.presentation_rect ?? [0, 0, 420, DEVICE_H];
-      jweb.presentation_rect = [nativeW, py, pw, ph];
-      // Give [jweb] a scripting name so the wrapper can reposition it at runtime
-      // (useNativeLayout grows it left as dials hide). Must equal JWEB_VARNAME in
-      // @m4l-jweb/surface - the one string the app and this codegen must agree on.
+      if (surface.layout.native.panel) {
+        // LAYERED two-screen: [jweb] covers the whole device and the dials overlap
+        // its left. The app shows one layer at a time (useNativePanel), so the
+        // overlap is never seen - and web mode fills the full width, no reserved
+        // strip. The frame is the wider of the web UI and the knob zone.
+        jweb.presentation_rect = [0, py, Math.max(pw, nativeW), ph];
+      } else {
+        // Side-by-side: the dials to the left, [jweb] shifted right, both visible.
+        jweb.presentation_rect = [nativeW, py, pw, ph];
+      }
+      // Give [jweb] a scripting name so the wrapper can hide/show it at runtime
+      // (useNativePanel). Must equal JWEB_VARNAME in @m4l-jweb/surface - the one
+      // string the app and this codegen must agree on.
       jweb.varname = "obj-jweb";
     }
   }
