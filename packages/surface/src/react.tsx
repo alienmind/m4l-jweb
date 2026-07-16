@@ -19,7 +19,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { outlet } from "@m4l-jweb/bridge";
 import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, WindowSpec } from "./index";
-import { computeNativeLayout, JWEB_VARNAME, NATIVE_METRICS } from "./index";
+import { JWEB_VARNAME } from "./index";
 import { paramStore, stateStore } from "./store";
 
 /**
@@ -89,62 +89,6 @@ export function useNativeVisibility<P extends Record<string, ParamSpec>>(
     // in step with that codegen - it is the one string both sides must agree on.
     outlet(visible ? "native_show" : "native_hide", `param-${id}`);
   }, []);
-}
-
-/**
- * The whole native-layout runtime: show/hide AND REFLOW the native dials, and
- * resize `[jweb]` to reclaim the space, from one `visible` set.
- *
- * `useNativeVisibility` only hides; this also repacks. Given the ids that should be
- * shown (in display order), it: hides the rest, positions each visible dial in a
- * compact top-left grid (no gap where a hidden dial was), and grows `[jweb]` LEFT to
- * fill the reclaimed width - so the device frame stays a constant width and the web
- * UI gets the space back instead of a blank reserved zone.
- *
- * SPIKE: this rests on `presentation_rect` being settable on a Maxobj at runtime in
- * the M4L presentation view. `hidden` proved to work there; `presentation_rect` is
- * the same shape of bet. See `native_rect` in the wrapper.
- *
- * Drive it from an effect over the app's own "which stages are active" set.
- */
-export function useNativeLayout<P extends Record<string, ParamSpec>>(
-  surface: Surface<P>,
-): (visible: readonly Extract<keyof P, string>[]) => void {
-  return useCallback(
-    (visible: readonly Extract<keyof P, string>[]) => {
-      const native = surface.layout?.native;
-      if (!native) return;
-      const all = native.params as readonly string[];
-      const rows = native.rows ?? 3;
-      // The full zone (every native param shown) fixes the device frame's width, so
-      // hiding a dial never asks Live to resize the frame - only [jweb] moves.
-      const fullWidth = computeNativeLayout(surface, all, rows).width;
-      const frame = fullWidth + NATIVE_METRICS.jwebW;
-
-      const shownIds = visible as readonly string[];
-      const { rects, width } = computeNativeLayout(surface, shownIds, rows);
-      // HIDE EVERYTHING FIRST. A live.dial re-reads its presentation_rect only when
-      // its visibility CHANGES (setting the rect on a shown dial is accepted but not
-      // drawn - measured in Live). So the reposition has to ride a hide -> show
-      // transition: hide all, set the new rect while hidden, then show the visible
-      // ones. [jweb] does not need this - it reflows on a plain rect write.
-      for (const id of all) outlet("native_hide", `param-${id}`);
-      for (const id of shownIds) {
-        const [x, y, w, h] = rects[id];
-        outlet("native_rect", `param-${id}`, x, y, w, h);
-        outlet("native_show", `param-${id}`);
-      }
-      // [jweb] fills from the compact zone's right edge to the fixed frame edge.
-      // Same transition trick as the dials: a presentation object appears to apply a
-      // new rect only when its visibility changes, so hide -> reposition -> show.
-      // (SPIKE: if even this does not move [jweb], runtime reposition is impossible
-      // and only hidden works - then the reserved zone cannot be reclaimed this way.)
-      outlet("native_hide", JWEB_VARNAME);
-      outlet("native_rect", JWEB_VARNAME, width, 0, frame - width, NATIVE_METRICS.deviceH);
-      outlet("native_show", JWEB_VARNAME);
-    },
-    [surface],
-  );
 }
 
 /**

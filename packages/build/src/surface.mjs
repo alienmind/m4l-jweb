@@ -124,7 +124,7 @@ export async function loadSurface(root, uiDir) {
  * Generating the objects
  * ------------------------------------------------------------------ */
 
-const MAXCLASS = { dial: "live.dial", toggle: "live.toggle", menu: "live.menu" };
+const MAXCLASS = { dial: "live.dial", toggle: "live.toggle", menu: "live.menu", button: "live.text" };
 
 /* ------------------------------------------------------------------ *
  * Native declarative layout (surface `layout.native`)
@@ -144,7 +144,7 @@ const DEVICE_H = 169;
 const MARGIN = 8;
 // Per-kind native sizes, from Max's own live.* defaults. A live.dial includes its
 // own label under the knob, which is why it is taller than a bare toggle.
-const NATIVE_SIZE = { dial: [44, 48], toggle: [44, 15], menu: [100, 15] };
+const NATIVE_SIZE = { dial: [44, 48], toggle: [44, 15], menu: [100, 15], button: [48, 15] };
 // Vertical pitch: a dial is 48 px tall and wants 8 px of air beneath its label.
 const PITCH_Y = 56;
 
@@ -188,7 +188,7 @@ export function computeNativeSlots(surface) {
  * where a float one would read "2.4 of [off 1/4 1/8 ...]".
  */
 function parameterType(spec) {
-  if (spec.kind === "menu" || spec.kind === "toggle") return 2;
+  if (spec.kind === "menu" || spec.kind === "toggle" || spec.kind === "button") return 2;
   return spec.step === 1 ? 1 : 0;
 }
 
@@ -237,7 +237,7 @@ function unitAttrs(spec) {
 
 /** The parameter's value as MAX stores it: numbers, always. */
 function initialValue(spec) {
-  if (spec.kind === "toggle") return spec.default ? 1 : 0;
+  if (spec.kind === "toggle" || spec.kind === "button") return spec.default ? 1 : 0;
   if (spec.kind === "menu") return spec.options.indexOf(spec.default);
   return spec.default;
 }
@@ -280,7 +280,7 @@ function parameterAttrs(id, spec) {
     if (spec.steps !== undefined) attrs.parameter_steps = spec.steps;
   }
 
-  if (spec.kind === "toggle") {
+  if (spec.kind === "toggle" || spec.kind === "button") {
     attrs.parameter_mmax = 1;
     attrs.parameter_enum = ["off", "on"];
   }
@@ -291,6 +291,16 @@ function parameterAttrs(id, spec) {
   }
 
   return attrs;
+}
+
+/**
+ * Box-level (not parameter) attributes a kind needs. A `button` is a `live.text`,
+ * which unlike a `live.toggle` carries VISIBLE TEXT: `text`/`texton` is the label it
+ * shows off/on, and `mode: 1` makes it a toggle rather than a momentary button.
+ */
+function kindBoxAttrs(spec) {
+  if (spec.kind === "button") return { text: spec.label, texton: spec.label, mode: 1 };
+  return {};
 }
 
 /**
@@ -336,6 +346,7 @@ export function applySurface(ctx) {
         outlettype: [""],
         parameter_enable: 1,
         patching_rect: [x, 300, 44, 48],
+        ...kindBoxAttrs(spec),
         // A native param is shown in the device view: it gets a presentation rect
         // and a scripting name (prefixed `param-` so it cannot collide with a state
         // dict's `obj-state-<id>` varname). Everything else about the box - the

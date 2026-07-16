@@ -28,7 +28,7 @@ import { expect, test } from "vitest";
 import { composePatcher } from "@m4l-jweb/build";
 import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
 import { SURFACE_ROUTE, computeNativeSlots } from "@m4l-jweb/build/surface";
-import { defineSurface, dial, menu, toggle, window, state } from "@m4l-jweb/surface";
+import { button, defineSurface, dial, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
 const BASE = path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "templates", "base.json");
@@ -402,6 +402,53 @@ test("REGRESSION: a surface with no layout leaves the objects and [jweb] untouch
   expect(p).not.toHaveProperty("presentation_rect");
   expect(p).not.toHaveProperty("varname");
   expect(c.box("obj-jweb").presentation_rect).toEqual([0, 0, 420, 169]);
+});
+
+test("a button compiles to a live.text with its label and toggle mode", () => {
+  // A live.text carries visible text where a live.toggle cannot. The label is `text`
+  // (and `texton`, so it reads the same on and off), and `mode: 1` makes it a toggle.
+  const s = defineSurface({ params: { back: button({ default: false, label: "Back", short: "Back" }) } });
+  const b = compile(s).box("obj-param-back");
+  expect(b.maxclass).toBe("live.text");
+  expect(b.text).toBe("Back");
+  expect(b.texton).toBe("Back");
+  expect(b.mode).toBe(1);
+  // Its value is a 0/1 enum, exactly like a toggle.
+  const attrs = b.saved_attribute_attributes.valueof;
+  expect(attrs.parameter_type).toBe(2);
+  expect(attrs.parameter_enum).toEqual(["off", "on"]);
+  expect(attrs.parameter_mmax).toBe(1);
+});
+
+const panelSurface = () =>
+  defineSurface({
+    params: {
+      back: button({ default: false, label: "Back", short: "Back" }),
+      cutoff: dial({ range: [40, 18000], unit: "Hz", default: 18000, short: "Cutoff" }),
+      gain: dial({ range: [0, 2], default: 1, short: "Gain" }),
+    },
+    layout: { native: { params: ["cutoff", "gain"], rows: 2, panel: true, switch: "back" } },
+  });
+
+test("layout.native.panel builds [jweb] full-width (x=0), so web mode has no reserved strip", () => {
+  const c = compile(panelSurface());
+  const jweb = c.box("obj-jweb");
+  // Full width from x=0 (the frame is the wider of the web UI and the knob zone).
+  expect(jweb.presentation_rect[0]).toBe(0);
+  expect(jweb.presentation_rect[2]).toBe(420);
+  expect(jweb.varname).toBe("obj-jweb");
+});
+
+test("layout.native.switch is pinned top-right, OUT of the dial grid", () => {
+  const c = compile(panelSurface());
+  const back = c.box("obj-param-back");
+  const [x, y, w] = back.presentation_rect;
+  // Top-right of the 420-wide web UI, not in the grid's left columns.
+  expect(y).toBe(8);
+  expect(x + w).toBe(420 - 8); // right margin
+  // The grid dials start at the left; the switch does not share their column.
+  expect(c.box("obj-param-cutoff").presentation_rect[0]).toBe(8);
+  expect(x).toBeGreaterThan(c.box("obj-param-gain").presentation_rect[0]);
 });
 
 test("layout.native does NOT claim native_show/native_hide - the wrapper handles them", () => {

@@ -40,7 +40,7 @@ const EPSILON = 1e-6;
 
 /** Max stores every parameter as a NUMBER. A menu is an index into its options; a toggle is 0/1. */
 export function toWire(spec: ParamSpec, value: unknown): number {
-  if (spec.kind === "toggle") return value ? 1 : 0;
+  if (spec.kind === "toggle" || spec.kind === "button") return value ? 1 : 0;
   if (spec.kind === "menu") {
     const i = spec.options.indexOf(String(value));
     return i < 0 ? 0 : i;
@@ -50,7 +50,7 @@ export function toWire(spec: ParamSpec, value: unknown): number {
 
 /** ...and back. An out-of-range menu index falls back to the default rather than `undefined`. */
 export function fromWire(spec: ParamSpec, wire: number): unknown {
-  if (spec.kind === "toggle") return wire >= 0.5;
+  if (spec.kind === "toggle" || spec.kind === "button") return wire >= 0.5;
   if (spec.kind === "menu") return spec.options[Math.round(wire)] ?? spec.default;
   return wire;
 }
