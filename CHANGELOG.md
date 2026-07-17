@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.9.0 - modulation, more chains, and observing Live
+
+**The `remote` chain and pattern modulation.** One `live.remote~` per declared slot
+goes in the device; `resolveParamId()` + `bindRemote()` point a slot at any Live
+parameter by LOM id, and `writeRemote()` streams a value per tick, each ramped into a
+signal by `[line~]` - continuous modulation with no automation written. The value is
+NOT in the parameter's own units: `live.remote~` treats it as a linear position across
+the range and applies the knob's `exponent` on top, so a curved parameter must
+pre-warp (measured in Live, not read anywhere).
+
+**`defineWatch()` - declared LiveAPI observers.** Declare the Live properties to
+observe in `src/app/<device>/watch.ts` (the read-only twin of `defineSurface()`); the
+build injects `WATCH_SPECS` and the packaged wrapper attaches every observer from
+`bang()` - the one place a LiveAPI object is not born dead (hard rule 4) - forwarding
+each change as `watch_<key>`. `useWatch()` reads it in React, typed from the
+declaration. The observer is generated, so it cannot be written in `loadbang` where it
+would silently watch nothing forever: the lifecycle rule is now structural.
+
+**New chains:** `hpf` (high-pass) and `crush` (bit/sample-rate reduction). Buffer names
+are now instance-scoped with Live's `---` prefix, so two copies of a sampler on two
+tracks keep their own sound - `#0` never expanded inside a frozen `.amxd`, which had
+made the scoping a no-op.
+
+**`window({ alwaysOnTop: true })`** keeps a floating window in front of Live instead of
+behind it the moment Live is clicked - for a window you read *while* working (a
+reference, a cheatsheet) rather than one you work *in*.
+
+### Fixes
+
+- **The parameter registry is emitted at the patcher level.** Live ignores per-box
+  `parameter_longname`, so `resolveParamId()` now matches against the name Live
+  actually registers (the shortname), and banks are written into the registry. Getting
+  a `live.remote~` bound to the wrong parameter is a filter sweep on someone else's
+  device, so this refuses to guess when two parameters share an accepted name.
+- **State-default seeding**, so a slot that Live has never saved starts from its
+  declared default rather than an empty dict. Presets ride along into the installers.
+- **A state slot can hold a string or an array**, not only an object - every value now
+  travels inside a `{"__value": ...}` envelope, because a Max `[dict]` is a key/value
+  map and a bare scalar had nowhere to live (it silently persisted as `{}`).
+
+## 0.7.0 - native layout
+
+**`layout.native`** renders declared parameters as native `live.*` objects in the
+device view, beside a right-shifted `[jweb]` - the same parameters, the same fan-out
+graph, `useParam()` still reads them, now drawn by Max. A **two-screen panel**
+(`useNativePanel`, `layout.native.panel`) layers the web UI and a native control panel
+and flips between them by `hidden`: runtime reposition/resize of presentation objects
+does NOT take in a frozen M4L device (measured - `presentation_rect` writes are stored
+but never redrawn), but `hidden` does. `layout.native.switch` pins a view-toggle
+parameter top-right, out of the grid. New **`button`** parameter kind (a labelled
+`live.text` toggle), for the way back from a native panel.
+
+## 0.6.5 - polyphony and FX
+
+**The `instrument` chain:** a generated `[poly~]` voice patch, frozen into the device,
+playing a keymap of buffers via `playVoice()`. Polyphony and voice-stealing are Max's
+job - send overlapping notes across any slots and each lands on a free voice.
+Confirmed in Live. **`delay` and `reverb`** FX chains, each held to the neutrality
+contract (a chain the manifest does not name changes nothing). CI now **publishes over
+OIDC trusted publishing** rather than a token - pnpm packs, npm verifies provenance,
+and there is no `NPM_TOKEN` to leak.
+
+## 0.6.0 - declarations that persist, and samples
+
+**Floating windows and state persistence are declarations.** `window()` compiles a
+second page into its own subpatcher; `state()` + `useStateSync()` give a
+`useState`-shaped binding to arbitrary JSON saved inside the Live set, per instance.
+Two bugs that had made both useless were fixed: **state persistence was never saving
+into the set** (`parameter_enable` is what a `[pattr]` needs; `@save`/`@autorestore`
+are not it), and a window/state selector carried its id in the selector word, where
+Max dispatched it to a handler no device had.
+
+**The `samples` chain:** a named `[buffer~]` per slot, previewed through the track, and
+the path resolution that lets `[buffer~]` open the file the download just wrote (a bare
+name goes to Max's search path, which the device folder is not in).
+
+**Fetch-to-disk hardened:** the last `[node.script]` is gone, and a 404 can no longer
+destroy a cached file - every fetch downloads to a `.part`, validates status/error/
+bytes, and only then asks `[maxurl]` to copy it into place. The shipped wrapper is now
+tested against a fake Max (and the [maxurl] simulator encodes what Max was measured to
+do), so the orchestration is pinned even where Live's behaviour cannot be.
+
 ## 0.5.0 - composable audio chains
 
 **Audio chains stack.** `chains: ["lowpass", "drive", "gain"]` is a series -
