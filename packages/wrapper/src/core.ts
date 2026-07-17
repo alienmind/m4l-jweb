@@ -280,7 +280,15 @@ function setNativeHidden(varname: string, hidden: number): void {
 function get_param_id(id: string): void {
   // `this_device` resolves to the device this [js] lives in. Its `parameters` are the
   // live.* objects the surface generated, in the order they were created - but ORDER
-  // IS NOT A CONTRACT (add a dial and every index shifts), so match on the name.
+  // IS NOT A CONTRACT (add a dial and every index shifts), so match on a name.
+  //
+  // WHICH name is the hard-won part. The build stores the surface id as the
+  // parameter's longname, and the box KEEPS it (`_parameter_longname` reads back
+  // "cutoff") - but Live's parameter registration names the DeviceParameter after
+  // the SHORTNAME anyway, and no patcher data we found overrides that. So do not
+  // bet on either policy: ask the BOX for both of its names and accept whichever
+  // one Live used. The surface id stays the only key an app ever passes; the
+  // display names never leave this function.
   var found = 0;
   try {
     var dev = new LiveAPI("this_device");
@@ -289,23 +297,55 @@ function get_param_id(id: string): void {
       outlet(0, "param_id", id, 0);
       return;
     }
+
+    // The box is the authority on its own names - reading them here (instead of
+    // shipping a second id->shortname table) means a renamed dial cannot drift
+    // out of step with this lookup.
+    var accept: string[] = [id];
+    try {
+      var mobj = this.patcher.getnamed("param-" + id);
+      if (mobj) {
+        var ln = mobj.getattr("_parameter_longname");
+        var sn = mobj.getattr("_parameter_shortname");
+        if (ln !== null && ln !== undefined) accept.push(String(ln));
+        if (sn !== null && sn !== undefined) accept.push(String(sn));
+      }
+    } catch (eb) {
+      /* no box, no extra candidates - the surface id alone still gets a chance */
+    }
+
     var n = dev.getcount("parameters");
     var seen: string[] = [];
     for (var i = 0; i < n; i++) {
       var p = new LiveAPI("this_device parameters " + i);
       if (!p || !p.id) continue;
-      // `parameter_longname` is what the build set from the surface id, and it comes
-      // back as the DeviceParameter's `name`.
       var pname = String(p.get("name"));
-      if (pname === id) {
-        found = p.id;
-        break;
+      var hit = false;
+      for (var k = 0; k < accept.length; k++) {
+        if (pname === accept[k]) {
+          hit = true;
+          break;
+        }
       }
-      seen.push(pname);
+      if (hit) {
+        if (found) {
+          // Two parameters wearing one accepted name: refuse to guess. Binding a
+          // live.remote~ to the wrong parameter is a modulation on someone else's
+          // control, which is worse than no modulation.
+          post("m4l-jweb: get_param_id " + id + ' -> AMBIGUOUS: two parameters answer to "' + pname + '". Give them distinct short names.\n');
+          found = 0;
+          break;
+        }
+        found = p.id;
+      } else {
+        seen.push(pname);
+      }
     }
     // Print what IS there: "no parameter of that name" alone cannot distinguish a
     // renamed parameter from an empty list from a shifted path.
-    if (!found) post("m4l-jweb: get_param_id " + id + " -> not found among " + n + " parameters: " + seen.join(", ") + "\n");
+    if (!found) {
+      post("m4l-jweb: get_param_id " + id + " -> no match (accepted: " + accept.join(" | ") + ") among " + n + " parameters: " + seen.join(", ") + "\n");
+    }
   } catch (e) {
     post("m4l-jweb: get_param_id " + id + " error: " + (e as Error).message + "\n");
   }
