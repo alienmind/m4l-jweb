@@ -23,11 +23,12 @@
  */
 import { useRef, useState } from "react";
 import { flushNotes, onNote, sendNote } from "@m4l-jweb/bridge";
-import { useParam } from "@m4l-jweb/surface/react";
+import { useParam, useWatch } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame, Transport } from "../shared/Frame";
 import { useEffect } from "react";
 import surface, { RATES } from "./surface";
+import watches from "./watch";
 import DemoWorker from "../shared/worker.ts?worker&inline";
 
 /**
@@ -63,6 +64,9 @@ export default function HelloMidi() {
    */
   const [rate, setRate] = useParam(surface, "rate");
   const [density, setDensity] = useParam(surface, "density");
+  // Read-only, from Live: updates when the set's scale changes. No setter - a watch
+  // is something Live owns. See ./watch.ts.
+  const sig = useWatch(watches, "sig");
   const [notesSent, setNotesSent] = useState(0);
   const [lastIn, setLastIn] = useState<number | null>(null);
   const [workerTicks, setWorkerTicks] = useState(0);
@@ -195,6 +199,9 @@ export default function HelloMidi() {
 
       <dt>note in</dt>
       <dd>{lastIn === null ? "-" : lastIn}</dd>
+
+      <dt>time sig</dt>
+      <dd>{sig}/4 (change the time signature in Live)</dd>
 
       <Transport device={device} />
 
