@@ -631,3 +631,33 @@ test("a declared state slot compiles to a [dict] with a [pattr] bound to it", ()
   // "pattr: 'save' is not a valid attribute argument" and carries on without it.
   expect(pattr.text).not.toContain("@save");
 });
+
+test("the patcher carries the parameter REGISTRY, and the longname is the surface id", () => {
+	// The block Max itself writes into any patcher with parameter-enabled boxes:
+	// patcher.parameters, box id -> [longname, shortname, type]. Live reads THIS
+	// for parameter names at device load - the per-box parameter_longname alone is
+	// ignored, and every longname gets regenerated from the shortname. That broke
+	// resolveParamId("cutoff") on a device whose dial said longname "cutoff": the
+	// runtime name was "Cutoff". The registry is the contract's other half.
+	const surface = defineSurface({
+		params: {
+			cutoff: dial({ range: [40, 18000], default: 18000, short: "Cutoff" }),
+			knobs: button({ default: false, label: "Back", short: "Back" }),
+		},
+		state: { named: state({ default: [] }) },
+	});
+	const base = JSON.parse(readFileSync(BASE, "utf8"));
+	const { patcher } = composePatcher(base, { name: "test", type: "midi", chains: [] }, surface);
+
+	expect(patcher.parameters["obj-param-cutoff"]).toEqual(["cutoff", "Cutoff", 0]);
+	expect(patcher.parameters["obj-param-knobs"]).toEqual(["knobs", "Back", 2]);
+	// The pattr state blob registers too (type 3), as Max would write it.
+	expect(patcher.parameters["obj-pattr-named"]).toEqual(["obj-pattr-named", "st_named", 3]);
+	expect(patcher.parameters.parameterbanks).toEqual({});
+});
+
+test("a device with no parameters gets NO registry - an empty block is not what Max writes", () => {
+	const base = JSON.parse(readFileSync(BASE, "utf8"));
+	const { patcher } = composePatcher(base, { name: "test", type: "midi", chains: [] }, null);
+	expect(patcher.parameters).toBeUndefined();
+});
