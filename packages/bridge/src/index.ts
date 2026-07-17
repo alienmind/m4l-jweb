@@ -190,6 +190,10 @@ export const CHAIN_OUT = {
   buffer_stop: "buffer_stop",
   /** UI -> instrument: `voice_play <pitch> <vel> <durMs> <channels>` - play one poly~ voice. */
   voice_play: "voice_play",
+  /** UI -> remote: `remote_bind <slot> <lomId>` - point a live.remote~ at a Live parameter. */
+  remote_bind: "remote_bind",
+  /** UI -> remote: `remote_val <slot> <value>` - the next value for that slot, ramped. */
+  remote_val: "remote_val",
 } as const;
 
 /**
@@ -210,6 +214,18 @@ export const STATE_OUT = {
   get_state: "get_state",
   /** UI -> wrapper: `sync_state <id> <json>` - persist this slot in the Live set. */
   sync_state: "sync_state",
+} as const;
+
+/** Selectors the WRAPPER answers about this device's own Live parameters. */
+export const PARAM_OUT = {
+  /** UI -> wrapper: `get_param_id <id>` - what is this parameter's LOM id? Reply on `param_id`. */
+  get_param_id: "get_param_id",
+} as const;
+
+/** ...and the reply. */
+export const PARAM_IN = {
+  /** wrapper -> UI: `param_id <id> <lomId>` - 0 means no parameter of that name resolved. */
+  param_id: "param_id",
 } as const;
 
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
@@ -452,6 +468,80 @@ export interface Voice {
  */
 export function playVoice(v: Voice): void {
   outlet(CHAIN_OUT.voice_play, v.slot, v.rate, v.velocity, v.durationMs, v.channels ?? 2);
+}
+
+/* ------------------------------------------------------------------ *
+ * Remote - the `remote` chain (live.remote~ modulation)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Point a `remote` slot at a Live parameter, by LOM id.
+ *
+ * The slot is an index into the device's declared `remotes: <n>`; the id is a LiveAPI
+ * object id for a `DeviceParameter` - `new LiveAPI(...).id`, whatever the app resolved
+ * it from. Until a slot is bound it modulates nothing, which is the safe resting state.
+ *
+ * **Re-bind on every load, and never persist the id.** LOM ids are handles into the
+ * running set, not names: they are not stable across a set reload, so an id saved
+ * yesterday points at whatever occupies that slot today - or at nothing. Persist how
+ * you FOUND the parameter (the device's position, the parameter's name) and resolve it
+ * again; that is the same rule Translate mode's reconciler follows (doc/TODO.md item 1).
+ */
+export function bindRemote(slot: number, lomId: number | string): void {
+  outlet(CHAIN_OUT.remote_bind, slot, lomId);
+}
+
+/**
+ * What is this device's own parameter's LOM id? - the id `bindRemote` needs.
+ *
+ * `id` is a surface parameter id, the same name you passed to `useParam()`: the build
+ * wrote it into the patcher as the Live parameter's `parameter_longname`, so the two
+ * cannot drift. Resolves to 0 if no parameter of that name is on the device, which is
+ * a programming error rather than a runtime condition - check it.
+ *
+ * ASK AGAIN AFTER EVERY LOAD, and never persist what comes back. A LOM id is a handle
+ * into the running set: it is not stable across a set reload, and an id from last time
+ * points at whatever occupies that slot now. This call is cheap; a stale binding is a
+ * filter sweep on someone else's device.
+ */
+export function resolveParamId(id: string, timeoutMs = 2000): Promise<number> {
+  if (!paramIdBound) {
+    paramIdBound = true;
+    bindInlet(PARAM_IN.param_id, (which, lomId) => {
+      const p = paramIdResolvers.get(String(which));
+      if (!p) return;
+      paramIdResolvers.delete(String(which));
+      clearTimeout(p.timer);
+      p.resolve(Number(lomId));
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      paramIdResolvers.delete(id);
+      reject(new Error(`parameter "${id}": the wrapper never answered get_param_id (${timeoutMs} ms). See the Max console.`));
+    }, timeoutMs);
+    paramIdResolvers.set(id, { resolve, timer });
+    outlet(PARAM_OUT.get_param_id, id);
+  });
+}
+
+const paramIdResolvers = new Map<string, { resolve: (id: number) => void; timer: ReturnType<typeof setTimeout> }>();
+let paramIdBound = false;
+
+/**
+ * Send a slot's next value. Ramped, not stepped.
+ *
+ * Call this on the transport tick with the pattern's value for that moment. The chain
+ * ramps to it over ~20 ms (`REMOTE_RAMP_MS`) rather than jumping, so a control-rate
+ * stream of values comes out of Max as continuous modulation - see the `remote` chain
+ * for why that ramp is the whole point.
+ *
+ * The value is in the TARGET PARAMETER'S OWN UNITS, and the app is what knows them:
+ * interpolate from the parameter's `min`/`max` off the LOM, never from a hardcoded
+ * range. A number outside that range is Live's to clamp, not ours to guess at.
+ */
+export function writeRemote(slot: number, value: number): void {
+  outlet(CHAIN_OUT.remote_val, slot, value);
 }
 
 /**

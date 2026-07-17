@@ -252,6 +252,62 @@ function setNativeHidden(varname: string, hidden: number): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Parameter LOM ids - what the `remote` chain binds to
+ *
+ * `get_param_id <id>` from the app; `param_id <id> <lomId>` back, 0 if unresolved.
+ *
+ * WHY THE WRAPPER AND NOT THE APP. A live.remote~ is bound by LOM id, and only [js]
+ * can ask Live for one. The app knows the NAME of the parameter it declared; the LOM
+ * knows ids and a `name` per DeviceParameter. This is the one place that can join
+ * those, because the build wrote `parameter_longname: <id>` from the same surface
+ * declaration the app imports - so a surface id IS the Live parameter's name, and the
+ * match needs no second table anyone has to keep in step.
+ *
+ * WHY IT IS ASKED FOR, NOT PUSHED. LOM ids are handles into the running set and are
+ * NOT stable across reloads, so there is no moment at which a list of them could be
+ * cached and trusted. The app asks when it binds, and asks again on the next load;
+ * anything else persists an id, which is the documented way to modulate the wrong
+ * parameter after a set reopens.
+ *
+ * THE REPLY GOES TO THE DEVICE VIEW, not to a window, and it is `outlet(0, ...)` for
+ * the same reason `buffer_error` and `fetch_done` are: reply() carries ONE value by
+ * fixed arity (a Max host function will not take .apply - it fails silently in Live,
+ * which is how the whole ui_ready handshake was once lost), and this answer is a pair.
+ * A window is an editor, not an engine - `tick` never reaches one either, and it is the
+ * tick that a bound slot is streamed on.
+ * ------------------------------------------------------------------ */
+
+function get_param_id(id: string): void {
+  // `this_device` resolves to the device this [js] lives in. Its `parameters` are the
+  // live.* objects the surface generated, in the order they were created - but ORDER
+  // IS NOT A CONTRACT (add a dial and every index shifts), so match on the name.
+  var found = 0;
+  try {
+    var dev = new LiveAPI("this_device");
+    if (!dev || !dev.id) {
+      post("m4l-jweb: get_param_id " + id + " -> no this_device (called during load?)\n");
+      outlet(0, "param_id", id, 0);
+      return;
+    }
+    var n = dev.getcount("parameters");
+    for (var i = 0; i < n; i++) {
+      var p = new LiveAPI("this_device parameters " + i);
+      if (!p || !p.id) continue;
+      // `parameter_longname` is what the build set from the surface id, and it comes
+      // back as the DeviceParameter's `name`.
+      if (String(p.get("name")) === id) {
+        found = p.id;
+        break;
+      }
+    }
+    if (!found) post("m4l-jweb: get_param_id " + id + " -> no parameter of that name on this device\n");
+  } catch (e) {
+    post("m4l-jweb: get_param_id " + id + " error: " + (e as Error).message + "\n");
+  }
+  outlet(0, "param_id", id, found);
+}
+
+/* ------------------------------------------------------------------ *
  * Floating-window messages
  *
  * A window's page uses the ORDINARY bridge (`outlet(sel, ...)`), so it emits bare
