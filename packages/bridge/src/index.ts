@@ -228,6 +228,27 @@ export const PARAM_IN = {
   param_id: "param_id",
 } as const;
 
+/**
+ * Selectors the WRAPPER handles for reading and writing the CLIP on this device's
+ * track (`read_notes`/`write_clip` in liveapi.ts). Wrapper-owned, like DEVICE_IN -
+ * no chain is involved, so a device that reads clips needs `unmatchedTo: "js"` so the
+ * bare selector reaches `[js]`. `readClip()` / `writeClip()` below are the shaped API.
+ */
+export const CLIP_OUT = {
+  /** UI -> wrapper: read this track's playing (else first) clip. Reply on `notes`. */
+  read_notes: "read_notes",
+  /** UI -> wrapper: `write_clip <lengthBeats> <n> <pitch start duration velocity> ...` - fill the first empty slot. */
+  write_clip: "write_clip",
+} as const;
+
+/** ...and the reply from a read. */
+export const CLIP_IN = {
+  /** wrapper -> UI: `notes <loopEndBeats> <n> <pitch start duration> ...`. Velocity is not read back. */
+  notes: "notes",
+  /** wrapper -> UI: there was no clip on this track to read. */
+  read_error: "read_error",
+} as const;
+
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
 export interface Note {
   /** MIDI pitch, 0-127. */
@@ -546,6 +567,94 @@ let paramIdBound = false;
  */
 export function writeRemote(slot: number, value: number): void {
   outlet(CHAIN_OUT.remote_val, slot, value);
+}
+
+/* ------------------------------------------------------------------ *
+ * Clip I/O - read and write the MIDI clip on this device's track
+ *
+ * The wrapper does the LiveAPI work (`read_notes`/`write_clip` in liveapi.ts); these
+ * are the shaped API over it. No chain and no `[node.script]` - a clip is note data,
+ * which is control-plane, so it crosses the bridge as a message. Needs
+ * `unmatchedTo: "js"` in the manifest so the bare selector reaches `[js]`.
+ * ------------------------------------------------------------------ */
+
+/** One note in a clip. Times are in BEATS, from the clip's start. */
+export interface ClipNote {
+  pitch: number;
+  /** Start, in beats from the clip's start. */
+  start: number;
+  /** Length, in beats. */
+  duration: number;
+  /** 1-127. Only WRITTEN - a read does not return it. */
+  velocity: number;
+}
+
+/** What a clip read returns: the loop length and the notes (velocity is not read back). */
+export interface ReadClip {
+  /** The clip's loop end, in beats - its musical length. */
+  loopEnd: number;
+  notes: Omit<ClipNote, "velocity">[];
+}
+
+const readClipResolvers: { resolve: (c: ReadClip) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }[] = [];
+let clipReadBound = false;
+
+/**
+ * Read the MIDI clip on this device's track - the PLAYING one, or the first found -
+ * and resolve with its notes. Rejects if there is no clip, or if the wrapper does not
+ * answer inside `timeoutMs`.
+ *
+ * The bytes are notes, not audio, so unlike a sample they DO cross the bridge: the
+ * wrapper reads them with LiveAPI's `get_notes_extended` and sends
+ * `notes <loopEnd> <n> <pitch start duration> ...`.
+ */
+export function readClip(timeoutMs = 2000): Promise<ReadClip> {
+  if (!clipReadBound) {
+    clipReadBound = true;
+    // One reply per outstanding read, in order - Live answers a `read_notes` with one
+    // `notes` (or one `read_error`), and reads are not interleaved in practice.
+    bindInlet(CLIP_IN.notes, (...args) => {
+      const p = readClipResolvers.shift();
+      if (!p) return;
+      clearTimeout(p.timer);
+      const loopEnd = Number(args[0]);
+      const n = Number(args[1]);
+      const notes: Omit<ClipNote, "velocity">[] = [];
+      for (let k = 0; k < n; k++) {
+        const o = 2 + k * 3;
+        notes.push({ pitch: Number(args[o]), start: Number(args[o + 1]), duration: Number(args[o + 2]) });
+      }
+      p.resolve({ loopEnd, notes });
+    });
+    bindInlet(CLIP_IN.read_error, () => {
+      const p = readClipResolvers.shift();
+      if (!p) return;
+      clearTimeout(p.timer);
+      p.reject(new Error("no clip on this track - create or play a MIDI clip first"));
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const i = readClipResolvers.findIndex((r) => r.timer === timer);
+      if (i >= 0) readClipResolvers.splice(i, 1);
+      reject(new Error(`the wrapper never answered read_notes (${timeoutMs} ms). See the Max console.`));
+    }, timeoutMs);
+    readClipResolvers.push({ resolve, reject, timer });
+    outlet(CLIP_OUT.read_notes);
+  });
+}
+
+/**
+ * Write a clip into the first empty slot on this device's track.
+ *
+ * `lengthBeats` is the clip's length; the notes' `start`/`duration` are in beats
+ * within it. The message is a flat list (`write_clip <lengthBeats> <n> <p s d v> ...`)
+ * because Max has no nested arguments - the wrapper reads it back four atoms at a time.
+ */
+export function writeClip(lengthBeats: number, notes: readonly ClipNote[]): void {
+  const flat: number[] = [lengthBeats, notes.length];
+  for (const nt of notes) flat.push(nt.pitch, nt.start, nt.duration, nt.velocity);
+  outlet(CLIP_OUT.write_clip, ...flat);
 }
 
 /**

@@ -8,6 +8,8 @@
 	"license": "MIT",
 	"scripts": {
 		"dev": "node scripts/dev.mjs hello-midi",
+		"dev:hello-clip": "node scripts/dev.mjs hello-clip",
+		"dev:hello-remote": "node scripts/dev.mjs hello-remote",
 		"dev:hello-midi": "node scripts/dev.mjs hello-midi",
 		"dev:hello-audio": "node scripts/dev.mjs hello-audio",
 		"dev:hello-downloads": "node scripts/dev.mjs hello-downloads",

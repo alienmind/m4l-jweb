@@ -39,6 +39,36 @@
  */
 export default [
   {
+    /**
+     * hello-clip - read and WRITE the MIDI clip on this device's track.
+     *
+     * No chains: clip I/O is pure LiveAPI in the wrapper (`read_notes`/`write_clip`),
+     * so the bare selectors just need `unmatchedTo: "js"` to reach `[js]`. It exists as
+     * its own test because reading a clip is the code path that emits a variadic note
+     * list out of `[js]` - the one that must go out as a single array, never via
+     * `outlet.apply` (which crashes the engine; see doc/MAX-FACTS.md).
+     */
+    name: "hello-clip",
+    type: "midi",
+    chains: [],
+    unmatchedTo: "js",
+  },
+  {
+    /**
+     * hello-remote - the modulation path (`remote` chain), self-contained.
+     *
+     * `remotes: 1` puts one `live.remote~` in the device; the app resolves its OWN
+     * `target` parameter's LOM id, binds slot 0 to it, and streams values that sweep it
+     * - so resolveParamId + bindRemote + writeRemote are all testable with one device
+     * and no other. `target` is a native dial, so the sweep is a visible knob in Live.
+     */
+    name: "hello-remote",
+    type: "audio",
+    chains: ["passthrough", "remote"],
+    remotes: 1,
+    unmatchedTo: "js",
+  },
+  {
     name: "hello-midi",
     type: "midi",
     // midiin feeds played notes to the app as `notein`; midiout takes the notes
