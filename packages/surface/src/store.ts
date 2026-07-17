@@ -155,7 +155,69 @@ export function paramStore<P extends Record<string, ParamSpec>>(surface: Surface
  * OUT: `get_state <id>`, `sync_state <id> <json>`   - one handler each, in the wrapper.
  * IN:  `state_<id> <json>`                          - one binding per slot, so the
  *      bridge can dispatch it without the app unpacking an id.
+ *
+ * ------------------------------------------------------------------------------
+ * EVERY VALUE TRAVELS INSIDE AN ENVELOPE, because a Max [dict] IS a key/value map
+ * and cannot hold anything else.
+ *
+ * The wrapper stores a slot by handing the JSON to `Dict.parse()`. A dict has KEYS;
+ * that is what a dict is. So an OBJECT round-tripped fine and nothing else did:
+ * `state<string>` sent `"c1 e1"` and `state<FxParam[]>` sent `["cutoff"]`, and
+ * `parse()` had nowhere to put either. The dict stayed empty, `stringify()` gave back
+ * `{}`, and the app read its own default forever.
+ *
+ * That one bug wore two disguises, and cost real debugging as both: a drum map (an
+ * object) persisted while the pattern text (a string) silently did not - which looks
+ * exactly like Live losing your work; and the fx device's `named` slot (an array) came
+ * back `{}` on every load, which was written off as the state-DEFAULT seeding gap. That
+ * gap is real, but it is not this: `named` had never persisted at all.
+ *
+ * So the wire format is `{"__value": <whatever>}`, always. The dict gets its key, and
+ * `state<T>` means what it says for every T.
  * ------------------------------------------------------------------ */
+
+/** The one key a [dict] carries, so that a scalar has somewhere to live. */
+const ENVELOPE = "__value";
+
+/**
+ * The envelope, as JSON, with every literal space escaped - so it crosses as ONE atom.
+ *
+ * [jweb] hands each argument to Max, and Max SPLITS A SYMBOL ON WHITESPACE. The
+ * wrapper has always papered over this by rejoining the pieces with a single space,
+ * which works for exactly as long as the payload never contains meaningful whitespace.
+ * `JSON.stringify` of an object is compact, so a drum map arrived in one piece and the
+ * seam held.
+ *
+ * A PATTERN IS NOTHING BUT WHITESPACE. `"c1  e1"` would come back `"c1 e1"` - the run
+ * of spaces rejoined as one, the user's text quietly reformatted - and a multi-line
+ * pattern (which is the whole point of the Studio window) is worse.
+ *
+ * ` ` is JSON's own escape for a space, so the payload contains no literal spaces
+ * at all: Max cannot split what is not there, the rejoin becomes a no-op, and the dict's
+ * JSON parser turns the escapes back into the spaces the user typed. Newlines and tabs
+ * need no help - `JSON.stringify` already escapes those as `\n` and `\t`.
+ */
+function stateToWire(value: unknown): string {
+  return JSON.stringify({ [ENVELOPE]: value }).replace(/ /g, "\\u0020");
+}
+
+/**
+ * Unwrap what came out of the dict.
+ *
+ * A missing envelope is not an error, and there are two innocent ways to get one: a
+ * slot Live has never saved (a fresh, empty `{}`), or a value written by a build from
+ * before the envelope - which could only ever have been an object, since nothing else
+ * could be stored. Both are answered without blanking the app, so opening an old set
+ * keeps its drum map.
+ */
+function unwrap(parsed: unknown, fallback: unknown): unknown {
+  if (parsed && typeof parsed === "object" && ENVELOPE in (parsed as Record<string, unknown>)) {
+    return (parsed as Record<string, unknown>)[ENVELOPE];
+  }
+  // An empty dict means "nothing saved yet" - the declared default is the honest answer.
+  if (parsed && typeof parsed === "object" && Object.keys(parsed as object).length === 0) return fallback;
+  return parsed ?? fallback;
+}
 
 export interface StateStore {
   get(): Values;
@@ -190,7 +252,10 @@ export function stateStore(surface: { state?: Record<string, StateSpec> }): Stat
   for (const id of ids) {
     bindInlet(`state_${id}`, (raw) => {
       try {
-        values = { ...values, [id]: JSON.parse(String(raw)) };
+        // The dict hands back `{"__value": ...}` - see the envelope note above. An
+        // empty dict and a pre-envelope value both resolve to something sane rather
+        // than to nothing.
+        values = { ...values, [id]: unwrap(JSON.parse(String(raw)), surface.state![id].default) };
         notify();
       } catch {
         // An empty dict stringifies to "{}" and parses fine; anything that does
@@ -212,7 +277,9 @@ export function stateStore(surface: { state?: Record<string, StateSpec> }): Stat
     write(id, value) {
       values = { ...values, [id]: value };
       notify();
-      outlet("sync_state", id, JSON.stringify(value));
+      // Enveloped, ALWAYS - a bare string or array has nowhere to live in a [dict] -
+      // and space-escaped, so Max cannot split the payload on the way.
+      outlet("sync_state", id, stateToWire(value));
     },
   };
 

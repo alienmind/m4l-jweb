@@ -153,8 +153,116 @@ test("stateStore starts at defaults and emits get_state", () => {
 
 test("stateStore parses inbound JSON and updates", () => {
   const store = stateStore(makeStateSurface());
-  simulate("state_config", '{"voices": 8, "tuning": "drop-d"}');
+  simulate("state_config", '{"__value":{"voices": 8, "tuning": "drop-d"}}');
   expect(store.get()).toEqual({ config: { voices: 8, tuning: "drop-d" } });
+});
+
+/**
+ * EVERY VALUE TRAVELS IN AN ENVELOPE, because a Max [dict] is a key/value map and
+ * cannot hold anything else.
+ *
+ * The wrapper stores a slot with `Dict.parse(json)`. A dict has KEYS. So an OBJECT
+ * round-tripped and nothing else did: a `state<string>` sent `"c1 e1"` and a
+ * `state<FxParam[]>` sent `["cutoff"]`, and parse() had nowhere to put either. The
+ * dict stayed empty, stringify() gave back `{}`, and the app read its own default back
+ * forever.
+ *
+ * It wore two disguises and cost real debugging as both: a drum map (an object)
+ * persisted while the pattern text (a string) silently did not - which looks exactly
+ * like Live losing your work - and the fx `named` slot (an array) came back `{}` on
+ * every load, which was written off as the state-DEFAULT seeding gap. That gap is real;
+ * this was not it. `named` had never persisted at all.
+ */
+test("a STRING slot survives the round trip - a [dict] cannot hold a bare scalar", () => {
+  const surface = defineSurface({ params: {}, state: { code: state({ default: "c1 e1" }) } });
+  const { out, stop } = sent();
+  const store = stateStore(surface);
+
+  store.write("code", "bd sd hh");
+  const [, , json] = out.find((m) => m[0] === "sync_state");
+  // Enveloped, so the dict has the key it needs to hold a string at all.
+  expect(JSON.parse(json)).toEqual({ __value: "bd sd hh" });
+
+  // ...and what the dict hands back must unwrap to the STRING itself, not to an
+  // envelope the app is left holding.
+  simulate("state_code", '{"__value":"c3 e3 g3"}');
+  expect(store.get().code).toBe("c3 e3 g3");
+  stop();
+});
+
+test("an ARRAY slot survives too - this is the fx `named` slot that never persisted", () => {
+  const surface = defineSurface({ params: {}, state: { named: state({ default: [] }) } });
+  const store = stateStore(surface);
+  simulate("state_named", '{"__value":["cutoff","gain"]}');
+  expect(store.get().named).toEqual(["cutoff", "gain"]);
+});
+
+/**
+ * [jweb] hands each argument to Max, and MAX SPLITS A SYMBOL ON WHITESPACE. The wrapper
+ * rejoins the pieces with ONE space, which holds for exactly as long as the payload has
+ * no meaningful whitespace - true of a compact JSON object, and false of a pattern,
+ * which is nothing but whitespace. `c1  e1` would come back as `c1 e1`: the user's text
+ * quietly reformatted, with no error anywhere.
+ *
+ * So the payload carries no literal space at all. Max cannot split what is not there.
+ */
+test("spaces are escaped on the wire, so Max cannot split the payload", () => {
+  const surface = defineSurface({ params: {}, state: { code: state({ default: "" }) } });
+  const { out, stop } = sent();
+  const store = stateStore(surface);
+
+  store.write("code", "c1  e1\nc2 e2");
+  const [, , json] = out.find((m) => m[0] === "sync_state");
+  expect(json, "a literal space would be split into separate Max atoms").not.toContain(" ");
+  // Still valid JSON, and it still says exactly what the user typed - runs of spaces
+  // and all. `\n` needs no help: JSON.stringify already escapes it.
+  expect(JSON.parse(json)).toEqual({ __value: "c1  e1\nc2 e2" });
+  stop();
+});
+
+test("an empty dict means `nothing saved yet`, and answers with the default", () => {
+  // A fresh instance's slot comes back `{}` - Live has never saved it. Blanking the app
+  // here is what put a black screen on the fx device.
+  const store = stateStore(makeStateSurface());
+  simulate("state_config", "{}");
+  expect(store.get().config).toEqual({ voices: 4 });
+});
+
+/**
+ * AN EMPTY STRING IS A VALUE. An empty DICT is an absence. They are not the same thing,
+ * and confusing them makes an editor uneditable.
+ *
+ * A consumer read `saved.length ? saved : theDefault` and so restored its default the
+ * instant the editor was empty - which is every select-all-and-cut, and every delete of
+ * the last character on the way to rewriting a line. The pattern healed back under the
+ * user's hands and cut/paste was impossible.
+ *
+ * The store must hand back exactly what was stored, so that "" survives the round trip
+ * and only a genuinely unsaved slot falls back.
+ */
+test("an empty STRING round-trips as itself, and does not read as `unsaved`", () => {
+  const surface = defineSurface({ params: {}, state: { code: state({ default: "c1 e1" }) } });
+  const { out, stop } = sent();
+  const store = stateStore(surface);
+
+  store.write("code", "");
+  expect(store.get().code, "the user cleared the editor - that is a value").toBe("");
+  // ...and it goes out as an envelope holding "", not as an empty dict.
+  const [, , json] = out.find((m) => m[0] === "sync_state");
+  expect(JSON.parse(json)).toEqual({ __value: "" });
+
+  // ...and comes back as "" rather than reverting to the declared default.
+  simulate("state_code", '{"__value":""}');
+  expect(store.get().code).toBe("");
+  stop();
+});
+
+test("a value written before the envelope existed still loads", () => {
+  // Anything an older build stored could only have been an object, since nothing else
+  // could be stored at all. Opening an existing set must not reset its drum map.
+  const store = stateStore(makeStateSurface());
+  simulate("state_config", '{"voices":12}');
+  expect(store.get().config).toEqual({ voices: 12 });
 });
 
 test("stateStore ignores invalid JSON without crashing", () => {
@@ -180,7 +288,7 @@ test("stateStore writes state out as `sync_state <id> <json>` - the selector the
   const store = stateStore(makeStateSurface());
 
   store.write("config", { voices: 16 });
-  expect(out).toContainEqual(["sync_state", "config", '{"voices":16}']);
+  expect(out).toContainEqual(["sync_state", "config", '{"__value":{"voices":16}}']);
   expect(store.get().config).toEqual({ voices: 16 });
 
   stop();
