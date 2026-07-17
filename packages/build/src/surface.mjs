@@ -60,6 +60,34 @@ export const paramObject = (id) => `obj-param-${id}`;
 export const paramValue = (surface, id) => [SURFACE_ROUTE, surface.ids.indexOf(id)];
 
 /**
+ * The patcher-level `parameters` registry - the block Max itself writes into any
+ * patcher that has parameter-enabled boxes, mapping box id -> [longname,
+ * shortname, type].
+ *
+ * IT IS NOT OPTIONAL DECORATION. Live reads THIS registry for parameter names at
+ * device load; the per-box `saved_attribute_attributes.valueof.parameter_longname`
+ * alone is ignored, and Live regenerates every longname from the shortname. That
+ * is how `resolveParamId("cutoff")` came back 0 on a device whose dial plainly
+ * said `parameter_longname: "cutoff"`: the DeviceParameter's runtime name was
+ * "Cutoff". Emitting the registry is what makes the longname the surface id -
+ * the contract resolveParamId and every automation lane name rides on.
+ *
+ * The pattr state blobs are in it too (type 3), same as Max would write them.
+ */
+export function parameterRegistry(surface) {
+  const out = {};
+  for (const id of surface?.ids ?? []) {
+    const spec = surface.params[id];
+    out[paramObject(id)] = [id, spec.short ?? id, parameterType(spec)];
+  }
+  for (const id of surface?.state ? Object.keys(surface.state) : []) {
+    const pattrId = `obj-pattr-${id}`;
+    out[pattrId] = [pattrId, `st_${id}`.slice(0, 8), 3];
+  }
+  return Object.keys(out).length ? { ...out, parameterbanks: {} } : null;
+}
+
+/**
  * What a chain is handed to reach the parameters: `surface` (to check a parameter
  * it needs exists) and the two outlets it must fan a value out of. Spread into the
  * chain context by the build - and by the codegen test, so the test drives the

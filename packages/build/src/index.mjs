@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
-import { applySurface, applyWindows, applyPersistence, loadSurface, surfaceContext } from "./surface.mjs";
+import { applySurface, applyWindows, applyPersistence, loadSurface, parameterRegistry, surfaceContext } from "./surface.mjs";
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -217,6 +217,12 @@ export function composePatcher(base, d, surface) {
   applyPersistence(ctx);
   closeAudio(ctx);
   assertUniqueBoxIds(boxes, d.name);
+
+  // The patcher-level parameter registry - without it Live ignores every
+  // parameter_longname and renames the parameters after their shortnames,
+  // which breaks resolveParamId's contract. See parameterRegistry().
+  const registry = parameterRegistry(surface);
+  if (registry) p.patcher.parameters = registry;
 
   // Ride the chain-contributed extras out on the returned object. Destructuring
   // `{ patcher }` (the tests, the writer) ignores it; the packager reads it.

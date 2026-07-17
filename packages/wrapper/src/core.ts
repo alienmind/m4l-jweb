@@ -290,17 +290,22 @@ function get_param_id(id: string): void {
       return;
     }
     var n = dev.getcount("parameters");
+    var seen: string[] = [];
     for (var i = 0; i < n; i++) {
       var p = new LiveAPI("this_device parameters " + i);
       if (!p || !p.id) continue;
       // `parameter_longname` is what the build set from the surface id, and it comes
       // back as the DeviceParameter's `name`.
-      if (String(p.get("name")) === id) {
+      var pname = String(p.get("name"));
+      if (pname === id) {
         found = p.id;
         break;
       }
+      seen.push(pname);
     }
-    if (!found) post("m4l-jweb: get_param_id " + id + " -> no parameter of that name on this device\n");
+    // Print what IS there: "no parameter of that name" alone cannot distinguish a
+    // renamed parameter from an empty list from a shifted path.
+    if (!found) post("m4l-jweb: get_param_id " + id + " -> not found among " + n + " parameters: " + seen.join(", ") + "\n");
   } catch (e) {
     post("m4l-jweb: get_param_id " + id + " error: " + (e as Error).message + "\n");
   }
