@@ -15,7 +15,27 @@ Live)** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## 1. Publish 0.9.x to npm
+## 1. Extract the contract pattern - `defineWatch()`, `defineSamples()`
+
+`defineSurface()` is one instance of a rule: *you declare what the Max side has, the
+build derives everything else* - objects, wiring, protocol selectors, a typed React
+hook, a harness mock. There are now two real instances to generalise from (the
+Surface, and the parameter registry/banks emission), which was the precondition.
+
+- **1.1 Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
+  pipeline. Leave the user-facing APIs bespoke.
+- **1.2 `defineWatch()`** - SHIPPED. Declare the Live properties to observe in
+  `src/app/<device>/watch.ts`; the build injects `WATCH_SPECS` and the packaged wrapper
+  attaches every observer from `bang()` (the one place LiveAPI is not dead), forwarding
+  each change as `watch_<key>`. `useWatch()` reads it in React. This kills hard rule 4 by
+  construction for observers - a device no longer hand-writes one, so cannot write it in
+  `loadbang` where it silently watches nothing. See README and ARCHITECTURE.
+- **1.3 `defineDevice()`** - fold in the manifest. End state: you do not write `[js]`.
+
+Do NOT build the generic compiler first and express the Surface in terms of it. An
+abstraction from one example is a guess.
+
+## 3. Publish 0.9.x to npm
 
 `m4l-strudel`'s `package.json` points `@m4l-jweb/*` at `^0.9.0`, and until that
 version is on npm a fresh clone or CI cannot install - the local
@@ -23,38 +43,7 @@ version is on npm a fresh clone or CI cannot install - the local
 [RELEASING.md](RELEASING.md) is the recipe. Publish after the current round's Live
 checks (m4l-strudel's [TESTING.md](../../m4l-strudel/doc/TESTING.md)) come back clean.
 
-## 2. Retake README screenshots
-
-The example devices changed shape (native dials, the two-screen panel, banks). Batch
-with any future layout change rather than chasing every one.
-
-## 3. Extract the contract pattern - `defineWatch()`, `defineSamples()`
-
-`defineSurface()` is one instance of a rule: *you declare what the Max side has, the
-build derives everything else* - objects, wiring, protocol selectors, a typed React
-hook, a harness mock. There are now two real instances to generalise from (the
-Surface, and the parameter registry/banks emission), which was the precondition.
-
-- **3.1 Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
-  pipeline. Leave the user-facing APIs bespoke.
-- **3.2 `defineWatch()`** - the real prize. It kills hard rule 4 (a LiveAPI object
-  created during `loadbang` is dead, forever) BY CONSTRUCTION: declare what to
-  observe, the codegen emits the observers into `bang()`. `liveapi.ts` becomes
-  generated.
-- **3.3 `defineDevice()`** - fold in the manifest. End state: you do not write `[js]`.
-
-Do NOT build the generic compiler first and express the Surface in terms of it. An
-abstraction from one example is a guess.
-
-## 4. A VST3 backend, so a device runs outside Live
-
-Assessed in [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md): the app, the bridge, the surface
-and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the
-shared traps *are* the product. Its first step is a `Target` seam extracted from
-`packages/build` while there is still only one target, which is worth doing on its
-own merits.
-
-## 5. Phase 8: the native audio bridge (JS -> Max MSP) - `FEAT-STRUDEL-002`
+## 4. Phase 8: the native audio bridge (JS -> Max MSP)
 
 Stream raw PCM from the JS runtime (WebAudio in `[jweb]`) into Max's `~` graph, so a
 Strudel **instrument** can act like a plugin instead of bypassing the track. `[jweb]`
@@ -66,3 +55,11 @@ the LEAST promising of four routes, and that **Route B (offline render +
 `saveToFile()` + `[buffer~]`) is the spike to run first** - also the concrete first
 step toward the Rack's instrument slot. See m4l-strudel's
 [SPIKE-OFFLINE.md](../../m4l-strudel/doc/SPIKE-OFFLINE.md).
+
+## 5. A VST3 backend, so a device runs outside Live
+
+Assessed in [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md): the app, the bridge, the surface
+and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the
+shared traps *are* the product. Its first step is a `Target` seam extracted from
+`packages/build` while there is still only one target, which is worth doing on its
+own merits.

@@ -19,6 +19,7 @@
 		".": "./src/index.mjs",
 		"./chains": "./src/chains.mjs",
 		"./surface": "./src/surface.mjs",
+		"./watch": "./src/watch.mjs",
 		"./amxd": "./src/amxd.mjs",
 		"./init": "./src/init.mjs"
 	},

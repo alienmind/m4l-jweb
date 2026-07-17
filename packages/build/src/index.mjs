@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
 import { applySurface, applyWindows, applyPersistence, loadSurface, parameterRegistry, surfaceContext } from "./surface.mjs";
+import { loadWatch, watchSpecsBanner } from "./watch.mjs";
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -329,7 +330,10 @@ export async function packageDevices(root) {
      * process are blind to Max's frozen virtual filesystem.
      * We embed ALL .html files found in the UI directory (including the main UI and any windows).
      */
-    let wrapperData = banner + wrapperJs;
+    // The device's declared watches ride in as a data banner, like the build stamp:
+    // WATCH_SPECS is what the packaged wrapper's setupWatches() attaches observers from.
+    const watch = await loadWatch(root, d.ui ?? d.name);
+    let wrapperData = banner + watchSpecsBanner(watch) + wrapperJs;
     const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
 
     // Main UI payload

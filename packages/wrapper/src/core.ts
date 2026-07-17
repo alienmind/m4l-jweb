@@ -50,6 +50,7 @@ function bang(): void {
   loadWebview();
   setupTempoObserver(); // liveapi.ts
   startTickPoll(); // liveapi.ts
+  setupWatches(); // watch.ts - the device's declared defineWatch() observers
   // A device's own wrapper/device.ts hooks in here: this is the ONLY safe place
   // to create LiveAPI objects (see the loadbang trap above).
   if (typeof onDeviceReady === "function") onDeviceReady();
@@ -67,6 +68,7 @@ function reload(): void {
   loadWebview();
   setupTempoObserver();
   startTickPoll();
+  setupWatches(); // watch.ts
 }
 
 /**
@@ -119,6 +121,7 @@ function ui_ready(): void {
   // mixed install (stale .amxd instance vs newer extracted UI, or vice versa).
   reply("build", buildStamp());
   sendCurrentTempo(); // liveapi.ts
+  resendWatches(); // watch.ts - the current value of every declared watch, for a late page
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
@@ -344,7 +347,9 @@ function get_param_id(id: string): void {
     // Print what IS there: "no parameter of that name" alone cannot distinguish a
     // renamed parameter from an empty list from a shifted path.
     if (!found) {
-      post("m4l-jweb: get_param_id " + id + " -> no match (accepted: " + accept.join(" | ") + ") among " + n + " parameters: " + seen.join(", ") + "\n");
+      post(
+        "m4l-jweb: get_param_id " + id + " -> no match (accepted: " + accept.join(" | ") + ") among " + n + " parameters: " + seen.join(", ") + "\n",
+      );
     }
   } catch (e) {
     post("m4l-jweb: get_param_id " + id + " error: " + (e as Error).message + "\n");
