@@ -48,31 +48,33 @@ exists at all.
 
 # What comes next (priority order)
 
-## 0. Spike: does `#0` expand inside an `.amxd` device patcher?  ← **gates m4l-strudel's drum rack**
+## 0. Spike: does `#0` expand inside an `.amxd` device patcher?  ← **RUN 2026-07-17, ANSWER: NO**
 
-**The question, and nothing here can answer it.** Buffer names are global to Max, and
-both `samplesChain()` and `instrumentChain()` now scope them per instance
-(`deviceBufName` / `voiceBufName`, `#0-buf-<device>-<slot>`). `#0` is documented for
-ABSTRACTIONS; whether a Max for Live device counts as one is the unknown.
+Ran per [TESTING.md](../../m4l-strudel/doc/TESTING.md) section 2, two copies of the
+Strudel sample browser on two tracks in Live.
 
-**The bug it fixes was silent**, which is why it was worth the risk: two copies of one
-device on two tracks named their buffers identically and Max handed both to whichever
-loaded last. One rack's samples became the other's, with no error. A drum rack on two
-tracks is the NORMAL case.
+**Observed: the SILENT failure mode, not the loud one.** Both devices played - so the
+name resolved - but after loading a different sample into the second device, the FIRST
+device played the SECOND device's sample. That is only consistent with `#0` staying
+literal (or expanding identically) on BOTH the `[buffer~]` and its readers: the name
+still matches itself inside each device, so playback works, and it matches ACROSS
+devices, so the collision is exactly the one the fix was meant to kill. The predicted
+loud failure (literal `#0` resolving nothing) assumed the writer and reader would
+disagree; they agree, so the failure is silent.
 
-**The route was settled by evidence, not deferred to the spike:** a `[buffer~]` takes its
-name from its creation argument and has no documented runtime rename, so a wrapper-minted
-id can never reach a box frozen at build time. `#0` is the only mechanism available. The
-subtlety is that **`#0` is per PATCHER**, and a `[poly~]` voice is its own patcher - so
-the device passes its `#0` to `poly~` as an argument and the voice reads it back as `#1`.
-Both spellings, one buffer.
+**Conclusion: an `.amxd` device patcher is NOT an abstraction for `#0` purposes.**
+`#0-buf-<device>-<slot>` does not scope per instance.
 
-**If it does not expand**, the name keeps a literal `#0`, nothing resolves, and every load
-fails LOUDLY - a clean answer, and a better failure than the silent one it replaces.
-
-**How to run it: [TESTING.md](../../m4l-strudel/doc/TESTING.md) section 2.** It is two
-copies of the sampler and your ears. **P3's drum rack cannot be built until this is a
-YES.**
+**The fix (applied AND VERIFIED in Live, 2026-07-17):** the `---` prefix - Max for
+Live's own mechanism for exactly this. A leading `---` in a name expands, at load,
+to an id unique to the DEVICE instance, and the scope is the whole device including
+subpatchers and `[poly~]` voices. `deviceBufName` / `voiceBufName` now emit
+`---buf-<device>-<slot>` (one spelling everywhere - the `#0`/`#1` hand-off through
+`poly~`'s argument is gone, and so is the argument). Outside Live `---` stays
+literal, so standalone Max degrades to the old shared-name behavior instead of
+breaking. **Re-ran TESTING.md section 2 with the `---` build: two copies on two
+tracks, different samples, each keeps its own sound. The gate is OPEN - P3's drum
+rack can be built.**
 
 ## 1. Spike R1: the dynamic rack - hand the graph to Live  ← **HARNESS BUILT, NOT RUN**
 
@@ -271,20 +273,20 @@ backlog is a live specification of this one's.
 | 8 | A polyphonic Strudel instrument | the `instrument` chain / `[poly~]` | **shipped, polyphony verified in Live** |
 | 9 | `.lpf(sine.range(...))`, modulating real Live devices | the `remote` chain (item 2) | **shipped in code, unverified** - the consumer has no tick yet |
 | 10 | Translate mode: `.lpf(800)` -> an Auto Filter | Spike R1 (item 1), then the reconciler | **spike-gated** - harness built, not run |
-| 11 | The polyphonic drum rack | instance-scoped buffer names in `instrument` | **shipped in code**, gated on the `#0` spike (item 0) |
+| 11 | The polyphonic drum rack | instance-scoped buffer names in `instrument` | **buffer scoping verified in Live** (`---`, item 0) - the device itself is still to build |
 | 12 | Shipping the Rack preset | installers copy `presets/` (item 5) | **open, small** |
 | 13 | `state()` defaults that mean what they say | seed the built `[dict]` (item 3) | **open, spike** - but see the correction on item 3 |
 | 15 | A pattern / an fx line that survives the set | `state<string>` and `state<T[]>` working at all | **fixed in code** (the envelope), unverified |
 | 16 | A reference window that stays in front of Live | `alwaysOnTop` on `window()` | **shipped in code**, unverified |
 | 14 | A Strudel instrument (WebAudio into MSP) | native audio bridge / Route B (item 8) | **hard, open** |
 
-**Instance-scoped buffer names (row 11): built, one spike from done.** Both
-`instrumentChain()` and `samplesChain()` now name buffers `#0-buf-<device>-<slot>`, so N
-instances own N sets of buffers instead of fighting over one global name. The
-wrapper-minted-id route was ruled OUT rather than deferred: a `[buffer~]` takes its name
-from its creation argument and has no documented runtime rename, so an id minted after
-load can never reach a box frozen at build time. See item 0 for the `#0`-in-an-`.amxd`
-spike that gates it, and for the `#0`/`#1` hand-off into the `[poly~]` voice.
+**Instance-scoped buffer names (row 11): done, verified in Live 2026-07-17.** Both
+`instrumentChain()` and `samplesChain()` name buffers `---buf-<device>-<slot>`, so N
+instances own N sets of buffers instead of fighting over one global name. Two routes
+were ruled out on the way: a wrapper-minted id (a `[buffer~]` takes its name from its
+creation argument and has no documented runtime rename, so an id minted after load can
+never reach a box frozen at build time) and `#0` (never expands in an `.amxd` - the
+spike, item 0). `---` is device-scoped, voices included, so one spelling everywhere.
 
 <a id="shipped"></a>
 
