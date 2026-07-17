@@ -14,30 +14,75 @@ has shipped and been tested is at the [END](#shipped).**
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike that can fail in an afternoon rather than a week.**
 
-**NEXT UP: Spike R1** (item 1) - an afternoon that decides whether the dynamic rack
-exists at all - and the **`remote` chain** (item 2), documented, valuable whatever R1
-says, and it unblocks `m4l-strudel`'s pattern modulation.
+> **STATE (2026-07-17).** Released as **0.9.0**, alongside `m4l-strudel` 0.9.0 - the two
+> versions move together from here. Everything shipped this round is confirmed working in
+> Live except the two SPIKES (items 0 and 1), which are what is left. 210 tests pass -
+> which pins what the generated patcher SAYS, and cannot hear a filter.
+>
+> **-> Both spikes are written up in
+> [m4l-strudel/doc/TESTING.md](../../m4l-strudel/doc/TESTING.md)**, since running them
+> means running the devices.
+>
+> **THE BUG WORTH REMEMBERING FROM THIS ROUND: a Max `[dict]` is a key/value MAP, and
+> `sync_state` stores a slot with `Dict.parse(json)`.** So a slot holding an OBJECT
+> round-tripped and NOTHING ELSE DID - `state<string>` and `state<FxParam[]>` had nowhere
+> to land, the dict stayed empty, `stringify()` returned `{}`, and the app read its own
+> default back forever.
+>
+> It wore two disguises, and cost real debugging as both: `m4l-strudel`'s drum map (an
+> object) persisted while its pattern text (a string) silently did not - which looks
+> exactly like Live losing your work - and its fx `named` slot (an array) came back `{}`
+> every load, which was written off as **item 3's** state-default seeding gap. That gap is
+> real. It was never this. `named` had never persisted at all.
+>
+> Every value now travels as `{"__value": ...}`, with its spaces escaped so Max cannot
+> split the payload into atoms (the wrapper's `join(" ")` was papering over that, and
+> would have quietly reformatted any pattern with a run of spaces in it).
+> `tests/surface-store.test.mjs` pins all of it. **Item 3 is unaffected and still open.**
+
+**NEXT UP: the two spikes.** Item 0 gates `m4l-strudel`'s drum rack and costs two device
+instances and a listen; item 1 is an afternoon that decides whether the dynamic rack
+exists at all.
 
 ---
 
 # What comes next (priority order)
 
-## 0. `hpf` and `crush` chains  ← **LOW-HANGING FRUIT, DO FIRST**
+## 0. Spike: does `#0` expand inside an `.amxd` device patcher?  ← **gates m4l-strudel's drum rack**
 
-The cheap siblings of chains that already ship, and the only two effects `m4l-strudel`'s
-fx device still refuses. Add both to `packages/build/src/chains.mjs`, neutral at rest
-(frozen-graph law), pinned by `tests/neutrality.test.mjs`:
+**The question, and nothing here can answer it.** Buffer names are global to Max, and
+both `samplesChain()` and `instrumentChain()` now scope them per instance
+(`deviceBufName` / `voiceBufName`, `#0-buf-<device>-<slot>`). `#0` is documented for
+ABSTRACTIONS; whether a Max for Live device counts as one is the unknown.
 
-- **`hpf`** - a high-pass next to `lowpass`, neutral (a wire) at 0 Hz.
-- **`crush`** - bit/rate reduction (`degrade~`/`downsamp~`), neutral at full bit depth.
+**The bug it fixes was silent**, which is why it was worth the risk: two copies of one
+device on two tracks named their buffers identically and Max handed both to whichever
+loaded last. One rack's samples became the other's, with no error. A drum rack on two
+tracks is the NORMAL case.
 
-Then `m4l-strudel` declares the two params and drops them from its "refused" list. Small
-and self-contained; do it before the spike-gated work.
+**The route was settled by evidence, not deferred to the spike:** a `[buffer~]` takes its
+name from its creation argument and has no documented runtime rename, so a wrapper-minted
+id can never reach a box frozen at build time. `#0` is the only mechanism available. The
+subtlety is that **`#0` is per PATCHER**, and a `[poly~]` voice is its own patcher - so
+the device passes its `#0` to `poly~` as an argument and the voice reads it back as `#1`.
+Both spellings, one buffer.
 
-## 1. Spike R1: the dynamic rack - hand the graph to Live  ← **spike-gated**
+**If it does not expand**, the name keeps a literal `#0`, nothing resolves, and every load
+fails LOUDLY - a clean answer, and a better failure than the silent one it replaces.
+
+**How to run it: [TESTING.md](../../m4l-strudel/doc/TESTING.md) section 2.** It is two
+copies of the sampler and your ears. **P3's drum rack cannot be built until this is a
+YES.**
+
+## 1. Spike R1: the dynamic rack - hand the graph to Live  ← **HARNESS BUILT, NOT RUN**
 
 > [!WARNING]
 > **DO NOT build the reconciler (2B) until this spike has run.**
+
+> The harness exists: `spike_rack` in `m4l-strudel`'s `wrapper/device.ts`, marked
+> throwaway, answering Q1-Q3 by itself and printing what to do for Q4/Q5.
+> **How to run it: [TESTING.md](../../m4l-strudel/doc/TESTING.md) section 1.** Write the
+> answers into that repo's R2 and DELETE the block - it must not become a feature.
 
 If a Max device can create **real Ableton devices** next to itself, then
 `.lpf(800).gain(1.2)` should populate an **Auto Filter** and a **Utility** in the
@@ -85,37 +130,51 @@ reconciler binds `.lpf()` to it, and the UI says "add an Auto Filter to enable
 effects Live has no device for. Per-hap TOPOLOGY change stays impossible either way -
 topology is per-commit, values are per-hap via item 2.
 
-## 2. Modulation: the `remote` chain  ← **specified, valuable whatever R1 says**
+## 2. Modulation: the `remote` chain - SHIPPED IN CODE, UNVERIFIED
 
-`.lpf(sine.range(200, 2000))` describes **continuous** modulation. Sending it as
-parameter writes from the app means 20 Hz of stepped values fighting the automation
-lane - audibly stepped, and wrong in every readout.
+Built as specified: one `live.remote~` per declared slot (`remotes: <n>` in the
+manifest), bound by LOM id, each value ramped by a `[line~]` (`REMOTE_RAMP_MS`, exported
+because it only makes sense in relation to the app's tick). Bridge API: `bindRemote()`,
+`writeRemote()`, and `resolveParamId()`.
 
-A **`remote` chain** in `packages/build/src/chains.mjs`, one `live.remote~` per
-declared slot (`remotes: <n>` in the manifest):
+- **The `[line~]` is the whole trick.** The app is control-rate - one value per tick -
+  and a bare number into `live.remote~` steps exactly as audibly as a parameter write.
+  The ramp makes the control-rate stream signal-rate at the Max end.
+- **It takes no audio stage**, so it composes with any chain list without claiming one,
+  and it has no neutral for the same reason: an unbound slot modulates nothing.
+- **It throws at build time without `remotes: <n>`.** 0 slots would generate no
+  `live.remote~` at all - a device that builds, loads, and silently ignores every
+  modulation it sends.
+- **`get_param_id` / `resolveParamId()` came with it** (item 6.2's direction, in
+  miniature): only `[js]` can ask Live for a LOM id, and the join works because the build
+  already writes `parameter_longname: <id>` from the same surface declaration the app
+  imports - so a surface id IS the Live parameter's name, with no second table to drift.
+  It resolves on request rather than caching: **LOM ids do not survive a set reload.**
+  - **A trap it walked into, now documented:** `reply()` takes exactly TWO arguments by
+    fixed arity (a Max host function will not take `.apply` - it fails silently in Live,
+    and once took the whole `ui_ready` handshake with it). A three-argument `reply()`
+    silently drops the third. This uses `outlet(0, ...)`, like `buffer_error`.
+- `LiveAPI`'s type gained `id` / `path` / `type` / `info` - all real, documented
+  properties that were simply never declared.
 
-```
-[jweb] -> route remote_bind remote_val        (claimed in series, claimAppMessages)
-  remote_bind <slot> <lomId>  -> [prepend id] -> [live.remote~]   (bind by LOM id)
-  remote_val  <slot> <v>      -> [line~ 20]   -> live.remote~ left inlet
-```
-
-- The app streams values on the transport tick; a ~20 ms `[line~]` ramp makes the
-  control-rate bridge SIGNAL-rate at the Max end, which removes the audible stepping.
-  `live.remote~` suppresses automation writing by design.
-- Bridge API: `bindRemote(slot, lomId)` / `writeRemote(slot, value)`, selectors in
-  `CHAIN_OUT`.
-- **Useful with or without R1**: it can modulate ANY Live parameter, including devices
-  the user placed by hand - a bigger feature than an LFO on our own filter. Unblocks
-  `m4l-strudel`'s Phase 7.2, and is a prerequisite for Translate mode's per-hap values.
+**What is NOT done:** nothing streams yet. `m4l-strudel`'s fx app has no transport tick
+(it has never been an engine), so this chain is reachable and untested end-to-end. See
+that repo's R3.
 
 ## 3. State-default seeding: `default` that means what it says  ← **spike**
 
 `applyPersistence()` emits the `[dict]` and `[pattr]` but **seeds the dict with
 nothing** - so a FRESH instance's dict is empty (`{}`), and the app's declared
-`default` is overwritten by that empty dict. It bit `m4l-strudel`'s drum device (an
-empty drum map) and its fx device (a black screen when `named` came back `{}`); both
-work around it app-side today.
+`default` is overwritten by that empty dict. `m4l-strudel`'s drum device works around it
+app-side today.
+
+> **CORRECTION (2026-07-17).** This item used to claim the fx device's black screen -
+> `named` coming back `{}` - as a second symptom. **It was not.** `named` is an ARRAY and
+> a `[dict]` is a key/value map, so that slot could never be stored at all, on a fresh
+> instance or a saved one; it was the envelope bug (see the state note at the top),
+> fixed. Two bugs with one symptom, and the wrong one had a TODO item. Worth the
+> correction: this item is now smaller than it looked, and the seeding gap is only ever
+> about a slot Live has genuinely never saved.
 
 The library should seed the built `[dict]` with `JSON.stringify(spec.default)`, but
 that is **not the one-liner it first looked like**: embedding data in a Max `dict`
@@ -210,26 +269,42 @@ backlog is a live specification of this one's.
 | 6 | `.room()` / `.delay()` making sound | static FX chains + neutrality contract | **shipped, audible in Live** |
 | 7 | Native dials in the device view; the two-screen fx panel | `layout.native` + `panel`/`switch` + `useNativePanel` | **shipped 0.7.0, verified in Live** |
 | 8 | A polyphonic Strudel instrument | the `instrument` chain / `[poly~]` | **shipped, polyphony verified in Live** |
-| 9 | `.lpf(sine.range(...))`, modulating real Live devices | the `remote` chain (item 2) | **open** |
-| 10 | Translate mode: `.lpf(800)` -> an Auto Filter | Spike R1 (item 1), then the reconciler | **spike-gated** |
-| 11 | The polyphonic drum rack | instance-scoped buffer names in `instrument` | **open** (see below) |
+| 9 | `.lpf(sine.range(...))`, modulating real Live devices | the `remote` chain (item 2) | **shipped in code, unverified** - the consumer has no tick yet |
+| 10 | Translate mode: `.lpf(800)` -> an Auto Filter | Spike R1 (item 1), then the reconciler | **spike-gated** - harness built, not run |
+| 11 | The polyphonic drum rack | instance-scoped buffer names in `instrument` | **shipped in code**, gated on the `#0` spike (item 0) |
 | 12 | Shipping the Rack preset | installers copy `presets/` (item 5) | **open, small** |
-| 13 | `state()` defaults that mean what they say | seed the built `[dict]` (item 3) | **open, spike** |
+| 13 | `state()` defaults that mean what they say | seed the built `[dict]` (item 3) | **open, spike** - but see the correction on item 3 |
+| 15 | A pattern / an fx line that survives the set | `state<string>` and `state<T[]>` working at all | **fixed in code** (the envelope), unverified |
+| 16 | A reference window that stays in front of Live | `alwaysOnTop` on `window()` | **shipped in code**, unverified |
 | 14 | A Strudel instrument (WebAudio into MSP) | native audio bridge / Route B (item 8) | **hard, open** |
 
-**Instance-scoped buffer names (row 11), open.** `instrumentChain()` names buffers
-`buf-<device>-<slot>`, global to Max and fixed at BUILD time, so two copies of one
-device on two tracks corrupt each other's samples, silently. A drum rack is exactly
-the multi-instance case. The ask: an instance-scoped buffer name. Candidate routes, to
-be settled by a spike: Max's `#0` instance argument inside the `[poly~]` voice, or a
-wrapper-minted id appended at load time. Whichever wins: **N instances, each with its
-own buffers, no shared global name.**
+**Instance-scoped buffer names (row 11): built, one spike from done.** Both
+`instrumentChain()` and `samplesChain()` now name buffers `#0-buf-<device>-<slot>`, so N
+instances own N sets of buffers instead of fighting over one global name. The
+wrapper-minted-id route was ruled OUT rather than deferred: a `[buffer~]` takes its name
+from its creation argument and has no documented runtime rename, so an id minted after
+load can never reach a box frozen at build time. See item 0 for the `#0`-in-an-`.amxd`
+spike that gates it, and for the `#0`/`#1` hand-off into the `[poly~]` voice.
 
 <a id="shipped"></a>
 
 ---
 
 # Shipped
+
+### `hpf` and `crush` chains (0.9.0) - CONFIRMED WORKING IN LIVE
+The cheap siblings of `lowpass`/`drive`, both neutral at rest and pinned by
+`tests/neutrality.test.mjs`. Two decisions worth keeping:
+
+- **`hpf` is `lowpass`'s COMPLEMENT, not a highpass object.** `onepole~` is lowpass-only,
+  and a one-pole highpass is exactly `dry - lowpass(dry)`. That is also what gives it a
+  TRUE neutral: a lowpass at 0 Hz passes nothing, so the subtraction returns the dry
+  signal bit-for-bit. A real highpass object would rest at its cutoff floor, still
+  turning DC and the bottom octave - an always-on colouration the frozen-graph law
+  forbids. There was no object to add; there was an identity to use.
+- **`crush` rests at 24 bits, not Strudel's 16.** 16-bit quantisation is a quiet crush,
+  not a wire. It drives `degrade~`'s bit depth only and leaves the rate ratio at 1.0 -
+  that is `.coarse()`, a different effect and a different chain.
 
 Kept, rather than deleted, for one reason: **each of these was broken in a way that
 produced no error**, and the note says what the fix actually was.
@@ -295,6 +370,16 @@ it. Pinned by a contract test.
 `state: { x: state({ default }) }` + `useStateSync()`. The switch is `parameter_enable`
 on the `[pattr]` - the one thing that makes Live save a value with the set.
 `@save`/`@autorestore` saved nothing. (The `default` seeding gap is item 3 above.)
+
+### `alwaysOnTop` windows (2026-07-17) - SHIPPED IN CODE, UNVERIFIED
+`window({ alwaysOnTop: true })` compiles a `loadbang` -> message -> `[thispatcher]` into
+the window's subpatcher. A window you READ while working (a reference) is useless
+without it: clicking back into Live to type is exactly what buries it. A window you work
+IN wants the default, so it is opt-in.
+**The trap, pinned by a test:** `window flags` REPLACES the whole flag list rather than
+adding to it, so the generated message names `grow close title` alongside `float`. Send
+`float` alone and the window comes up with no close box - a reference card the user
+cannot get rid of.
 
 ### Declarative floating windows - VERIFIED IN LIVE
 `windows: { x: window({...}) }` + `useWindow()`, with `hello-window`. A `maxclass` is
