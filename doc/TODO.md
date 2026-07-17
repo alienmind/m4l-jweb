@@ -271,7 +271,7 @@ backlog is a live specification of this one's.
 | 6 | `.room()` / `.delay()` making sound | static FX chains + neutrality contract | **shipped, audible in Live** |
 | 7 | Native dials in the device view; the two-screen fx panel | `layout.native` + `panel`/`switch` + `useNativePanel` | **shipped 0.7.0, verified in Live** |
 | 8 | A polyphonic Strudel instrument | the `instrument` chain / `[poly~]` | **shipped, polyphony verified in Live** |
-| 9 | `.lpf(sine.range(...))`, modulating real Live devices | the `remote` chain (item 2) | **shipped in code, unverified** - the consumer has no tick yet |
+| 9 | `.lpf(sine.range(...))`, modulating real Live devices | the `remote` chain (item 2) | **shipped in code** - m4l-strudel's fx consumer is built (its TODO R3), verification in Live pending |
 | 10 | Translate mode: `.lpf(800)` -> an Auto Filter | Spike R1 (item 1), then the reconciler | **spike-gated** - harness built, not run |
 | 11 | The polyphonic drum rack | instance-scoped buffer names in `instrument` | **buffer scoping verified in Live** (`---`, item 0) - the device itself is still to build |
 | 12 | Shipping the Rack preset | installers copy `presets/` (item 5) | **open, small** |
