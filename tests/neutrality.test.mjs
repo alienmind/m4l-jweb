@@ -44,7 +44,9 @@ function compile(surface, device) {
 const surface = defineSurface({
   params: {
     cutoff: dial({ range: [40, 18000], unit: "Hz", exponent: 4, default: 18000, short: "Cutoff" }),
+    hpfreq: dial({ range: [0, 8000], unit: "Hz", exponent: 4, default: 0, short: "HP Freq" }),
     drive: dial({ range: [1, 10], unit: "x", default: 1, short: "Drive" }),
+    crush: dial({ range: [1, 24], unit: "bit", default: 24, short: "Crush" }),
     delay: dial({ range: [0, 1], default: 0, short: "Delay" }),
     delaytime: dial({ range: [1, 2000], unit: "ms", default: 250, short: "Dly Time" }),
     delayfeedback: dial({ range: [0, 1], default: 0, short: "Feedback" }),
@@ -119,6 +121,61 @@ test("reverb is a send too: cverb~ is wet-only, so the dry/wet lives in the chai
 });
 
 /* ------------------------------------------------------------------ *
+ * hpf
+ * ------------------------------------------------------------------ */
+
+test("hpf is the lowpass's complement: dry at unity MINUS the low end", () => {
+  const c = audio(["hpf"]);
+  for (const s of ["l", "r"]) {
+    const [ch] = s === "l" ? [0] : [1];
+    const lp = `obj-hpf-lp-${s}`;
+    const sub = `obj-hpf-sub-${s}`;
+    // The highpass IS dry - lowpass(dry). A subtraction, not a mix: the dry reaches
+    // the LEFT inlet at unity and the only other path is the lowpass being removed.
+    expect(c.textOf(sub)).toBe("-~");
+    expect(c.feeding(sub, 0)).toEqual(["obj-plugin"]); // dry, straight off the input
+    expect(c.feeding(sub, 1)).toEqual([lp]); // minus the low end, nothing else
+    expect(c.feeding(lp, 0)).toEqual(["obj-plugin"]); // the filter sees the same dry
+    expect(c.feeding("obj-plugout", ch)).toEqual([sub]);
+  }
+});
+
+test("hpf's cutoff IS the `hpfreq` parameter, and 0 Hz is the wire", () => {
+  const c = audio(["hpf"]);
+  // A one-pole lowpass at 0 Hz passes nothing, so `dry - 0` is the input, bit for
+  // bit. That is what makes 0 a real neutral rather than a quiet colouration.
+  expect(c.textOf("obj-hpf-lp-l")).toBe("onepole~ 0.");
+  expect(CHAIN_NEUTRAL.hpf.hpfreq).toBe(0);
+  const sources = c.feeding("obj-hpf-lp-l", 1).sort();
+  expect(sources).toEqual(["obj-param-hpfreq", "obj-surface-route"].sort());
+});
+
+/* ------------------------------------------------------------------ *
+ * crush
+ * ------------------------------------------------------------------ */
+
+test("crush drives degrade~'s bit depth only, and rests at full depth", () => {
+  const c = audio(["crush"]);
+  for (const s of ["l", "r"]) {
+    const [ch] = s === "l" ? [0] : [1];
+    const id = `obj-crush-${s}`;
+    // Rate ratio 1.0 (untouched) and 24 bits: the arguments ARE the neutral, so the
+    // stage is a wire before any parameter loads.
+    expect(c.textOf(id)).toBe("degrade~ 1. 24.");
+    expect(c.feeding(id, 0)).toEqual(["obj-plugin"]);
+    expect(c.feeding("obj-plugout", ch)).toEqual([id]);
+    // Inlet 1 is the sample-rate ratio and NOTHING may drive it - that is `.coarse()`,
+    // a different effect. If a chain ever fans a parameter in here, crush silently
+    // becomes two effects on one knob.
+    expect(c.feeding(id, 1)).toEqual([]);
+  }
+  // The depth rides inlet 2, from both the dial and the app's write.
+  expect(c.feeding("obj-crush-l", 2).sort()).toEqual(["obj-param-crush", "obj-surface-route"].sort());
+  // NOT Strudel's 16: 16-bit quantisation is a quiet crush, not a wire.
+  expect(CHAIN_NEUTRAL.crush.crush).toBe(24);
+});
+
+/* ------------------------------------------------------------------ *
  * the contract itself
  * ------------------------------------------------------------------ */
 
@@ -143,6 +200,26 @@ test("the frozen FX order composes as a series, each stage feeding the next", ()
   expect(c.feeding("obj-delay-fbsum-l", 0)).toEqual(["obj-drive-l"]); // delay's dry is drive's output
   expect(c.feeding("obj-delay-mix-l", 0)).toEqual(["obj-drive-l"]);
   expect(c.feeding("obj-reverb-mix-l", 0)).toEqual(["obj-delay-mix-l"]); // reverb's dry is delay's output
+  expect(c.feeding("obj-gain-l", 0)).toEqual(["obj-reverb-mix-l"]);
+  expect(c.feeding("obj-plugout", 0)).toEqual(["obj-gain-l"]);
+});
+
+test("hpf and crush take their place in the series without disturbing it", () => {
+  // The frozen order with both siblings in: each sits next to the stage it is the
+  // cheap sibling of - hpf after lowpass (the filter section), crush after drive
+  // (the dirt section), and the send/level tail is untouched.
+  const c = audio(["lowpass", "hpf", "drive", "crush", "delay", "reverb", "gain"]);
+  expect(c.feeding("obj-lpf-l", 0)).toEqual(["obj-plugin"]);
+  // hpf's BOTH inputs move to the previous stage's output - the dry it subtracts from
+  // and the low end it subtracts must be the same signal, or it stops being a
+  // complement and starts being a comb filter.
+  expect(c.feeding("obj-hpf-lp-l", 0)).toEqual(["obj-lpf-l"]);
+  expect(c.feeding("obj-hpf-sub-l", 0)).toEqual(["obj-lpf-l"]);
+  expect(c.feeding("obj-drive-l", 0)).toEqual(["obj-hpf-sub-l"]);
+  expect(c.feeding("obj-crush-l", 0)).toEqual(["obj-drive-l"]);
+  expect(c.feeding("obj-delay-fbsum-l", 0)).toEqual(["obj-crush-l"]);
+  expect(c.feeding("obj-delay-mix-l", 0)).toEqual(["obj-crush-l"]);
+  expect(c.feeding("obj-reverb-mix-l", 0)).toEqual(["obj-delay-mix-l"]);
   expect(c.feeding("obj-gain-l", 0)).toEqual(["obj-reverb-mix-l"]);
   expect(c.feeding("obj-plugout", 0)).toEqual(["obj-gain-l"]);
 });
