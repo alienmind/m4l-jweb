@@ -53,6 +53,14 @@ for f in "$src"/*.amxd; do
 	echo "  installed $(basename "$f")"
 done
 
+# Presets (hand-saved Live racks, packaged next to the devices by the build) go in
+# the same folder, so a rack that names these devices finds them one drag away.
+for f in "$src"/*.adg "$src"/*.adv; do
+	[ -e "$f" ] || continue
+	cp "$f" "$dest/"
+	echo "  installed $(basename "$f") (preset)"
+done
+
 echo "Installed to $dest"
 echo "In Live: User Library > Max For Live > $device_name"
 echo "NOTE: Live embeds a copy of the device in the set. Instances already"

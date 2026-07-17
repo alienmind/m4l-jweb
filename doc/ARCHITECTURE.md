@@ -397,14 +397,12 @@ hand-written selector would - and re-declaring one by hand in `protocol.ts` fail
 too, because two sources of truth for one string is the drift this whole thing
 deletes.
 
-**What is still to build:** Push banks, which need patcher-JSON archaeology. Max
-stores bank definitions in the patcher and the key is not known; it is discoverable
-the way the container format was - configure banks once in the Max editor, save,
-and diff the JSON. Until then Live falls back to declaration order and Push shows
-**every** parameter, so banks are a refinement, not a blocker: shipping the
-parameters is what makes Push work at all. (The dev harness's Push preview already
-renders the declared banks; only Live does not read them yet.) Sequence in
-[TODO.md](TODO.md).
+**Push banks are real**: the archaeology is done, and the declared `banks` are
+written into the patcher-level `parameters` registry as `parameterbanks` -
+`{ index, name, parameters }` with eight `"-"`-padded longname entries per bank, the
+shape read off devices Max itself saved. The same registry carries every parameter's
+`[longname, shortname, type]` (see "What Max actually does" at the end for what Live
+does - and does not - read from it).
 
 ## Native layout: dials in the device view, and the two-screen panel
 
@@ -971,24 +969,24 @@ on an unknown any more.
 
 **What remains** (in priority order, detailed in [TODO.md](TODO.md)):
 
-- **Spike R1: the dynamic rack.** Can a device create real Ableton devices next to
-  itself (`live_app browser` / `load_item`)? An afternoon, falsifiable; decides whether
-  Translate mode exists or falls back to "adopt, don't create".
-- **Modulating a parameter** - the `remote` chain. Live parameters have a value *and* a
-  modulation amount, and only value is modelled today; `live.remote~` per slot,
-  signal-rate.
-- **The `state()` default seed** - a fresh instance's dict is empty, so `default` is a
-  lie until first write. A dict-embed spike, then a test that the pattr restore beats the
-  seed.
-- **Push banks.** Needs patcher-JSON archaeology. Parameters reach Push without them;
-  banks make the pages read like a performance surface.
-- **Installers copy `presets/`** - the small step that lets a consumer ship a rack
-  preset as its front door.
+**Settled since** (2026-07-17): Spike R1 ran and answered NO - Live's Browser is
+unreachable from `[js]`, so a device can never instantiate another device and
+Translate mode is adopt-only, permanently. The `remote` chain shipped and is verified
+end to end (m4l-strudel's fx modulation). The `state()` default seed, Push banks and
+`presets/` in the installers all shipped - the measured facts are at the end of this
+document.
+
+**What remains** (detailed in [TODO.md](TODO.md)):
+
+- **Extract the contract pattern** - `defineWatch()`, `defineSamples()`,
+  `defineDevice()`: declare what the Max side has, generate everything else.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
   every DAW instead of only Live. Assessed in
   **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of this architecture is not actually
   about Max, but the LiveAPI wrapper does not port and the headless build is the price.
   Not started.
+- **The native audio bridge** (Phase 8) - see [ENHANCEMENTS.md](ENHANCEMENTS.md);
+  Route B (offline render) first.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.
 
@@ -1189,6 +1187,82 @@ feature was then written with a dictionary key (`downloadfilename`) that appears
 nowhere in it. The spike was right, the notes were right, and the implementation did
 not read them. Measuring a thing and then not consulting what you measured costs
 exactly as much as never measuring it.
+
+### Live's Browser is unreachable from `[js]` (spike, 2026-07-17)
+
+`new LiveAPI("live_app browser")` resolves to id 0 -
+`jsliveapi: component 'browser' is not an object`. The Browser (`load_item`,
+`audio_effects`, hotswap) is exposed to CONTROL SURFACE Python scripts only, not to
+the LOM that `[js]`/`live.object` see. A device therefore can never INSTANTIATE
+another device; anything shaped like "create an Auto Filter next to me" is
+adopt-only - bind to what the user placed by hand. What IS documented and safe:
+`Chain.delete_device` / `Track.delete_device`, `Song.move_device` (Live 11+), and
+`live.remote~` for modulation.
+
+### `#0` does NOT expand in an `.amxd`; `---` does, per device (verified 2026-07-17)
+
+Buffer names are global to Max, so instance-scoped names need a load-time
+substitution. `#0` is documented for abstractions, and a Max for Live device patcher
+**does not count as one**: the token stays literal in every instance, writer and
+reader agree on one global name, and two device copies silently steal each other's
+buffers - the exact failure it was meant to fix, with no error anywhere. The `---`
+prefix is the mechanism built for this: Live expands a leading `---` to an id unique
+to the DEVICE instance, and the scope is the whole device including subpatchers and
+`[poly~]` voices - so device and voice spell the SAME name and nothing travels
+through `poly~`'s arguments. Verified with two sampler copies on two tracks, each
+keeping its own sound. Outside Live `---` stays literal, degrading to the old
+shared-name behavior instead of breaking. `deviceBufName`/`voiceBufName` in
+`chains.mjs` emit it.
+
+### Live names a DeviceParameter after its SHORTNAME, and nothing overrides it
+
+The build stores the surface id as `parameter_longname`, and the box KEEPS it at
+runtime (`getattr("_parameter_longname")` reads it back) - but the `DeviceParameter`
+Live registers answers to the SHORTNAME (`name` and `original_name` both), and no
+patcher data changed that: not the per-box attrs, not the patcher-level `parameters`
+registry, proven against filenames Live had never cached. So `get_param_id` does not
+bet on either policy: it asks the box for BOTH its names
+(`_parameter_longname`/`_parameter_shortname`) and matches the enumerated parameters
+against whichever one Live used. The surface id stays the only key an app passes to
+`resolveParamId()`; display names never leave the wrapper. Two parameters answering
+to one accepted name is refused loudly - a `live.remote~` bound to the wrong
+parameter is modulation on someone else's control.
+
+The patcher-level `parameters` registry is emitted anyway (`parameterRegistry()`),
+because it is what Max itself writes and it is where **Push banks** live: box id ->
+`[longname, shortname, type]`, plus `parameterbanks` as `{ index, name, parameters }`
+with eight `"-"`-padded entries per bank - the shape read off devices Max saved.
+
+### `live.remote~` takes knob TRAVEL, not the parameter's units
+
+Measured: the incoming value is treated as a linear position across the parameter's
+range, and the knob's `exponent` curve is applied ON TOP - send 2000 into a cutoff
+declared `[40, 18000]` with `exponent: 4` and the parameter lands at
+`40 + 17960 * ((2000-40)/17960)^4 = 42.5 Hz`. For an exponent-1 parameter the two
+notions coincide, which is why raw units ever appeared to work. An app driving a
+curved parameter must pre-warp: aim the travel at `norm(v)^(1/e)` so Live's `^e`
+lands on `v` (see m4l-strudel's `useModulation.toRemote`). The rest of the `remote`
+chain behaves as designed and is verified in Live: bind by LOM id, `[line~]` ramps
+each value into a signal, no automation is written, `id 0` releases the parameter
+back to the dial.
+
+### Seeding a `[dict]` from the patcher: `@embed 1` + box-level `data`
+
+The shape Max itself saves (read off `dict.maxhelp`): the box text carries
+`@embed 1`, `saved_object_attributes` carries `{ embed: 1 }`, and the dict's contents
+sit at box level under `"data"`. `applyPersistence()` uses it to seed every state
+slot's dict with the declared default, in the same `{"__value": ...}` envelope every
+runtime write uses - so a fresh instance reads its declared default instead of `{}`.
+A restored `[pattr]` value overwrites the seed at load: restore beats seed, seed
+beats nothing.
+
+### `window flags` REPLACES the flag list
+
+`window({ alwaysOnTop: true })` compiles a `loadbang` -> message -> `[thispatcher]`
+into the window's subpatcher, and the message must name `grow close title` alongside
+`float`: `window flags` replaces the whole list rather than adding to it, so `float`
+alone produces a window with no close box - a reference card the user cannot get rid
+of. Pinned by a test.
 
 ## License
 
