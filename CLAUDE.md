@@ -57,11 +57,16 @@ infrastructure carved into `packages/`.
 
 ## Facts that look like bugs
 
+The terse rules are here; the spike that PROVED each - the numbers, what was written
+and what happened - is the evidence log in [doc/MAX-FACTS.md](doc/MAX-FACTS.md). When
+one of these bites, read the fact behind it there.
+
 - **NEVER INVENT A NAME MAX WILL LOOK UP** - not a `maxclass`, not a dictionary
   key, not an attribute. Max does not validate them, it IGNORES what it does not
   recognise, so a wrong name is not an error: it is a feature that silently does
   nothing, in a patcher that loads and keeps every cord. This cost two features
-  weeks each (ARCHITECTURE.md, "Never invent a name Max is going to look up"):
+  weeks each ([doc/MAX-FACTS.md](doc/MAX-FACTS.md), "Never invent a name Max is going
+  to look up"):
   - `maxclass: "pcontrol"` is not a box class. `pcontrol` is an OBJECT:
     `maxclass: "newobj"`, `text: "pcontrol"`. Same for `dict`. A box with an
     unknown maxclass, or an object box whose text names no object (`[open]`), does

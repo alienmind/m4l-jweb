@@ -26,7 +26,7 @@
  *
  * That is what `wrapper/device.ts`'s in-Live spike is for, and why the pair exists:
  * this file pins the code against the contract, the spike pins the contract against
- * Max. See doc/ARCHITECTURE.md, "What Max actually does".
+ * Max. See doc/MAX-FACTS.md, "What Max actually does".
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

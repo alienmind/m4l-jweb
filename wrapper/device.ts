@@ -153,7 +153,7 @@ function onMaxurlReply(dictName: string): boolean {
   if (conformanceFail > 0) {
     post("A FAILURE HERE MEANS MAX CHANGED. The unit tests cannot see it: they run\n");
     post("against a fake Max built from these very assumptions. Fix the wrapper, then\n");
-    post("update doc/ARCHITECTURE.md - 'What Max actually does' - and the fake in\n");
+    post("update doc/MAX-FACTS.md - 'What Max actually does' - and the fake in\n");
     post("tests/wrapper-max.test.mjs, in that order.\n");
   }
   post("\n");
