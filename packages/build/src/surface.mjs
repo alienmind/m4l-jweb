@@ -464,6 +464,47 @@ export function applySurface(ctx) {
  * failed to exist.
  * ------------------------------------------------------------------------------
  */
+
+/**
+ * `alwaysOnTop` - keep the window in FRONT of Live rather than behind it.
+ *
+ * A window you READ while working (a reference) is useless without this: clicking back
+ * into the device to type is exactly what buries it. A window you work IN (an editor)
+ * wants the default, which is why this is opt-in.
+ *
+ * `[thispatcher]` + `window flags ... , window exec` is Max's documented route - the
+ * flags do not take effect until `exec`, which is why it is two messages and not one.
+ *
+ * **`window flags` REPLACES the whole list; it does not add to it.** So `float` alone
+ * would produce a window with no close box, no title bar and no resize - a reference
+ * card the user cannot get rid of. `grow close title` are named alongside it to put
+ * back the ones a window is expected to have.
+ *
+ * A `loadbang` inside the SUBPATCHER fires when the subpatcher is loaded (with the
+ * device), not when its window is opened - which is what we want: the flags are a
+ * property of the window, set once, whether or not anyone ever opens it.
+ */
+const FLOAT_MSG = "window flags grow close title float, window exec";
+
+function floatBoxes(spec) {
+  if (!spec.alwaysOnTop) return [];
+  const y = 96 + spec.height + 80;
+  return [
+    { box: { id: "obj-float-loadbang", maxclass: "newobj", text: "loadbang", numinlets: 1, numoutlets: 1, outlettype: ["bang"], patching_rect: [220, y, 60, 22] } },
+    // A MESSAGE box - the comma is what makes it two messages, which is the point.
+    { box: { id: "obj-float-msg", maxclass: "message", text: FLOAT_MSG, numinlets: 2, numoutlets: 1, outlettype: [""], patching_rect: [220, y + 30, 280, 22] } },
+    { box: { id: "obj-float-thispatcher", maxclass: "newobj", text: "thispatcher", numinlets: 1, numoutlets: 2, outlettype: ["", ""], patching_rect: [220, y + 60, 80, 22] } },
+  ];
+}
+
+function floatLines(spec) {
+  if (!spec.alwaysOnTop) return [];
+  return [
+    { patchline: { source: ["obj-float-loadbang", 0], destination: ["obj-float-msg", 0] } },
+    { patchline: { source: ["obj-float-msg", 0], destination: ["obj-float-thispatcher", 0] } },
+  ];
+}
+
 export function applyWindows(ctx) {
   const { boxes, lines, surface, unmatchedId } = ctx;
   const windowIds = surface?.windows ? Object.keys(surface.windows) : [];
@@ -583,12 +624,14 @@ export function applyWindows(ctx) {
               },
             },
             { box: { id: "obj-out", maxclass: "outlet", patching_rect: [16, 96 + spec.height + 48, 30, 30], numinlets: 1, numoutlets: 0 } },
+            ...floatBoxes(spec),
           ],
           lines: [
             { patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } },
             // [jweb] outlet 0 is the page's messages; tag them and send them out.
             { patchline: { source: ["obj-jweb", 0], destination: ["obj-tag", 0] } },
             { patchline: { source: ["obj-tag", 0], destination: ["obj-out", 0] } },
+            ...floatLines(spec),
           ],
         },
       },

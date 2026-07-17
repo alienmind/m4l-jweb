@@ -497,6 +497,46 @@ test("a declared window compiles to a subpatcher holding its own [jweb]", () => 
   expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } });
 });
 
+test("a window does NOT float unless it asks to", () => {
+  // The default is right for a window you work IN. Floating everything would put an
+  // editor permanently over the set.
+  const inner = compile(mapWindow())
+    .box("obj-window-map-sub")
+    .patcher.boxes.map((b) => b.box.text);
+  expect(inner).not.toContain("thispatcher");
+});
+
+test("alwaysOnTop floats the window, and keeps the close box while doing it", () => {
+  const c = compile(
+    defineSurface({
+      params: {},
+      windows: { help: window({ title: "Help", width: 400, height: 300, entry: "Help", alwaysOnTop: true }) },
+    }),
+  );
+  const sub = c.box("obj-window-help-sub");
+  const text = (id) => sub.patcher.boxes.find((b) => b.box.id === id)?.box.text;
+
+  // loadbang -> the flags message -> thispatcher. It fires when the SUBPATCHER loads,
+  // so the flags are a property of the window whether or not anyone opens it.
+  expect(text("obj-float-loadbang")).toBe("loadbang");
+  expect(text("obj-float-thispatcher")).toBe("thispatcher");
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-float-loadbang", 0], destination: ["obj-float-msg", 0] } });
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-float-msg", 0], destination: ["obj-float-thispatcher", 0] } });
+
+  const msg = text("obj-float-msg");
+  expect(msg).toContain("float");
+  // `window flags` REPLACES the list rather than adding to it, so a message naming only
+  // `float` ships a reference card with no close box, no title and no resize - a window
+  // the user cannot get rid of. These put back what a window is expected to have.
+  expect(msg, "window flags replaces the whole list - float alone loses the close box").toContain("close");
+  expect(msg).toContain("title");
+  expect(msg).toContain("grow");
+  // The flags do nothing until `exec`. The comma is what makes that a second message.
+  expect(msg).toContain(", window exec");
+  // A message box, not a newobj - the comma only means "two messages" in a message box.
+  expect(sub.patcher.boxes.find((b) => b.box.id === "obj-float-msg").box.maxclass).toBe("message");
+});
+
 /**
  * THE BUG THAT PARKED THIS FEATURE, and it was never [route]'s fault.
  *

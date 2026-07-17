@@ -142,6 +142,20 @@ export interface WindowSpec {
   width: number;
   height: number;
   entry: string;
+  /**
+   * Keep the window in FRONT of Live, instead of behind it the moment Live is clicked.
+   *
+   * For a window you read WHILE working in Live - a reference, a cheatsheet - the
+   * default behaviour makes it useless: clicking back into the device to type is
+   * exactly what sends the window behind the main window. For a window you work IN (an
+   * editor), the default is right and this should stay off.
+   *
+   * It compiles to `[thispatcher]` <- `window flags ... float, window exec`, which is
+   * Max's documented route. **The flag list is a REPLACEMENT, not an addition** - that
+   * is why the generated message names `grow`, `close` and `title` alongside `float`.
+   * Send `float` alone and the window comes up with no close box.
+   */
+  alwaysOnTop?: boolean;
 }
 
 /**
