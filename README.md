@@ -80,6 +80,7 @@ M4L-JWEB handles the entire Max bridge so your React app feels like a native Abl
 - **Accurate MIDI Timing:** Notes are placed on Max's scheduler. Your JavaScript sequencer computes *when* a note should fall, and Max places it with sample-accurate precision despite the UI's 20Hz refresh rate.
 - **Audio DSP Chains:** Declarative audio signal paths (filters, gains, overdrives) that process sound at native C++ speeds. Audio never crosses the JS bridge.
 - **State Persistence:** `useStateSync()` gives you a `useState`-shaped binding to arbitrary JSON that is **saved inside the Live set** and restored with it, per device instance - for the pattern, preset or drum map that a numeric parameter cannot hold.
+- **Observing Live:** `defineWatch()` declares which Live properties to watch (the tempo, the scale, the selected track), and `useWatch()` reads them in React. The observers are generated into the device's `bang()` - the one place a LiveAPI object is not born dead - so the trap that makes a hand-written observer silently watch nothing is not one you can fall into.
 - **Floating Windows:** `useWindow()` opens a second page in a window of its own. The device view in Live is a fixed ~169 px tall and does not scroll, so this is where a UI that needs room goes.
 - **Fetch to Disk:** `fetchToFile(url, path)` downloads straight to the filesystem through Max's `[maxurl]`, with progress. The bytes never cross the JS bridge, so a 40 MB sample pack is not a problem - and no `[node.script]` is involved.
 - **Sample Playback and Polyphony:** the `samples` chain (a named `[buffer~]` per slot, previewed through the track) and the `instrument` chain (a generated `[poly~]` voice patch, frozen into the device, playing a keymap of buffers via `playVoice()`). Buffer names are instance-scoped with Live's `---` prefix, so two copies of a sampler on two tracks keep their own sound.
@@ -442,6 +443,31 @@ Turning the Push encoder moves the React state; moving the React control moves t
 Live parameter - so automation, MIDI mapping and Push all follow. `pnpm dev:<device>`
 renders the same declaration as a parameter panel and a **Push preview**, so you can
 see what a performer will see without leaving the browser.
+
+To *read* something Live owns - the tempo, the scale, the selected track - declare a
+**watch** in `src/app/<device>/watch.ts`. It is the read-only twin of the surface:
+
+```ts
+import { defineWatch, watch } from "@m4l-jweb/surface";
+
+export default defineWatch({
+  watches: {
+    scale: watch({ path: "live_set", property: "scale_name", default: "C" }),
+  },
+});
+```
+
+```tsx
+import { useWatch } from "@m4l-jweb/surface/react";
+import watches from "./watch";
+
+const scale = useWatch(watches, "scale"); // string, updates when Live's scale changes
+```
+
+The build injects the list and the packaged wrapper creates every observer from the
+device's `bang()` - the one moment a LiveAPI object is not born dead. You never write
+the observer, so you cannot write it in the one place (`loadbang`) that silently makes
+it watch nothing forever.
 
 ### 6. Declare Floating Windows and State Persistence
 

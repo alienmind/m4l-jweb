@@ -389,6 +389,75 @@ export function defaults<P extends Record<string, ParamSpec>>(surface: Surface<P
   return out;
 }
 
+/* ------------------------------------------------------------------ *
+ * defineWatch - declare what to OBSERVE in Live, once, as code.
+ *
+ * The twin of defineSurface, and it exists to kill hard rule 4 BY CONSTRUCTION.
+ * A LiveAPI observer built during `loadbang` is dead forever; the only safe place
+ * to create one is `live.thisdevice`'s bang. That is a trap a hand-written
+ * observer falls into silently - the object constructs without error and then
+ * notifies nothing. So no device writes the observer at all: it DECLARES the LOM
+ * path and property, the build injects the list as data, and the packaged wrapper
+ * creates every observer from bang() (see setupWatches in @m4l-jweb/wrapper). The
+ * one place LiveAPI is safe is the one place the observers are made.
+ *
+ * Each change reaches the UI as `watch_<key> <value...>`, exactly as a parameter
+ * reaches it as `<id> <value>` - one declaration, one name, both sides. `useWatch`
+ * binds it; the app never types the selector.
+ *
+ * This is READ-ONLY: an observed property flows Live -> UI and nowhere back. A
+ * value the app can also WRITE is a parameter (`defineSurface`), not a watch.
+ * ------------------------------------------------------------------ */
+
+/** One observed Live property. `T` is the value the app sees, so `useWatch` is typed from it. */
+export interface WatchSpec<T = unknown> {
+  /** The LOM object path, e.g. `"live_set"` or `"live_set view selected_track"`. */
+  path: string;
+  /** An OBSERVABLE property on that object, e.g. `"tempo"`, `"scale_name"`, `"is_playing"`. */
+  property: string;
+  /** What the app shows before Live has replied - the same role a parameter's `default` plays. */
+  default: T;
+}
+
+/** The value type a watch carries. `useWatch` is typed by this. */
+export type WatchValue<S extends WatchSpec> = S extends WatchSpec<infer T> ? T : never;
+
+/**
+ * Declare one watch. `watch<string>({ path: "live_set", property: "scale_name", default: "C" })`
+ * carries the value type through, so `useWatch(w, "scale")` is `string` with nothing to cast.
+ */
+export const watch = <T>(spec: WatchSpec<T>): WatchSpec<T> => ({ ...spec });
+
+export interface WatchDef<W extends Record<string, WatchSpec>> {
+  watches: W;
+}
+
+export interface Watch<W extends Record<string, WatchSpec> = Record<string, WatchSpec>> extends WatchDef<W> {
+  /** Declaration order - the order the build emits WATCH_SPECS and the wrapper attaches observers. */
+  readonly keys: readonly Extract<keyof W, string>[];
+}
+
+/**
+ * Declare the watch surface.
+ *
+ * Like defineSurface, the checks run HERE, at call time, and throw - the build
+ * imports this module to emit the observer list, so a bad declaration fails
+ * `pnpm build` and CI. A key becomes the selector suffix `watch_<key>`, so it may
+ * not carry whitespace (Max would split the message on it); a path or property
+ * left blank would attach an observer to nothing, silently, which is the exact
+ * failure this API exists to prevent.
+ */
+export function defineWatch<const W extends Record<string, WatchSpec>>(def: WatchDef<W>): Watch<W> {
+  const keys = Object.keys(def.watches) as Extract<keyof W, string>[];
+  for (const key of keys) {
+    if (/\s/.test(key)) throw new Error(`watch: key "${key}" has whitespace - it becomes the selector watch_${key}, which Max would split`);
+    const w = def.watches[key];
+    if (!w.path) throw new Error(`watch: "${key}" has no path - an observer with no LOM object attaches to nothing`);
+    if (!w.property) throw new Error(`watch: "${key}" has no property - an observer with no property notifies nothing`);
+  }
+  return { ...def, keys };
+}
+
 /** How a value is displayed - the parameter's own `format`, or a sane default. */
 export function formatValue(spec: ParamSpec, value: unknown): string {
   if (spec.kind === "toggle" || spec.kind === "button") return value ? "on" : "off";

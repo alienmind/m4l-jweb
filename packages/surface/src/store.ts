@@ -30,7 +30,7 @@
  * the user's hand wins, and the next value after the window lands normally.
  */
 import { bindInlet, outlet } from "@m4l-jweb/bridge";
-import { defaults, type ParamSpec, type StateSpec, type Surface } from "./index";
+import { defaults, type ParamSpec, type StateSpec, type Surface, type WatchSpec } from "./index";
 
 /** How long the user's hand beats an inbound value: long enough to cover the gaps between drag events, short enough to be imperceptible. */
 export const GUARD_MS = 120;
@@ -284,5 +284,66 @@ export function stateStore(surface: { state?: Record<string, StateSpec> }): Stat
   };
 
   stateStores.set(surface, store);
+  return store;
+}
+
+/* ------------------------------------------------------------------ *
+ * The watch store - the read-only Live values behind useWatch().
+ *
+ * A watch is the mirror image of a parameter: it flows Live -> UI only, so this
+ * store has a `get`/`subscribe` and NO `write`. Each declared watch binds
+ * `watch_<key>` exactly once - same one-binding-per-selector reason paramStore
+ * exists - and fans out to subscribers. The wrapper attaches the observer (from
+ * bang(), the only safe place) and resends the current value on ui_ready, so a
+ * page that loaded after the last change still gets it; the app just calls
+ * uiReady() as it already does for tempo.
+ * ------------------------------------------------------------------ */
+
+export interface WatchStore {
+  get(): Values;
+  subscribe(fn: () => void): () => void;
+}
+
+const watchStores = new WeakMap<object, WatchStore>();
+
+/**
+ * One store per watch declaration, created once and never torn down - the bridge's
+ * bindings are process-wide, so tearing one down would unbind a watch another
+ * component still reads.
+ */
+export function watchStore(watch: { watches?: Record<string, WatchSpec>; keys?: readonly string[] }): WatchStore {
+  const existing = watchStores.get(watch);
+  if (existing) return existing;
+
+  const keys = watch.keys ?? (watch.watches ? Object.keys(watch.watches) : []);
+
+  // What the app shows before Live has replied: the declared defaults.
+  let values: Values = {};
+  for (const key of keys) values[key] = watch.watches?.[key].default;
+
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const fn of listeners) fn();
+  };
+
+  for (const key of keys) {
+    // `watch_<key> <value...>` - out of the wrapper's observeProperty, forwarded on
+    // change and once on ui_ready. A scalar arrives as one atom; a property that
+    // yields several (a colour, a pair) arrives spread, so keep the list intact.
+    bindInlet(`watch_${key}`, (...args) => {
+      values = { ...values, [key]: args.length <= 1 ? args[0] : args };
+      notify();
+    });
+  }
+
+  const store: WatchStore = {
+    get: () => values,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
+
+  watchStores.set(watch, store);
   return store;
 }

@@ -18,9 +18,9 @@
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { outlet } from "@m4l-jweb/bridge";
-import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, WindowSpec } from "./index";
+import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, Watch, WatchSpec, WatchValue, WindowSpec } from "./index";
 import { JWEB_VARNAME } from "./index";
-import { paramStore, stateStore } from "./store";
+import { paramStore, stateStore, watchStore } from "./store";
 
 /**
  * A two-way binding to one Live parameter. `[value, setValue]`, like useState -
@@ -106,9 +106,7 @@ export function useNativeVisibility<P extends Record<string, ParamSpec>>(
  * Only `hidden` is used, so this actually works where reflow could not, and no layer
  * is ever visible at the same time as another - so z-order never matters.
  */
-export function useNativePanel<P extends Record<string, ParamSpec>>(
-  surface: Surface<P>,
-): (mode: "web" | "native") => void {
+export function useNativePanel<P extends Record<string, ParamSpec>>(surface: Surface<P>): (mode: "web" | "native") => void {
   return useCallback(
     (mode: "web" | "native") => {
       const native = surface.layout?.native;
@@ -121,6 +119,25 @@ export function useNativePanel<P extends Record<string, ParamSpec>>(
     },
     [surface],
   );
+}
+
+/**
+ * A one-way binding to an observed Live property, declared with `defineWatch()`.
+ *
+ * Read-only, so it returns the value alone - no setter. The mirror of `useParam`:
+ * a parameter the app both reads and writes; a watch it only reads. Turning the
+ * tempo, changing the scale, selecting a track in Live moves this React state, and
+ * the wrapper attaches every observer from `bang()` - the one place LiveAPI is
+ * safe - so the trap of a dead loadbang observer is not one a device can fall into.
+ *
+ * The selector is DERIVED (`watch_<key>`), exactly as `useParam`'s is, so a key
+ * that is not declared is a build error at the call site, not a value that never
+ * arrives.
+ */
+export function useWatch<W extends Record<string, WatchSpec>, K extends Extract<keyof W, string>>(watch: Watch<W>, key: K): WatchValue<W[K]> {
+  const store = useMemo(() => watchStore(watch), [watch]);
+  const values = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return values[key] as WatchValue<W[K]>;
 }
 
 /**

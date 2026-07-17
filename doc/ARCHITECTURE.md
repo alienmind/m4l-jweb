@@ -1,9 +1,5 @@
 # M4L-JWEB: architecture
 
-*The mechanics: the two escape hatches Max leaves open, the message protocol
-between the layers, the generated patchers, the headless `.amxd` writer, the
-parameter surface Push reads, and the invariants CI enforces.*
-
 **Read the [README](../README.md) first.** It covers what this is, what it costs
 you to build and run, why Max for Live development normally hurts, and a tutorial
 for defining a device. This document is the part after *"yes, but how"* - it
@@ -13,22 +9,23 @@ assumes all of that and does not repeat it.
 
 ## The idea
 
-M4L-JWEB starts from one observation:
+M4L-JWEB allows to author Max for Live patches and devices using declarative Typescript.
 
-> **Building a Max for Live device means clicking around a UI - dragging objects,
-> drawing cords - instead of *declaring* what the device is made of. To a developer
-> that feels unnatural.**
-
+**Building a Max for Live device normally means clicking around a UI - dragging objects,
+drawing cords. To a developer that feels unnatural.**
 It is not just aesthetics. A patcher you assemble by hand is a binary you cannot
-diff, cannot review, cannot generate and cannot test; the "source" of a device is a
+diff, cannot review, cannot generate and cannot test
+
+
+With the "source" of a device is a
 picture of it. Every practice a developer relies on - version control, code review,
 CI, refactoring by rename - stops at the edge of the Max window.
 
 Moreover, this framework enables LLM-assisted development of Max patches and devices, purely through declarative code;
 being code, it can truly assist you in creating and refactoring, just as it would with any other programming language.
 
-So: **declare the device, and generate the patcher.** Everything else in this
-document follows from taking that seriously.
+**declare the device, and generate the patcher.**
+
 
 It is possible because Max ships two escape hatches, and together they cover almost
 everything a device needs.
@@ -930,12 +927,25 @@ held for `defineSurface()`, and it is why the next two contracts - a `defineSamp
 for `buffer~` slots, a `defineWatch()` for LiveAPI observers - are worth writing as
 declarations rather than as code.
 
-`defineWatch()` is the interesting one, because it would eliminate this project's
+`defineWatch()` is the interesting one, because it eliminates this project's
 nastiest footgun *by construction*: a LiveAPI object created during `loadbang` is
-**dead** - it constructs without error and observes nothing, forever - and today
-that lifecycle rule is enforced by a comment and a code review. Declare what to
-observe, and the codegen emits the observers into `bang()`, unconditionally, because
-that is the only place it ever emits them.
+**dead** - it constructs without error and observes nothing, forever - and until now
+that lifecycle rule was enforced by a comment and a code review. **It ships.** A
+device declares what to observe in `src/app/<device>/watch.ts` (`defineWatch({ watches:
+{ scale: watch({ path: "live_set", property: "scale_name", default: "C" }) } })`); the
+build imports it and injects `WATCH_SPECS` as a data banner - the same way `BUILD_STAMP`
+and the payloads ride in, not as patcher boxes, because an observer is pure LiveAPI and
+never touches the graph. The packaged wrapper's `setupWatches()` reads the banner and
+attaches every observer from `bang()`, unconditionally, because that is the only place
+it ever attaches them - and `resendWatches()` sends each current value on `ui_ready`, so
+a page that loaded after the last change still gets it (the watch twin of
+`sendCurrentTempo`). Each change reaches the app as `watch_<key> <value...>`, and
+`useWatch()` binds it, typed from the declaration. The observer is generated, so it
+cannot be written in `loadbang`; the rule is now structural, not a comment.
+
+That leaves `defineSamples()` as the second instance still to lift, and the codegen
+generalisation (Stage 1.1) after it - two working declarations were the precondition,
+and now there are three.
 
 **The warning that goes with it:** do not build the generic contract compiler first
 and then express the Surface in terms of it. An abstraction extracted from one

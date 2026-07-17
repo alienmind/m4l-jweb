@@ -176,6 +176,13 @@ declare const EXTRA_PAYLOAD_NAMES: string[] | undefined;
 declare const EXTRA_PAYLOAD_BYTES: number[] | undefined;
 declare const EXTRA_PAYLOAD_B64: string[][] | undefined;
 
+/**
+ * Injected by @m4l-jweb/build from the device's `defineWatch()`: the Live
+ * properties to observe. The packaged wrapper attaches an observer per entry from
+ * bang() (setupWatches, watch.ts) - undefined for a device that declares none.
+ */
+declare const WATCH_SPECS: { key: string; path: string; property: string }[] | undefined;
+
 /*
  * Device hooks.
  *
