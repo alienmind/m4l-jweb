@@ -131,6 +131,28 @@ declare class LiveAPI {
   constructor(pathOrCallback: string | ((args: unknown[]) => void), path?: string);
   property: string;
   unquotedpath: string;
+  /**
+   * The object's LOM id, and the FIRST thing to check on anything you construct: a
+   * path that does not resolve gives you an object with id 0 rather than an error,
+   * and every get() on it then returns nothing, quietly. `if (!api.id)` is the guard.
+   *
+   * NOT STABLE ACROSS SET RELOADS. An id is a handle into the running set, not a
+   * name - never persist one (see the `remote` chain, which binds by id and therefore
+   * makes re-binding on load the app's job).
+   */
+  readonly id: number;
+  /** The canonical path this object resolved to - not necessarily the one you asked for. */
+  readonly path: string;
+  /** The LOM class name, e.g. "Track", "DeviceParameter". */
+  readonly type: string;
+  /**
+   * What this object actually HAS - its properties, children and methods, as text.
+   *
+   * The honest way to ask whether a method exists before calling it: a blind call
+   * cannot tell "no such method" from "the method failed", and the LOM is only
+   * partly documented. Worth a post() when you are exploring.
+   */
+  readonly info: string;
   get(prop: string): unknown;
   set(prop: string, value: unknown): void;
   getcount(child: string): number;
