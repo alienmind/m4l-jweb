@@ -122,27 +122,31 @@ export const AUDIO_OUT = "obj-plugout";
  * both to whichever loaded last. One rack's samples silently became the other's. No
  * error, no console line: just the wrong sound.
  *
- * `#0` IS MAX'S OWN ANSWER, and the only one available. A buffer takes its name from
- * its creation argument and there is no documented way to rename one at runtime, so a
- * name minted by the wrapper after load cannot reach a box frozen at build time. `#0`
- * expands, at LOAD time, to a number unique to each instance of the patcher - which is
- * exactly the scope the name needs.
+ * A name minted by the wrapper after load cannot reach a box frozen at build time (a
+ * buffer takes its name from its creation argument and there is no documented runtime
+ * rename), so the scoping has to be a load-time substitution Max itself performs.
  *
- * **THE SCOPE IS PER PATCHER, WHICH IS THE TRAP.** A [poly~] voice is its own
- * abstraction, so ITS `#0` is not the device's - a voice naming `#0-buf-x` would look
- * for a buffer nobody created. The device therefore PASSES its own `#0` to [poly~] as
- * an argument, and the voice refers to it as `#1` (see voiceBufName). Same buffer, two
- * spellings, because they are two patchers.
+ * `#0` WAS TRIED AND DOES NOT WORK (spike, doc/TODO.md item 0, run 2026-07-17 in
+ * Live). `#0` is documented for abstractions, and an .amxd device patcher turned out
+ * not to count as one: the token stayed literal in every instance, so writer and
+ * reader still agreed on one global name and the collision survived, silently.
  *
- * UNVERIFIED IN LIVE - this is the spike (doc/TODO.md item 0). `#0` is documented for
- * abstractions; whether an .amxd device counts as one is the question. If it does not
- * expand, the name arrives containing a literal "#0" and every buffer_load fails
- * loudly - which is the good failure. The bad one it replaces was silent.
+ * `---` IS THE MECHANISM BUILT FOR THIS. Max for Live replaces a leading `---` in a
+ * name with an id unique to the DEVICE instance - and the scope is the whole device,
+ * subpatchers and [poly~] voices included, not one patcher. That kills the `#0`/`#1`
+ * hand-off the first attempt needed: the voice spells the SAME name the device does,
+ * and no id has to travel through [poly~]'s arguments.
+ *
+ * OUTSIDE LIVE `---` stays literal (it is a Live-only substitution). Both writer and
+ * reader keep agreeing, so a patcher opened in standalone Max degrades to the old
+ * shared-name behavior instead of breaking - acceptable, since the devices only
+ * meaningfully run in Live.
  */
-export const deviceBufName = (device, slot) => `#0-buf-${device?.name}-${slot}`;
+export const deviceBufName = (device, slot) => `---buf-${device?.name}-${slot}`;
 
-/** The same buffer, as a [poly~] voice must spell it: the device's `#0`, passed in as `#1`. */
-export const voiceBufName = (device, slot) => `#1-buf-${device?.name}-${slot}`;
+/** The same buffer, as a [poly~] voice spells it: identical - `---` scopes per DEVICE,
+ * not per patcher, so the voice shares the expansion with the patcher that loaded it. */
+export const voiceBufName = (device, slot) => deviceBufName(device, slot);
 
 /**
  * How long a `remote` slot takes to slide to each new value, in ms.
@@ -789,7 +793,7 @@ function downloadChain(ctx) {
  * of its own: on an audio effect the preview plays over the track's audio, and on an
  * instrument there is nothing at the input to add.
  *
- * The buffer names are INSTANCE-SCOPED (`deviceBufName`, `#0-buf-<device>-<slot>`), so
+ * The buffer names are INSTANCE-SCOPED (`deviceBufName`, `---buf-<device>-<slot>`), so
  * two copies of this device on two tracks own separate buffers. They used to be global
  * to Max and generated from the device name alone, which meant the second copy loaded
  * silently stole the first's samples.
@@ -801,9 +805,8 @@ function samplesChain(ctx) {
   const { boxes, lines, device, jwebId, unmatchedId } = ctx;
   const slots = device?.slots ?? ["preview"];
   // Instance-scoped, for the same reason the instrument's are: two copies of a preview
-  // device on two tracks are two patchers, and a global name would hand both the same
-  // buffer. Everything here lives in the ONE device patcher, so `#0` throughout - there
-  // is no second patcher to hand it to, which is what makes this the easy half.
+  // device on two tracks are two devices, and a global name would hand both the same
+  // buffer. `---` expands per device instance in Live - see deviceBufName.
   const bufName = (slot) => deviceBufName(device, slot);
 
   // `buffer_load` is NOT claimed from [jweb]. It goes on to the wrapper, which
@@ -1224,9 +1227,9 @@ function instrumentVoicePatch(bufNames) {
  *
  * `slots: ["c", "e", "g"]` in the manifest is three buffers; the default is one
  * ("voice"). The buffer names are INSTANCE-SCOPED (`deviceBufName`): each copy of the
- * device owns its own, which is what lets a drum rack exist on two tracks at once. The
- * voice spells them `#1` because it is a different patcher - see deviceBufName for why
- * that hand-off is the whole subtlety.
+ * device owns its own, which is what lets a drum rack exist on two tracks at once.
+ * `---` scopes per DEVICE, so the voice spells the same name the device does - see
+ * deviceBufName.
  *
  * It SUMS into the signal path ([+~]): an instrument makes sound where there was none
  * at its input, so there is nothing to claim a stage over.
@@ -1239,14 +1242,12 @@ function instrumentChain(ctx) {
   const voiceFile = `${device?.name}-voice.maxpat`;
 
   // The frozen voice patch (a keymap of every slot's buffer), and the [poly~] that
-  // loads N copies of it. The voice spells the buffers with `#1` - the device's own
-  // `#0`, handed to it as poly~'s first argument below.
+  // loads N copies of it. The voice spells the buffers exactly as the device does:
+  // `---` is device-scoped, so no id travels through poly~'s arguments.
   ctx.extras.push({ name: voiceFile, data: instrumentVoicePatch(slots.map((s) => voiceBufName(device, s))) });
   // [poly~]'s name is the file WITHOUT its extension, per Max's abstraction lookup.
-  // The trailing `#0` is the device instance id, and it is what makes every voice
-  // address THIS device's buffers rather than another copy's.
   boxes.push(
-    box(`obj-instr-poly`, `poly~ ${voiceFile.replace(/\.maxpat$/, "")} ${voices} #0`, {
+    box(`obj-instr-poly`, `poly~ ${voiceFile.replace(/\.maxpat$/, "")} ${voices}`, {
       numinlets: 1,
       numoutlets: 2,
       outlettype: ["signal", "signal"],

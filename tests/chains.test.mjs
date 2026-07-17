@@ -211,10 +211,10 @@ test("a sample slot is a named [buffer~], and the player refers to it by that na
   const c = sampler();
   // groove~ and buffer~ agree on the name or they are two unrelated objects, and
   // nothing in Max reports the mismatch: the preview simply plays silence.
-  expect(textOf(c, "obj-samples-buf-preview")).toBe("buffer~ #0-buf-smp-preview");
-  expect(textOf(c, "obj-samples-info-preview")).toBe("info~ #0-buf-smp-preview");
-  expect(textOf(c, "obj-samples-set-preview")).toBe("set #0-buf-smp-preview");
-  expect(textOf(c, "obj-samples-groove")).toContain("groove~ #0-buf-smp-preview 2");
+  expect(textOf(c, "obj-samples-buf-preview")).toBe("buffer~ ---buf-smp-preview");
+  expect(textOf(c, "obj-samples-info-preview")).toBe("info~ ---buf-smp-preview");
+  expect(textOf(c, "obj-samples-set-preview")).toBe("set ---buf-smp-preview");
+  expect(textOf(c, "obj-samples-groove")).toContain("groove~ ---buf-smp-preview 2");
 });
 
 test("a load goes through the WRAPPER, which is what resolves the path", () => {
@@ -301,12 +301,12 @@ test("...and it still composes: an effect after it processes the sound it made",
 
 test("more than one slot is more than one buffer, dispatched by name", () => {
   const c = sampler(["samples"], ["kick", "snare"]);
-  expect(c.count("buffer~ #0-buf-smp-kick")).toBe(1);
-  expect(c.count("buffer~ #0-buf-smp-snare")).toBe(1);
+  expect(c.count("buffer~ ---buf-smp-kick")).toBe(1);
+  expect(c.count("buffer~ ---buf-smp-snare")).toBe(1);
   // One player, N buffers: groove~ takes `set <name>`. Both slots' route outlets have
   // to reach it, and the slot lives in the ARGUMENTS - `route kick snare` matches a
   // whole word, which is what makes that legal here.
-  expect(c.count("groove~ #0-buf-smp-kick 2 @loop 0")).toBe(1);
+  expect(c.count("groove~ ---buf-smp-kick 2 @loop 0")).toBe(1);
   expect(textOf(c, "obj-samples-loadslot")).toBe("route kick snare");
   expect(c.cords).toContainEqual({ src: "obj-samples-playslot", out: 1, dst: "obj-samples-trig-snare", in: 0 });
 });
@@ -343,15 +343,15 @@ test("the instrument ships its [poly~] and a FROZEN voice patch, resolved by nam
   // Max cannot embed a poly~ voice inline (no factory device does), so the voice is a
   // frozen .amxd dependency and poly~ names it without the extension.
   //
-  // The trailing `#0` is the DEVICE INSTANCE ID, and it is the whole buffer-collision
-  // fix: a voice is its own patcher, so its own `#0` is not the device's. The device
-  // hands its id to poly~, the voice reads it as `#1`, and both then name the same
-  // buffer. Drop this argument and every voice looks for a buffer nobody created.
-  expect(c.count("poly~ inst-voice 8 #0")).toBe(1);
+  // No instance-id argument: `---` is DEVICE-scoped, so the voice's buffer names
+  // expand to the same id as the device patcher's without any hand-off. (The `#0`
+  // route needed a trailing `#0` here; the spike showed `#0` never expands in an
+  // .amxd, which is why it is gone.)
+  expect(c.count("poly~ inst-voice 8")).toBe(1);
   expect(c.extras.find((e) => e.name === "inst-voice.maxpat"), "the voice patch must be a frozen extra").toBeDefined();
   expect(voiceOf(c).boxes.some((b) => b.box.text === "thispoly~")).toBe(true);
   // groove~ starts on the FIRST slot's buffer; `set` switches it per note.
-  expect(voiceText(c, "v-groove")).toBe("groove~ #1-buf-inst-c 2 @loop 0");
+  expect(voiceText(c, "v-groove")).toBe("groove~ ---buf-inst-c 2 @loop 0");
 });
 
 test("the voice is a KEYMAP: a slot index picks the buffer, and the rate is explicit", () => {
@@ -359,7 +359,7 @@ test("the voice is a KEYMAP: a slot index picks the buffer, and the rate is expl
   // slot -> [sel 0 1 2] -> one `set <buffer>` per slot (no start - the seq's 0 starts it).
   expect(voiceText(c, "v-sel")).toBe("sel 0 1 2");
   for (const [i, slot] of ["c", "e", "g"].entries()) {
-    expect(voiceText(c, `v-set-${i}`)).toBe(`set #1-buf-inst-${slot}`);
+    expect(voiceText(c, `v-set-${i}`)).toBe(`set ---buf-inst-${slot}`);
     expect(voiceHasLine(c, "v-sel", i, `v-set-${i}`, 0)).toBe(true);
     expect(voiceHasLine(c, `v-set-${i}`, 0, "v-groove", 0)).toBe(true);
   }
@@ -388,7 +388,7 @@ test("a buffer per slot, dispatched by name, each reporting what info~ measured"
   expect(c.cords).toContainEqual({ src: "obj-js", out: 1, dst: "obj-instr-replaceroute", in: 0 });
   expect(textOf(c, "obj-instr-loadslot")).toBe("route c e g"); // slot is a whole word
   for (const [i, slot] of ["c", "e", "g"].entries()) {
-    expect(c.count(`buffer~ #0-buf-inst-${slot}`)).toBe(1);
+    expect(c.count(`buffer~ ---buf-inst-${slot}`)).toBe(1);
     expect(c.feeding(`obj-instr-replace-${slot}`, 0)).toEqual(["obj-instr-loadslot"]);
     expect(c.cords).toContainEqual({ src: `obj-instr-buf-${slot}`, out: 1, dst: `obj-instr-info-${slot}`, in: 0 }); // read-completed
     expect(c.cords).toContainEqual({ src: `obj-instr-info-${slot}`, out: 0, dst: `obj-instr-pack-${slot}`, in: 0 }); // sample rate, hot
@@ -421,8 +421,8 @@ test("the voice patch selects the buffer and sets rate BEFORE it starts the voic
 
 test("the default instrument is a single slot", () => {
   const c = compile(null, { name: "one", type: "instrument", chains: ["instrument"] });
-  expect(c.count("buffer~ #0-buf-one-voice")).toBe(1);
-  expect(c.extras.find((e) => e.name === "one-voice.maxpat").data.patcher.boxes.find((b) => b.box.id === "v-groove").box.text).toBe("groove~ #1-buf-one-voice 2 @loop 0");
+  expect(c.count("buffer~ ---buf-one-voice")).toBe(1);
+  expect(c.extras.find((e) => e.name === "one-voice.maxpat").data.patcher.boxes.find((b) => b.box.id === "v-groove").box.text).toBe("groove~ ---buf-one-voice 2 @loop 0");
 });
 
 /* ------------------------------------------------------------------ *
@@ -435,32 +435,33 @@ test("every buffer a device names is scoped to the INSTANCE, not to the device",
   // handed both to whichever loaded last. One rack's samples became the other's, with
   // no error anywhere. A drum rack on two tracks is the NORMAL case, not an exotic one.
   //
-  // `#0` expands per patcher INSTANCE at load time, which is the scope the name needs.
+  // `---` expands per DEVICE instance at load time in Live, which is the scope the
+  // name needs. (`#0` was tried first and never expands in an .amxd - the spike.)
   // Any buffer-naming box that loses its prefix silently reopens the collision, so this
   // sweeps them all rather than naming three and trusting the fourth.
   const buffers = (c) => c.boxes.map((b) => b.box.text).filter((t) => /^(buffer~|info~|groove~|set) /.test(t) && t.includes("buf-"));
 
   const smp = sampler(["samples"], ["kick", "snare"]);
   expect(buffers(smp).length).toBeGreaterThan(0);
-  for (const t of buffers(smp)) expect(t, `"${t}" is not instance-scoped`).toContain("#0-buf-");
+  for (const t of buffers(smp)) expect(t, `"${t}" is not instance-scoped`).toContain("---buf-");
 
   const inst = instrument();
-  for (const t of buffers(inst)) expect(t, `"${t}" is not instance-scoped`).toContain("#0-buf-");
+  for (const t of buffers(inst)) expect(t, `"${t}" is not instance-scoped`).toContain("---buf-");
 });
 
-test("the voice spells the SAME buffer with #1, because it is a different patcher", () => {
-  // The trap this pins: a [poly~] voice is its own abstraction, so its `#0` is NOT the
-  // device's. A voice naming `#0-buf-x` would resolve to a buffer nobody created, and
-  // the instrument would be silent with nothing in the console. The device passes its
-  // own `#0` to poly~ (asserted above) and the voice reads it back as `#1`.
+test("the voice spells the SAME buffer name the device does", () => {
+  // `---` is scoped per DEVICE, voices included, so device and voice must agree on
+  // the literal spelling - a voice with any other prefix (the old `#1`, or none)
+  // would resolve to a buffer nobody created, and the instrument would be silent
+  // with nothing in the console.
   const c = instrument();
   const voiceBufs = voiceOf(c)
     .boxes.map((b) => b.box.text)
     .filter((t) => t.includes("buf-"));
   expect(voiceBufs.length).toBeGreaterThan(0);
   for (const t of voiceBufs) {
-    expect(t, `voice box "${t}" must use #1 (poly~'s argument), not #0`).toContain("#1-buf-");
-    expect(t).not.toContain("#0-buf-");
+    expect(t, `voice box "${t}" must use the device-scoped --- prefix`).toContain("---buf-");
+    expect(t).not.toContain("#");
   }
 });
 
