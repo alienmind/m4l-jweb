@@ -610,9 +610,16 @@ test("a declared state slot compiles to a [dict] with a [pattr] bound to it", ()
   // and the pattr then binds to nothing - the same silent hole as [pcontrol] above.
   const dict = c.box("obj-state-config");
   expect(dict.maxclass).toBe("newobj");
-  expect(dict.text).toBe("dict obj-state-config");
+  expect(dict.text).toBe("dict obj-state-config @embed 1");
   // @bindto resolves a SCRIPTING name, which is what varname is.
   expect(dict.varname).toBe("obj-state-config");
+  // THE SEED (the state-default gap, closed): `@embed 1` + box-level `data` is the
+  // shape Max itself saves (dict.maxhelp), and the seed travels in the same
+  // `{"__value": ...}` envelope every runtime write uses, so a fresh instance
+  // reads its declared default instead of `{}`. A restored [pattr] overwrites the
+  // seed at load - restore beats seed, seed beats nothing.
+  expect(dict.saved_object_attributes).toEqual({ embed: 1 });
+  expect(dict.data).toEqual({ __value: { voices: 4 } });
 
   const pattr = c.box("obj-pattr-config");
   expect(pattr.maxclass).toBe("newobj");

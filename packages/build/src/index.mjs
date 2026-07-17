@@ -381,6 +381,17 @@ export async function packageDevices(root) {
     console.log(`m4l-jweb: ${path.basename(f)} -> dist/${name}/ (loose)`);
   }
 
+  // Presets ride along with the devices. A consumer repo's `presets/` holds
+  // hand-saved Live files (an .adg rack is gzipped XML, undocumented - committed,
+  // never generated); they land next to the .amxd in dist, the zip and the User
+  // Library, all through this one list so the three cannot skew.
+  const presetsDir = path.join(root, "presets");
+  const presets = existsSync(presetsDir) ? readdirSync(presetsDir).filter((f) => f.endsWith(".adg") || f.endsWith(".adv")) : [];
+  for (const f of presets) {
+    await copyFile(path.join(presetsDir, f), path.join(outDir, f));
+    console.log(`m4l-jweb: ${f} -> dist/${name}/ (preset)`);
+  }
+
   // Installers go next to the devices so `dist/install-*.ps1` just works.
   const installers = ["install-windows.ps1", "install-mac.sh"];
   for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
@@ -396,6 +407,7 @@ export async function packageDevices(root) {
       ...devices.map((d) => `${d.name}.amxd`),
       ...devices.map((d) => `${d.name}.html`), // each device's own UI, for inspection
       ...loose.map((f) => path.basename(f)),
+      ...presets,
       "wrapper.js",
     ];
     for (const f of files) {

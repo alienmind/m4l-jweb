@@ -727,7 +727,25 @@ export function applyPersistence(ctx) {
     // it binds to a NAMED object in the patcher, not to a box id (which is ours, and
     // which Max is free to renumber). The dict's own name argument is what [js]
     // addresses with `new Dict("obj-state-<id>")`, so all three agree.
-    boxes.push(box(dictId, `dict ${dictId}`, { varname: dictId, numinlets: 2, numoutlets: 4, outlettype: ["dictionary", "", "", ""] }));
+    //
+    // THE SEED: `@embed 1` plus box-level `data` is how a Max-saved patcher embeds
+    // a dict's contents (the shape read off dict.maxhelp), and it is what makes a
+    // declared `default` mean what it says on a FRESH instance - without it the
+    // dict loads empty and the app's default is all the truth there is, which held
+    // only because the app also knew the default. Enveloped like every other value
+    // (`{"__value": ...}`), so the read path cannot tell a seed from a write. A
+    // restored [pattr] value overwrites the seed at load, which is the required
+    // order: restore beats seed, seed beats nothing.
+    boxes.push(
+      box(dictId, `dict ${dictId} @embed 1`, {
+        varname: dictId,
+        numinlets: 2,
+        numoutlets: 4,
+        outlettype: ["dictionary", "", "", ""],
+        data: { __value: surface.state[id].default },
+        saved_object_attributes: { embed: 1 },
+      }),
+    );
 
     const pattrId = `obj-pattr-${id}`;
     boxes.push(

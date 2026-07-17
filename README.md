@@ -82,6 +82,11 @@ M4L-JWEB handles the entire Max bridge so your React app feels like a native Abl
 - **State Persistence:** `useStateSync()` gives you a `useState`-shaped binding to arbitrary JSON that is **saved inside the Live set** and restored with it, per device instance - for the pattern, preset or drum map that a numeric parameter cannot hold.
 - **Floating Windows:** `useWindow()` opens a second page in a window of its own. The device view in Live is a fixed ~169 px tall and does not scroll, so this is where a UI that needs room goes.
 - **Fetch to Disk:** `fetchToFile(url, path)` downloads straight to the filesystem through Max's `[maxurl]`, with progress. The bytes never cross the JS bridge, so a 40 MB sample pack is not a problem - and no `[node.script]` is involved.
+- **Sample Playback and Polyphony:** the `samples` chain (a named `[buffer~]` per slot, previewed through the track) and the `instrument` chain (a generated `[poly~]` voice patch, frozen into the device, playing a keymap of buffers via `playVoice()`). Buffer names are instance-scoped with Live's `---` prefix, so two copies of a sampler on two tracks keep their own sound.
+- **Pattern Modulation:** the `remote` chain puts one `live.remote~` per declared slot in the device. `resolveParamId()` + `bindRemote()` point a slot at any Live parameter by LOM id; `writeRemote()` streams values per tick, each ramped into a signal by a `[line~]` - continuous modulation with no automation written.
+- **Push Banks:** `banks` in the surface declaration become real parameter banks in the patcher, so a Push page turn lands on the group you declared.
+- **Native Layout:** parameters can render as native `live.*` objects in the device view (`layout.native`), including the two-screen panel pattern (web UI or knob panel, flipped at runtime).
+- **Presets:** a repo's `presets/` folder (hand-saved `.adg`/`.adv`) ships next to the devices - in `dist/`, the release zip, and the installers.
 - **Mocked Development:** A simulated Live environment runs in the browser, providing transport controls, tempo, and message logs so you can build the UI without opening Ableton.
 
 ### The last three, running in Live

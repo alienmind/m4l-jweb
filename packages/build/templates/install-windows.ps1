@@ -58,6 +58,13 @@ foreach ($f in $devices) {
     Write-Host "  installed $($f.Name)"
 }
 
+# Presets (hand-saved Live racks, packaged next to the devices by the build) go in
+# the same folder, so a rack that names these devices finds them one drag away.
+foreach ($f in @(Get-ChildItem (Join-Path $src "*.adg") -ErrorAction SilentlyContinue) + @(Get-ChildItem (Join-Path $src "*.adv") -ErrorAction SilentlyContinue)) {
+    Copy-Item $f.FullName $dest -Force
+    Write-Host "  installed $($f.Name) (preset)"
+}
+
 Write-Host "Installed to $dest"
 Write-Host "In Live: User Library > Max For Live > $deviceName"
 Write-Host "NOTE: Live embeds a copy of the device in the set. Instances already"
