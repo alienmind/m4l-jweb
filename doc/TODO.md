@@ -15,25 +15,21 @@ Live)** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## 1. Extract the contract pattern - `defineWatch()`, `defineSamples()`
+## 1. Extract the contract pattern - `defineSamples()`, then generalise
 
 `defineSurface()` is one instance of a rule: *you declare what the Max side has, the
 build derives everything else* - objects, wiring, protocol selectors, a typed React
-hook, a harness mock. There are now two real instances to generalise from (the
-Surface, and the parameter registry/banks emission), which was the precondition.
+hook, a harness mock. `defineWatch()` is now a second (SHIPPED - see README and
+CHANGELOG). Two more instances, then the generalisation:
 
-- **1.1 Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
+- **`defineSamples()`** - the `buffer~` slots as a declaration, the third instance.
+- **Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
   pipeline. Leave the user-facing APIs bespoke.
-- **1.2 `defineWatch()`** - SHIPPED. Declare the Live properties to observe in
-  `src/app/<device>/watch.ts`; the build injects `WATCH_SPECS` and the packaged wrapper
-  attaches every observer from `bang()` (the one place LiveAPI is not dead), forwarding
-  each change as `watch_<key>`. `useWatch()` reads it in React. This kills hard rule 4 by
-  construction for observers - a device no longer hand-writes one, so cannot write it in
-  `loadbang` where it silently watches nothing. See README and ARCHITECTURE.
-- **1.3 `defineDevice()`** - fold in the manifest. End state: you do not write `[js]`.
+- **`defineDevice()`** - fold in the manifest. End state: you do not write `[js]`.
 
 Do NOT build the generic compiler first and express the Surface in terms of it. An
-abstraction from one example is a guess.
+abstraction from one example is a guess - which is why the codegen lift waits for
+`defineSamples()` rather than being extracted from Surface + Watch alone.
 
 ## 3. Publish 0.9.x to npm
 
