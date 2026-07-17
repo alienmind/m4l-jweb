@@ -54,18 +54,15 @@ function resendWatches(): void {
     try {
       var api = new LiveAPI(w.path);
       var v = api.get(w.property);
-      var args: unknown[] = [0, "watch_" + w.key];
       // LiveAPI.get returns an array for a multi-atom property and a bare value for a
-      // scalar; spread the first so a scalar arrives as one atom, matching the observer.
-      // Duck-typed, not `instanceof Array`: a Max array is not a JS Array instance, and
-      // neither is one crossing a vm realm in the tests - both have a numeric length.
+      // scalar; take the first atom either way. Duck-typed, not `instanceof Array`: a
+      // Max array is not a JS Array instance, nor is one crossing a vm realm in tests.
       if (v !== null && typeof v === "object" && typeof (v as { length?: unknown }).length === "number") {
-        var arr = v as unknown[];
-        for (var j = 0; j < arr.length; j++) args.push(arr[j]);
-      } else {
-        args.push(v);
+        v = (v as unknown[])[0];
       }
-      (outlet as Function).apply(this, args);
+      // Fixed-arity, never outlet.apply - the same rule observeProperty follows, and for
+      // the same reason: apply on the host outlet errors "bad outlet index 0" in Live.
+      outlet(0, "watch_" + w.key, v);
     } catch (e) {
       post("m4l-jweb: watch resend failed for " + w.key + " - " + (e as Error).message + "\n");
     }

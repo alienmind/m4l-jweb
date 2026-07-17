@@ -103,15 +103,21 @@ function sendCurrentTempo(): void {
  * observeProperty("live_set", "scale_name", "scale") forwards every change to
  * the UI as `scale <value>`. Returns the LiveAPI object so you can keep it
  * alive; drop it and the observer dies with it.
+ *
+ * The value is the property's FIRST atom - a watch is scalar (a tempo, a
+ * numerator, a name), which is every real Live property one wants to observe.
+ * That is not a shortcut: it is forced by how `outlet` must be called. `outlet`
+ * is a Max HOST function, and `.apply`-ing it to spread a variadic message is
+ * unreliable - it errors "jsliveapi: bad outlet index 0" from inside a LiveAPI
+ * callback in Live, killing the notification. So the value goes out fixed-arity,
+ * exactly as the tempo observer's `outlet(0, "tempo", a[1])` does - the one shape
+ * that works. A property with several atoms forwards its first.
  */
 function observeProperty(objectPath: string, property: string, selector: string): LiveAPI | null {
   try {
     var api = new LiveAPI(function (a: unknown[]) {
-      if (a && a[0] == property) {
-        var args: unknown[] = [0, selector];
-        for (var i = 1; i < a.length; i++) args.push(a[i]);
-        (outlet as Function).apply(this, args);
-      }
+      // a = [property, value] for a scalar property. Fixed-arity, never outlet.apply.
+      if (a && a[0] == property) outlet(0, selector, a[1]);
     }, objectPath);
     api.property = property;
     return api;
@@ -211,9 +217,12 @@ function read_notes(): void {
   for (var i = 0; i < notes.length; i++) {
     out.push(notes[i].pitch, notes[i].start_time, notes[i].duration);
   }
-  // A note list is variadic, so the message has to be spread with apply().
-  // outlet()'s typed signature cannot express that; go through Function.
-  (outlet as Function).apply(this, ([0] as unknown[]).concat(out));
+  // A note list is variadic. Do NOT spread it with `outlet.apply` - `outlet` is a Max
+  // HOST function, and calling `.apply` on it faults the [js] engine (js.mxe64) with an
+  // access violation, taking Live down; "jsliveapi: bad outlet index 0" is its warning
+  // shot. Max outputs an ARRAY passed as the single argument as a list, first atom the
+  // selector - so `outlet(0, ["notes", ...])` sends the same message, no apply.
+  outlet(0, out);
   post("m4l-jweb: read " + notes.length + " notes (loop_end " + loopEnd + ")\n");
 }
 
