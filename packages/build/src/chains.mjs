@@ -112,6 +112,50 @@ export function claimAppMessages(ctx, routeId, unmatchedOutlet) {
 export const AUDIO_IN = "obj-plugin";
 export const AUDIO_OUT = "obj-plugout";
 
+/**
+ * A [buffer~] name that is unique PER DEVICE INSTANCE.
+ *
+ * THE BUG THIS EXISTS TO KILL. Buffer names are GLOBAL to Max, and they used to be
+ * generated from the device name alone (`buf-<device>-<slot>`) and frozen into the
+ * patcher at BUILD time. So two copies of one device - a drum rack on two tracks, which
+ * is the normal case, not an exotic one - named their buffers identically, and Max gave
+ * both to whichever loaded last. One rack's samples silently became the other's. No
+ * error, no console line: just the wrong sound.
+ *
+ * `#0` IS MAX'S OWN ANSWER, and the only one available. A buffer takes its name from
+ * its creation argument and there is no documented way to rename one at runtime, so a
+ * name minted by the wrapper after load cannot reach a box frozen at build time. `#0`
+ * expands, at LOAD time, to a number unique to each instance of the patcher - which is
+ * exactly the scope the name needs.
+ *
+ * **THE SCOPE IS PER PATCHER, WHICH IS THE TRAP.** A [poly~] voice is its own
+ * abstraction, so ITS `#0` is not the device's - a voice naming `#0-buf-x` would look
+ * for a buffer nobody created. The device therefore PASSES its own `#0` to [poly~] as
+ * an argument, and the voice refers to it as `#1` (see voiceBufName). Same buffer, two
+ * spellings, because they are two patchers.
+ *
+ * UNVERIFIED IN LIVE - this is the spike (doc/TODO.md item 0). `#0` is documented for
+ * abstractions; whether an .amxd device counts as one is the question. If it does not
+ * expand, the name arrives containing a literal "#0" and every buffer_load fails
+ * loudly - which is the good failure. The bad one it replaces was silent.
+ */
+export const deviceBufName = (device, slot) => `#0-buf-${device?.name}-${slot}`;
+
+/** The same buffer, as a [poly~] voice must spell it: the device's `#0`, passed in as `#1`. */
+export const voiceBufName = (device, slot) => `#1-buf-${device?.name}-${slot}`;
+
+/**
+ * How long a `remote` slot takes to slide to each new value, in ms.
+ *
+ * It is a RAMP TIME, not a rate: the app sends values on the transport tick, and each
+ * one is ramped to over this long. Exported because the number is only right in
+ * relation to the app's tick - it wants to be about one tick, so a ramp is still
+ * arriving when the next value lands and the slots join into a continuous line. Much
+ * shorter and the stepping it exists to remove comes back as a staircase with flat
+ * treads; much longer and the modulation lags visibly behind the pattern.
+ */
+export const REMOTE_RAMP_MS = 20;
+
 /** plugin~ hands us a stereo pair, so every stage is a pair of signal objects. */
 export const AUDIO_CHANNELS = 2;
 
@@ -471,6 +515,194 @@ function driveChain(ctx) {
 }
 
 /**
+ * "hpf" - a high-pass next to `lowpass`, and a WIRE at 0 Hz.
+ *
+ *   dry --+--------------------> [-~] --> out
+ *         |                       ^
+ *         +--> [onepole~] --------+       (the low end, subtracted away)
+ *
+ * WHY A SUBTRACTION AND NOT A HIGHPASS OBJECT. `onepole~` is lowpass-only, and the
+ * one-pole highpass is its exact complement: everything the lowpass keeps is what a
+ * highpass throws away, so `dry - lowpass(dry)` IS the highpass, sample for sample.
+ * No second filter design, no new object, and the same 6 dB/octave slope, resonance-
+ * free and impossible to blow up, that `lowpass` was chosen for.
+ *
+ * IT IS ALSO WHAT MAKES 0 HZ A REAL NEUTRAL, which is the frozen-graph law's whole
+ * demand (CHAIN_NEUTRAL below). A one-pole lowpass at cutoff 0 has nothing to pass:
+ * its output is silence, so the subtraction reads `dry - 0` and the stage is the
+ * input, bit for bit. A highpass object would instead be neutral at its cutoff floor,
+ * where it is NOT a wire - it still turns DC and the bottom octave, which is a
+ * colouration a device could not switch off. The complement has no such setting.
+ *
+ * NOT a wet/dry send, despite the shape: there is no mix gain, and the parameter that
+ * reaches neutral is the CUTOFF itself. It is naturally transparent, like `lowpass` -
+ * see the two kinds of neutral in CHAIN_NEUTRAL.
+ *
+ * The cutoff is in Hz and the chain does no arithmetic on it - the range, unit and
+ * curve ride the PARAMETER, exactly as in `lowpass`.
+ *
+ * Requires a parameter named `hpfreq` (or pass `device.hpfreqParam`), in Hz.
+ */
+function hpfChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const paramId = requireParam(ctx, "hpf", device?.hpfreqParam ?? "hpfreq", "hpfreqParam");
+
+  for (const [ch, s] of [
+    [0, "l"],
+    [1, "r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const lp = `obj-hpf-lp-${s}`;
+    const sub = `obj-hpf-sub-${s}`;
+
+    // The low end to remove. A float argument (0.) so the stage starts as a wire
+    // before any parameter loads, and the right inlet stays in float mode.
+    boxes.push(box(lp, "onepole~ 0.", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(sub, "-~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+
+    lines.push(line(srcId, srcOut, lp, 0));
+    lines.push(line(srcId, srcOut, sub, 0)); // dry at unity, into the LEFT inlet
+    lines.push(line(lp, 0, sub, 1)); // minus the low end
+    fanParamInto(ctx, paramId, lp, 1);
+    ctx.setAudioOut(ch, sub, 0);
+  }
+}
+
+/**
+ * "crush" - bit-depth reduction (`degrade~`), neutral at full depth.
+ *
+ * `degrade~` takes a sample-rate RATIO (inlet 1, 1.0 = untouched) and a BIT DEPTH
+ * (inlet 2). This chain drives the bit depth only and leaves the ratio at 1.0: two
+ * knobs on one stage would be a second parameter the fx line has no word for -
+ * Strudel's `.crush(n)` is bit depth, and `.coarse()` is the rate reduction, a
+ * separate effect and a separate chain when someone wants it.
+ *
+ * THE NEUTRAL IS FULL DEPTH, NOT STRUDEL'S 16. Strudel calls `.crush(16)` "minimum
+ * crush", but 16-bit quantisation is not a wire - it is a quiet crush, and a stage
+ * that is always in the path (the frozen-graph law) must have a setting where it does
+ * NOTHING. So the parameter's range runs to the object's full 24 bits and rests
+ * there, where degrade~ passes its input through. A user who types `.crush(16)` gets
+ * 16-bit quantisation - the same sound superdough's crush(16) makes - and a user who
+ * never types `.crush()` at all gets their signal back untouched. Both are honest;
+ * only the second is possible with a neutral of 16.
+ *
+ * The depth is in BITS and the chain does no arithmetic on it - the range rides the
+ * parameter, as everywhere else.
+ *
+ * Requires a parameter named `crush` (or pass `device.crushParam`), in bits.
+ */
+function crushChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const paramId = requireParam(ctx, "crush", device?.crushParam ?? "crush", "crushParam");
+
+  for (const [ch, s] of [
+    [0, "l"],
+    [1, "r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const id = `obj-crush-${s}`;
+
+    // `degrade~ 1. 24.` - rate ratio 1.0 (untouched), 24 bits (full depth): a wire
+    // until the parameter says otherwise.
+    boxes.push(box(id, "degrade~ 1. 24.", { numinlets: 3, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, id, 0));
+    ctx.setAudioOut(ch, id, 0);
+    // Bit depth into inlet 2. Inlet 1 (the rate ratio) is left at its argument.
+    fanParamInto(ctx, paramId, id, 2);
+  }
+}
+
+/**
+ * "remote" - `live.remote~`, so a PATTERN can modulate a Live parameter.
+ *
+ *   app -> remote_bind <slot> <lomId>  -> [route <slot>] -> [prepend id] -> [live.remote~]
+ *          remote_val  <slot> <v>      -> [route <slot>] -> [pack f 20]  -> [line~] -> ^
+ *
+ * WHY THIS EXISTS AT ALL. `.lpf(sine.range(200, 2000))` describes something
+ * CONTINUOUS. The obvious implementation - have the app read the pattern on the
+ * transport tick and write the parameter - produces about 20 values a second, and it
+ * is wrong three times over: the steps are audible, every write fights the automation
+ * lane for ownership of the parameter, and the lane fills with the app's own noise.
+ * `live.remote~` is Live's answer to exactly this: it takes a SIGNAL and modulates the
+ * parameter without writing automation, which is what a modulation source is meant to
+ * do.
+ *
+ * THE `[line~]` IS THE WHOLE TRICK, and it is why this is a chain rather than a bridge
+ * call. The app is still control-rate: it can only send a value per tick, and a bare
+ * number into live.remote~ would step exactly as badly as a parameter write. A
+ * `[line~]` given a 20 ms ramp turns each of those values into a SIGNAL that slides to
+ * the next one, so the control-rate stream becomes signal-rate at the Max end and the
+ * stepping disappears. The ramp is about one tick long by design: it is still arriving
+ * when the next value does, so the ramps chain into a continuous line rather than a
+ * staircase with pauses in it.
+ *
+ * BIND BY LOM ID, AND THE APP OWNS THE BINDING. live.remote~ names its target with an
+ * `id <lomId>` message, so the chain does not know or care WHICH parameter a slot
+ * drives - the app resolves that (our own filter, or an Auto Filter the user placed by
+ * hand) and says so. That is what makes this bigger than an LFO on our own DSP: a slot
+ * can point at any parameter in the set. **LOM ids are not stable across set reloads**,
+ * so the app must re-bind on load and must never persist a raw id - see the diff rules
+ * in doc/TODO.md item 1.
+ *
+ * NOT IN THE SIGNAL PATH. It touches no audio: `ctx.audioIn`/`setAudioOut` are never
+ * called, so `remote` composes with any chain list without taking a stage. It has no
+ * neutral for the same reason - an unbound slot modulates nothing.
+ *
+ * `remotes: <n>` in the manifest declares how many slots. There is no default: a
+ * device that asks for this chain and forgets the count would build a patcher with no
+ * live.remote~ in it and fail silently at runtime, which is the failure this repo
+ * exists to prevent.
+ */
+function remoteChain(ctx) {
+  const { boxes, lines, device } = ctx;
+  const n = device?.remotes;
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(
+      `chain "remote" on device "${device?.name}" needs \`remotes: <n>\` in the manifest ` +
+        `(got ${JSON.stringify(n)}). It is the number of live.remote~ slots to generate, ` +
+        `and there is no sensible default - 0 slots is a chain that silently does nothing.`,
+    );
+  }
+
+  const slots = Array.from({ length: n }, (_, i) => i);
+  const slotList = slots.join(" ");
+  // `route` needs an outlet per slot, plus the unmatched one it never uses here.
+  const slotRoute = { numoutlets: n + 1, outlettype: slots.map(() => "").concat("") };
+
+  boxes.push(box("obj-remote-route", "route remote_bind remote_val", { numoutlets: 3, outlettype: ["", "", ""] }));
+  claimAppMessages(ctx, "obj-remote-route", 2);
+
+  // `route` strips the selector, so the SLOT is now the first word of both messages
+  // and a second route dispatches on it.
+  boxes.push(box("obj-remote-bindroute", `route ${slotList}`, slotRoute));
+  boxes.push(box("obj-remote-valroute", `route ${slotList}`, slotRoute));
+  lines.push(line("obj-remote-route", 0, "obj-remote-bindroute", 0));
+  lines.push(line("obj-remote-route", 1, "obj-remote-valroute", 0));
+
+  for (const slot of slots) {
+    const bind = `obj-remote-bind-${slot}`;
+    const pack = `obj-remote-pack-${slot}`;
+    const ramp = `obj-remote-line-${slot}`;
+    const rem = `obj-remote-${slot}`;
+
+    // The binding: `id <lomId>` is how live.remote~ is told what to modulate.
+    boxes.push(box(bind, "prepend id"));
+    // `<target> <rampMs>` is line~'s list form - the pack is what makes the ramp time
+    // ride along with every value, rather than being set once and forgotten.
+    boxes.push(box(pack, `pack f ${REMOTE_RAMP_MS}`, { numinlets: 2, numoutlets: 1 }));
+    boxes.push(box(ramp, "line~", { numinlets: 2, numoutlets: 2, outlettype: ["signal", "bang"] }));
+    boxes.push(box(rem, "live.remote~", { numinlets: 1, numoutlets: 0 }));
+
+    lines.push(line("obj-remote-bindroute", slot, bind, 0));
+    lines.push(line(bind, 0, rem, 0));
+
+    lines.push(line("obj-remote-valroute", slot, pack, 0));
+    lines.push(line(pack, 0, ramp, 0));
+    lines.push(line(ramp, 0, rem, 0));
+  }
+}
+
+/**
  * "download" - `[maxurl]`, so the app can fetch a file to DISK.
  *
  *   [js] out 1 -> [route maxurl] -> [maxurl] -> [prepend maxurl_done]     -> [js] in 0
@@ -557,10 +789,10 @@ function downloadChain(ctx) {
  * of its own: on an audio effect the preview plays over the track's audio, and on an
  * instrument there is nothing at the input to add.
  *
- * The buffer NAMES are global to Max, and they are generated from the device name
- * (`buf-<device>-<slot>`), so two INSTANCES of the same device on two tracks name
- * their buffers alike - and Max hands the name to whichever loaded last. Not
- * verified in Live yet; a preview device you drag onto one track is unaffected.
+ * The buffer names are INSTANCE-SCOPED (`deviceBufName`, `#0-buf-<device>-<slot>`), so
+ * two copies of this device on two tracks own separate buffers. They used to be global
+ * to Max and generated from the device name alone, which meant the second copy loaded
+ * silently stole the first's samples.
  *
  * Slots default to one, named "preview". `slots: ["kick", "snare"]` in the manifest
  * gives you more.
@@ -568,7 +800,11 @@ function downloadChain(ctx) {
 function samplesChain(ctx) {
   const { boxes, lines, device, jwebId, unmatchedId } = ctx;
   const slots = device?.slots ?? ["preview"];
-  const bufName = (slot) => `buf-${device?.name}-${slot}`;
+  // Instance-scoped, for the same reason the instrument's are: two copies of a preview
+  // device on two tracks are two patchers, and a global name would hand both the same
+  // buffer. Everything here lives in the ONE device patcher, so `#0` throughout - there
+  // is no second patcher to hand it to, which is what makes this the easy half.
+  const bufName = (slot) => deviceBufName(device, slot);
 
   // `buffer_load` is NOT claimed from [jweb]. It goes on to the wrapper, which
   // resolves the path and hands it back on its AUX OUTLET as `buffer_replace <slot>
@@ -987,9 +1223,10 @@ function instrumentVoicePatch(bufNames) {
  * which is the app's decision, not the chain's.
  *
  * `slots: ["c", "e", "g"]` in the manifest is three buffers; the default is one
- * ("voice"). The buffer NAMES are `buf-<device>-<slot>`, global to Max - so two copies
- * of the device on two tracks name their buffers alike (harmless for a demo, the drum-
- * rack instance problem noted in doc/TODO.md).
+ * ("voice"). The buffer names are INSTANCE-SCOPED (`deviceBufName`): each copy of the
+ * device owns its own, which is what lets a drum rack exist on two tracks at once. The
+ * voice spells them `#1` because it is a different patcher - see deviceBufName for why
+ * that hand-off is the whole subtlety.
  *
  * It SUMS into the signal path ([+~]): an instrument makes sound where there was none
  * at its input, so there is nothing to claim a stage over.
@@ -997,16 +1234,19 @@ function instrumentVoicePatch(bufNames) {
 function instrumentChain(ctx) {
   const { boxes, lines, device, jwebId, unmatchedId } = ctx;
   const slots = device?.slots ?? ["voice"];
-  const bufName = (slot) => `buf-${device?.name}-${slot}`;
+  const bufName = (slot) => deviceBufName(device, slot);
   const voices = device?.voices ?? 8;
   const voiceFile = `${device?.name}-voice.maxpat`;
 
   // The frozen voice patch (a keymap of every slot's buffer), and the [poly~] that
-  // loads N copies of it.
-  ctx.extras.push({ name: voiceFile, data: instrumentVoicePatch(slots.map(bufName)) });
+  // loads N copies of it. The voice spells the buffers with `#1` - the device's own
+  // `#0`, handed to it as poly~'s first argument below.
+  ctx.extras.push({ name: voiceFile, data: instrumentVoicePatch(slots.map((s) => voiceBufName(device, s))) });
   // [poly~]'s name is the file WITHOUT its extension, per Max's abstraction lookup.
+  // The trailing `#0` is the device instance id, and it is what makes every voice
+  // address THIS device's buffers rather than another copy's.
   boxes.push(
-    box(`obj-instr-poly`, `poly~ ${voiceFile.replace(/\.maxpat$/, "")} ${voices}`, {
+    box(`obj-instr-poly`, `poly~ ${voiceFile.replace(/\.maxpat$/, "")} ${voices} #0`, {
       numinlets: 1,
       numoutlets: 2,
       outlettype: ["signal", "signal"],
@@ -1079,9 +1319,12 @@ export const CHAINS = {
   passthrough: passthroughChain,
   gain: gainChain,
   lowpass: lowpassChain,
+  hpf: hpfChain,
   drive: driveChain,
+  crush: crushChain,
   delay: delayChain,
   reverb: reverbChain,
+  remote: remoteChain,
   download: downloadChain,
 };
 
@@ -1095,7 +1338,8 @@ export const CHAINS = {
  * Two kinds of stage reach neutral two ways:
  *
  *   naturally transparent - `gain` (1.0), `lowpass` (18 kHz, nothing left to remove),
- *     `drive` (1x): the DSP object itself is a wire at that value.
+ *     `drive` (1x), `crush` (24 bits, full depth), `hpf` (0 Hz, where its subtracted
+ *     low end is silence): the DSP object itself is a wire at that value.
  *   send-style wet/dry - `delay` (0), `reverb` (0): the wet branch is scaled to 0.0
  *     and summed onto an untouched dry path, so the output is `dry + 0`. A WET-ONLY
  *     object (cverb~) has NO neutral of its own - it must carry this dry/wet, which
@@ -1109,7 +1353,9 @@ export const CHAINS = {
 export const CHAIN_NEUTRAL = {
   gain: { gain: 1 },
   lowpass: { cutoff: 18000 },
+  hpf: { hpfreq: 0 },
   drive: { drive: 1 },
+  crush: { crush: 24 },
   delay: { delay: 0 },
   reverb: { room: 0 },
 };
