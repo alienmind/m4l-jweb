@@ -88,6 +88,17 @@ infrastructure carved into `packages/`.
   fine - a route matches the whole word.
 - **`jsarguments[0]` is the script name**, not the first argument. The device
   mode is at index 1.
+- **NEVER call a Max host function (`outlet`, `messnamed`) via `.apply`.** It does
+  not just fail - it CRASHES LIVE. Spreading a variadic message with
+  `(outlet as Function).apply(this, args)` corrupts the `[js]` engine: Live logs
+  `jsliveapi: bad outlet index 0` and then dies with an access violation
+  (`0xc0000005`) inside `js.mxe64` - confirmed from the crash minidump's faulting
+  module, and it reproduced on every load. Send fixed-arity
+  (`outlet(0, selector, value)`), or, for a genuinely variadic list, pass the whole
+  message as ONE array (`outlet(0, ["notes", ...])`) - Max outputs an array argument
+  as a list, first atom the selector. `.apply` on your OWN functions is fine; the
+  hazard is the host functions alone. (The reply() note in `core.ts` had warned this
+  fails *silently*; it is worse than that.)
 - **`route` strips the selector.** A bare selector arrives as a `bang`. If the
   consumer needs the word, re-materialize it with a message box.
 - **`File.writebytes` truncates silently** around 16 KB. Write in 4 KB slices and
