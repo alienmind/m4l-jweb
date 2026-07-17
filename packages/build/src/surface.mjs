@@ -73,6 +73,11 @@ export const paramValue = (surface, id) => [SURFACE_ROUTE, surface.ids.indexOf(i
  * the contract resolveParamId and every automation lane name rides on.
  *
  * The pattr state blobs are in it too (type 3), same as Max would write them.
+ *
+ * `parameterbanks` is the Push/controller paging, from the surface's `banks`: a
+ * bank is `{ index, name, parameters }` with EIGHT longname entries, the unused
+ * tail padded with "-" - the shape read off devices Max itself saved. Without
+ * banks Live falls back to declaration-order pages of eight.
  */
 export function parameterRegistry(surface) {
   const out = {};
@@ -84,7 +89,16 @@ export function parameterRegistry(surface) {
     const pattrId = `obj-pattr-${id}`;
     out[pattrId] = [pattrId, `st_${id}`.slice(0, 8), 3];
   }
-  return Object.keys(out).length ? { ...out, parameterbanks: {} } : null;
+  if (!Object.keys(out).length) return null;
+
+  const parameterbanks = {};
+  (surface.banks ?? []).forEach((bank, i) => {
+    const params = bank.params.slice(0, 8);
+    while (params.length < 8) params.push("-");
+    parameterbanks[String(i)] = { index: i, name: bank.name, parameters: params };
+  });
+
+  return { ...out, parameterbanks, inherited_shortname: 1 };
 }
 
 /**

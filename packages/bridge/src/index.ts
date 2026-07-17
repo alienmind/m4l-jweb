@@ -536,9 +536,13 @@ let paramIdBound = false;
  * stream of values comes out of Max as continuous modulation - see the `remote` chain
  * for why that ramp is the whole point.
  *
- * The value is in the TARGET PARAMETER'S OWN UNITS, and the app is what knows them:
- * interpolate from the parameter's `min`/`max` off the LOM, never from a hardcoded
- * range. A number outside that range is Live's to clamp, not ours to guess at.
+ * THE VALUE IS NOT IN THE PARAMETER'S OWN UNITS - measured in Live, not read
+ * anywhere. live.remote~ treats it as a LINEAR position across the parameter's
+ * range and applies the knob's `exponent` curve on top, as if the number had
+ * grabbed the dial by its travel. For an exponent-1 parameter the two notions
+ * coincide and raw units work; for a curved one (a filter cutoff at exponent 4)
+ * the app must pre-warp: aim the travel at norm(v)^(1/e) so Live's ^e lands on v.
+ * See m4l-strudel's useModulation.toRemote for the worked inverse.
  */
 export function writeRemote(slot: number, value: number): void {
   outlet(CHAIN_OUT.remote_val, slot, value);

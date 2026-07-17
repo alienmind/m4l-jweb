@@ -654,6 +654,29 @@ test("the patcher carries the parameter REGISTRY, and the longname is the surfac
 	// The pattr state blob registers too (type 3), as Max would write it.
 	expect(patcher.parameters["obj-pattr-named"]).toEqual(["obj-pattr-named", "st_named", 3]);
 	expect(patcher.parameters.parameterbanks).toEqual({});
+	expect(patcher.parameters.inherited_shortname).toBe(1);
+});
+
+test("surface banks become parameterbanks - eight longnames, '-' padded", () => {
+	// The shape read off devices Max itself saved: { index, name, parameters } with
+	// exactly eight entries per bank. This is what makes a Push page turn land on the
+	// declared group instead of declaration-order pagination.
+	const surface = defineSurface({
+		params: {
+			a: dial({ range: [0, 1], default: 0, short: "A" }),
+			b: dial({ range: [0, 1], default: 0, short: "B" }),
+			c: dial({ range: [0, 1], default: 0, short: "C" }),
+		},
+		banks: [
+			{ name: "Tone", params: ["a", "b"] },
+			{ name: "Space", params: ["c"] },
+		],
+	});
+	const base = JSON.parse(readFileSync(BASE, "utf8"));
+	const { patcher } = composePatcher(base, { name: "test", type: "midi", chains: [] }, surface);
+
+	expect(patcher.parameters.parameterbanks["0"]).toEqual({ index: 0, name: "Tone", parameters: ["a", "b", "-", "-", "-", "-", "-", "-"] });
+	expect(patcher.parameters.parameterbanks["1"]).toEqual({ index: 1, name: "Space", parameters: ["c", "-", "-", "-", "-", "-", "-", "-"] });
 });
 
 test("a device with no parameters gets NO registry - an empty block is not what Max writes", () => {
