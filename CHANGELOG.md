@@ -27,7 +27,21 @@ made the scoping a no-op.
 behind it the moment Live is clicked - for a window you read *while* working (a
 reference, a cheatsheet) rather than one you work *in*.
 
+**Clip I/O in the bridge.** The wrapper had `read_notes`/`write_clip` handlers but the
+bridge never exposed them; `readClip()`, `writeClip()` and `readSelectedClip()` are now
+the shaped API. `readClip()` reads this device's own track (playing-else-first,
+selection-blind - what m4l-strudel's engine needs); `readSelectedClip()` reads the clip
+the cursor is on and treats an empty highlighted slot as no clip. `hello-clip` and
+`hello-remote` are new example devices that make clip I/O and the `remote` path testable
+in Live without any other repo.
+
 ### Fixes
+
+- **`outlet.apply` crashed Live.** A LiveAPI observer forwarded its value with
+  `(outlet as Function).apply` - which faults Max's `[js]` engine (`js.mxe64`, access
+  violation, confirmed from a crash minidump) and takes the host down. Every emit is
+  fixed-arity now, or a single array for a variadic list (`read_notes`). See
+  [MAX-FACTS.md](doc/MAX-FACTS.md).
 
 - **The parameter registry is emitted at the patcher level.** Live ignores per-box
   `parameter_longname`, so `resolveParamId()` now matches against the name Live
@@ -225,8 +239,9 @@ drives inside the patcher.
 - `esbuild` is now a dependency of `@m4l-jweb/build` (it bundles `surface.ts`, which
   is TypeScript importing TypeScript, so Node can import it at build time).
 
-### Not yet
+### Not yet (at 0.4.0)
 
-**Push banks.** They need patcher-JSON archaeology and block nothing: Live falls back
-to declaration order and shows every parameter. The harness's Push preview already
-renders declared banks.
+**Push banks** were deferred here - they needed patcher-JSON archaeology and blocked
+nothing (Live falls back to declaration order). **They shipped in 0.7.0**: `banks` in
+the surface declaration are emitted as `parameterbanks` in the patcher-level registry,
+so a Push page turn lands on the group you declared.

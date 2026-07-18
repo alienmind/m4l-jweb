@@ -362,7 +362,7 @@ claim above is visible as a cord:
   Note what they read: **803 Hz**, **8.20 x**, **0.25** - real units, not normalised
   0-1. The range, the unit and the curve are *on the parameter*, so Live, Push and
   the app all speak Hertz, and there is no mapping object anywhere in the patcher.
-  (Those are the listening-test settings from [AUDIO_TEST.md](AUDIO_TEST.md), caught
+  (Those are the listening-test settings from [TEST-CHAIN-FX.md](TEST-CHAIN-FX.md), caught
   mid-experiment.)
 - **`[prepend cutoff]` / `[prepend drive]` / `[prepend gain]` -> `[jweb]`** - the
   read direction, one per parameter. A knob turn, an automation lane or a Push
@@ -507,6 +507,34 @@ The id sits on whichever side is doing the looking-up. Neither name is one you t
 
 JSON arrives at `[js]` **split into atoms** (Max parses a message on whitespace), so
 the wrapper joins the arguments back together before `Dict.parse()`.
+
+## Clip I/O: reading and writing notes
+
+A clip is note data, which is **control-plane** - so unlike audio it *does* cross the
+bridge. The wrapper does the LiveAPI work (`read_notes` / `read_selected_clip` /
+`write_clip` in `liveapi.ts`) and `@m4l-jweb/bridge` is the shaped API over it:
+`readClip()`, `readSelectedClip()`, `writeClip(lengthBeats, notes)`. No chain and no
+`[node.script]`; the device just needs `unmatchedTo: "js"` so the bare selectors reach
+`[js]`. `hello-clip` exercises all three.
+
+**Two reads, and the difference matters - especially for m4l-strudel:**
+
+| Call | Reads | When to use |
+|---|---|---|
+| `readClip()` | this device's **own track** - the *playing* clip, else the *first* clip found, **ignoring the selection** | a device that reads/writes its own track's pattern (Strudel's MIDI engine: the clip lives on the device's track, and the cursor may be anywhere) |
+| `readSelectedClip()` | the clip the **cursor** is on (`live_set view highlighted_clip_slot`) | a tool that acts on whatever the user clicked; an **empty highlighted slot reports no clip** rather than falling back to another |
+
+The distinction is not cosmetic. `readClip()` walking the track top-to-bottom means
+clicking an empty slot and reading still returns the track's first clip - correct for a
+device bound to its track, surprising for a clip *picker*. `readSelectedClip()` is the
+picker; it honours the highlight and treats an empty slot as "nothing here"
+(`read_error "no_selection"`, distinct from `"no_clip"`).
+
+Both answer on the same reply (`notes <loopEnd> <n> <pitch start duration> ...`);
+**velocity is written but not read back**. The read reply is a **variadic list emitted
+as one array** - `outlet(0, ["notes", ...])`, never `outlet.apply`, which crashes the
+`[js]` engine (see [MAX-FACTS.md](MAX-FACTS.md)). `writeClip()` fills the first empty
+slot on the track; the message is a flat list because Max has no nested arguments.
 
 ## Declarative Floating Windows
 
@@ -676,7 +704,7 @@ m4l-jweb/
     chains.test.mjs       # the signal path: stages compose, ids are unique
     bundle.test.mjs       # no harness ships, and no device ships a sibling's UI
   doc/TODO.md             # the sequenced plan, the open spikes, and what is done
-  doc/AUDIO_TEST.md        # the one test you run with your ears
+  doc/TEST-CHAIN-FX.md        # the one test you run with your ears
   CLAUDE.md               # agent guardrails
 ```
 
@@ -776,7 +804,7 @@ both make sound; the difference is audible and nothing else. So `hello-audio` sh
 with a twin, `hello-audio-rev` - the same app folder, the same surface, the same
 three dials, and the *opposite* chain order, so that the order is the only thing in
 the build that differs. It is a test case, not an example, and you run it with your
-ears: **[AUDIO_TEST.md](AUDIO_TEST.md)**.
+ears: **[TEST-CHAIN-FX.md](TEST-CHAIN-FX.md)**.
 
 Each audio chain used to create its own `plugin~`/`plugout~`, which made it a whole
 device rather than a stage. Two of them emitted duplicate box ids and *summed* their
@@ -960,14 +988,15 @@ document.
 
 **What remains** (detailed in [TODO.md](TODO.md)):
 
-- **Extract the contract pattern** - `defineWatch()`, `defineSamples()`,
-  `defineDevice()`: declare what the Max side has, generate everything else.
+- **Extract the contract pattern** - `defineSamples()`, then `defineDevice()`: declare
+  what the Max side has, generate everything else. `defineSurface()` and `defineWatch()`
+  (shipped) are the first two instances; the codegen generalisation waits for a third.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
   every DAW instead of only Live. Assessed in
-  **[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)**: most of this architecture is not actually
+  **[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md)**: most of this architecture is not actually
   about Max, but the LiveAPI wrapper does not port and the headless build is the price.
   Not started.
-- **The native audio bridge** (Phase 8) - see [ENHANCEMENTS.md](ENHANCEMENTS.md);
+- **The native audio bridge** (Phase 8) - see [FEAT-NATIVE-AUDIO.md](FEAT-NATIVE-AUDIO.md);
   Route B (offline render) first.
 - **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
   Nobody has checked.

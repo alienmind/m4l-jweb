@@ -37,7 +37,7 @@ The repo builds several example devices out of the box to demonstrate the archit
 |---|---|---|
 | **hello-midi** | MIDI effect | A pulse generator. A Rate slider (off, 1/4, 1/8, 1/16, 1/32) plays C3 on every division, placed on Max's scheduler. |
 | **hello-audio** | audio effect | Three effects in series - a lowpass, a soft-clipping drive and a level - each one a *chain* named in the manifest, each with its own Live parameter. |
-| **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/AUDIO_TEST.md](doc/AUDIO_TEST.md)**. |
+| **hello-audio-rev** | audio effect | Not an example - a **test case**. The same app, the same parameters, the opposite chain order. You run it with your ears: **[doc/TEST-CHAIN-FX.md](doc/TEST-CHAIN-FX.md)**. |
 | **hello-downloads** | audio effect | Fetch-to-disk (`fetchToFile`). A `download` chain hands Max's `[maxurl]` a request, and libcurl writes the file - so the bytes never cross the message bridge. |
 | **hello-state** | audio effect | State persistence (`useStateSync`). Arbitrary JSON, saved into the Ableton Live Set and restored with it, per instance. |
 | **hello-window** | audio effect | Floating windows (`useWindow`). A second page, in a window of its own, for a UI that does not fit in the device view's fixed ~169 px. |
@@ -80,6 +80,7 @@ M4L-JWEB handles the entire Max bridge so your React app feels like a native Abl
 - **Accurate MIDI Timing:** Notes are placed on Max's scheduler. Your JavaScript sequencer computes *when* a note should fall, and Max places it with sample-accurate precision despite the UI's 20Hz refresh rate.
 - **Audio DSP Chains:** Declarative audio signal paths (filters, gains, overdrives) that process sound at native C++ speeds. Audio never crosses the JS bridge.
 - **State Persistence:** `useStateSync()` gives you a `useState`-shaped binding to arbitrary JSON that is **saved inside the Live set** and restored with it, per device instance - for the pattern, preset or drum map that a numeric parameter cannot hold.
+- **Clip I/O:** read and write the MIDI notes of a clip. `writeClip(lengthBeats, notes)` fills the first empty slot; `readClip()` reads this device's **own track** (playing-else-first, selection-blind - what a track-bound generator like Strudel wants), while `readSelectedClip()` reads the clip the **cursor** is on and treats an empty highlighted slot as "no clip". Notes are control-plane, so they cross the bridge; velocity is written but not read back.
 - **Observing Live:** `defineWatch()` declares which Live properties to watch (the tempo, the scale, the selected track), and `useWatch()` reads them in React. The observers are generated into the device's `bang()` - the one place a LiveAPI object is not born dead - so the trap that makes a hand-written observer silently watch nothing is not one you can fall into.
 - **Floating Windows:** `useWindow()` opens a second page in a window of its own. The device view in Live is a fixed ~169 px tall and does not scroll, so this is where a UI that needs room goes.
 - **Fetch to Disk:** `fetchToFile(url, path)` downloads straight to the filesystem through Max's `[maxurl]`, with progress. The bytes never cross the JS bridge, so a 40 MB sample pack is not a problem - and no `[node.script]` is involved.
