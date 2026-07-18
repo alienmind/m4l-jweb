@@ -35,7 +35,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # No `version:` - it is pinned in package.json's `packageManager` field, and
       # action-setup@v4 ERRORS if it is told twice. Let the manifest be the source.
@@ -45,7 +45,7 @@ jobs:
       # `_authToken=${NODE_AUTH_TOKEN}` and export a placeholder token - and pnpm then
       # authenticates with that empty token INSTEAD of OIDC, so trusted publishing never
       # runs and the publish 404s. pnpm defaults to registry.npmjs.org anyway.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
