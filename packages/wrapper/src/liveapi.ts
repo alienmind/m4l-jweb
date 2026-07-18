@@ -139,9 +139,26 @@ interface LiveNote {
   mute?: number;
 }
 
-/** The LiveAPI for the track this device sits on. */
+/**
+ * The LiveAPI for the TRACK this device sits on - clip I/O belongs to the track.
+ *
+ * `this_device canonical_parent` is the track ONLY when the device sits directly on
+ * it. Inside a Rack it is the CHAIN the device is in, and a Chain has no `clip_slots` -
+ * so `getcount("clip_slots")` on it throws "invalid property name" once a second (the
+ * clip-availability poll), and clip read/write silently target the wrong object. So
+ * climb the `canonical_parent` chain until a Track is reached, which handles a device
+ * on a bare track (no climb), in a rack (one hop), and in a nested rack (several).
+ */
 function ownTrack(): LiveAPI {
-  return new LiveAPI("this_device canonical_parent");
+  var api = new LiveAPI("this_device canonical_parent");
+  var guard = 0;
+  // id 0 is an unresolved path; stop rather than build "... canonical_parent" onto
+  // nothing. The guard is a backstop against a parent cycle the LOM should never have.
+  while (api && api.id && api.type !== "Track" && guard < 12) {
+    api = new LiveAPI(api.unquotedpath + " canonical_parent");
+    guard++;
+  }
+  return api;
 }
 
 /**
@@ -154,9 +171,20 @@ function write_clip(): void {
   var lengthBeats = a[0];
   var n = Number(a[1]);
 
+  // No reachable Track is a STRUCTURAL failure (clip I/O is impossible here), distinct
+  // from a track whose slots are all full. The UI disables clip export on the former
+  // and only reports the latter, so `write_error` says which.
+  var track = ownTrack();
+  if (!track || !track.id || track.type !== "Track") {
+    post("m4l-jweb: write_clip - no reachable track (device not on a track?)\n");
+    outlet(0, "write_error", "no_track");
+    return;
+  }
+
   var slot = firstEmptySlot();
   if (!slot) {
     post("m4l-jweb: no empty clip slot on this track\n");
+    outlet(0, "write_error", "no_slot");
     return;
   }
   slot.call("create_clip", lengthBeats);
@@ -177,6 +205,7 @@ function write_clip(): void {
     clip.call("add_new_notes", { notes: notes });
   } catch (e) {
     post("m4l-jweb: add_new_notes failed - " + (e as Error).message + "\n");
+    outlet(0, "write_error", "add_failed");
     return;
   }
   post("m4l-jweb: wrote " + n + " notes over " + lengthBeats + " beats\n");
@@ -207,6 +236,15 @@ function firstEmptySlot(): LiveAPI | null {
  * happens to be. For the selection-driven case use read_selected_clip below.
  */
 function read_notes(): void {
+  // Structural failure (no reachable track) is reported distinctly from "a track with
+  // no clip", so the UI can disable clip import where it is impossible and merely say
+  // "no clip" where it is not.
+  var track = ownTrack();
+  if (!track || !track.id || track.type !== "Track") {
+    post("m4l-jweb: read_notes - no reachable track (device not on a track?)\n");
+    outlet(0, "read_error", "no_track");
+    return;
+  }
   var clip = pickClip();
   if (!clip) {
     post("m4l-jweb: no clip found on this track\n");

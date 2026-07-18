@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/build",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "m4l-jweb: the CLI that builds and packages a device repo into installable Max for Live devices.",
 	"type": "module",
 	"license": "MIT",
