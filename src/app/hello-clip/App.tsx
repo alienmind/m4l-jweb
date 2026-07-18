@@ -33,13 +33,23 @@ export default function HelloClip() {
   };
 
   async function read() {
+    // Clear first, so a failed or empty read never leaves a previous read's notes on
+    // screen looking like the current result.
+    setNotes([]);
     setStatus("Reading the playing/first clip on this track...");
     try {
       const clip = await readClip();
       setNotes(clip.notes);
-      setStatus(`Read ${clip.notes.length} notes over ${clip.loopEnd} beats.`);
+      // Three distinct outcomes, all made visible: notes read, a clip that exists but
+      // is empty, and (in the catch) no clip at all. "0 notes" and "no clip" are not
+      // the same thing - one is an empty clip, the other is read_error.
+      setStatus(
+        clip.notes.length === 0
+          ? `Clip found (${clip.loopEnd} beats) but it has no notes.`
+          : `Read ${clip.notes.length} notes over ${clip.loopEnd} beats.`,
+      );
     } catch (err) {
-      setNotes([]);
+      // read_error (no clip on the track) or a timeout - both land here and both show.
       setStatus(err instanceof Error ? err.message : String(err));
     }
   }
