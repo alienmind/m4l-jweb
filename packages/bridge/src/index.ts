@@ -235,8 +235,10 @@ export const PARAM_IN = {
  * bare selector reaches `[js]`. `readClip()` / `writeClip()` below are the shaped API.
  */
 export const CLIP_OUT = {
-  /** UI -> wrapper: read this track's playing (else first) clip. Reply on `notes`. */
+  /** UI -> wrapper: read this TRACK's playing (else first) clip, ignoring the selection. Reply on `notes`. */
   read_notes: "read_notes",
+  /** UI -> wrapper: read the clip the CURSOR is on (Live's highlighted slot). Reply on `notes`. */
+  read_selected_clip: "read_selected_clip",
   /** UI -> wrapper: `write_clip <lengthBeats> <n> <pitch start duration velocity> ...` - fill the first empty slot. */
   write_clip: "write_clip",
 } as const;
@@ -599,49 +601,70 @@ export interface ReadClip {
 const readClipResolvers: { resolve: (c: ReadClip) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }[] = [];
 let clipReadBound = false;
 
+/** Bind the shared reply path once - both read paths answer on `notes` / `read_error`. */
+function bindClipRead(): void {
+  if (clipReadBound) return;
+  clipReadBound = true;
+  // One reply per outstanding read, in order - Live answers a read with one `notes`
+  // (or one `read_error`), and reads are not interleaved in practice.
+  bindInlet(CLIP_IN.notes, (...args) => {
+    const p = readClipResolvers.shift();
+    if (!p) return;
+    clearTimeout(p.timer);
+    const loopEnd = Number(args[0]);
+    const n = Number(args[1]);
+    const notes: Omit<ClipNote, "velocity">[] = [];
+    for (let k = 0; k < n; k++) {
+      const o = 2 + k * 3;
+      notes.push({ pitch: Number(args[o]), start: Number(args[o + 1]), duration: Number(args[o + 2]) });
+    }
+    p.resolve({ loopEnd, notes });
+  });
+  bindInlet(CLIP_IN.read_error, (reason) => {
+    const p = readClipResolvers.shift();
+    if (!p) return;
+    clearTimeout(p.timer);
+    // The wrapper says WHY: "no_clip" (track has none) or "no_selection" (highlighted
+    // slot is empty). Either way there is nothing to read.
+    p.reject(new Error(String(reason) === "no_selection" ? "no clip in the highlighted slot - click a clip first" : "no clip on this track - create or play a MIDI clip first"));
+  });
+}
+
+function requestClipRead(selector: string, timeoutMs: number): Promise<ReadClip> {
+  bindClipRead();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const i = readClipResolvers.findIndex((r) => r.timer === timer);
+      if (i >= 0) readClipResolvers.splice(i, 1);
+      reject(new Error(`the wrapper never answered ${selector} (${timeoutMs} ms). See the Max console.`));
+    }, timeoutMs);
+    readClipResolvers.push({ resolve, reject, timer });
+    outlet(selector);
+  });
+}
+
 /**
- * Read the MIDI clip on this device's track - the PLAYING one, or the first found -
- * and resolve with its notes. Rejects if there is no clip, or if the wrapper does not
- * answer inside `timeoutMs`.
+ * Read the MIDI clip on this device's TRACK - the PLAYING one, or the first found,
+ * regardless of the selection. Rejects if the track has no clip, or if the wrapper does
+ * not answer inside `timeoutMs`. This is the right call for a device that operates on
+ * its own track's pattern; for the clip the user has CLICKED, use `readSelectedClip()`.
  *
  * The bytes are notes, not audio, so unlike a sample they DO cross the bridge: the
  * wrapper reads them with LiveAPI's `get_notes_extended` and sends
  * `notes <loopEnd> <n> <pitch start duration> ...`.
  */
 export function readClip(timeoutMs = 2000): Promise<ReadClip> {
-  if (!clipReadBound) {
-    clipReadBound = true;
-    // One reply per outstanding read, in order - Live answers a `read_notes` with one
-    // `notes` (or one `read_error`), and reads are not interleaved in practice.
-    bindInlet(CLIP_IN.notes, (...args) => {
-      const p = readClipResolvers.shift();
-      if (!p) return;
-      clearTimeout(p.timer);
-      const loopEnd = Number(args[0]);
-      const n = Number(args[1]);
-      const notes: Omit<ClipNote, "velocity">[] = [];
-      for (let k = 0; k < n; k++) {
-        const o = 2 + k * 3;
-        notes.push({ pitch: Number(args[o]), start: Number(args[o + 1]), duration: Number(args[o + 2]) });
-      }
-      p.resolve({ loopEnd, notes });
-    });
-    bindInlet(CLIP_IN.read_error, () => {
-      const p = readClipResolvers.shift();
-      if (!p) return;
-      clearTimeout(p.timer);
-      p.reject(new Error("no clip on this track - create or play a MIDI clip first"));
-    });
-  }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const i = readClipResolvers.findIndex((r) => r.timer === timer);
-      if (i >= 0) readClipResolvers.splice(i, 1);
-      reject(new Error(`the wrapper never answered read_notes (${timeoutMs} ms). See the Max console.`));
-    }, timeoutMs);
-    readClipResolvers.push({ resolve, reject, timer });
-    outlet(CLIP_OUT.read_notes);
-  });
+  return requestClipRead(CLIP_OUT.read_notes, timeoutMs);
+}
+
+/**
+ * Read the clip the CURSOR is on - Live's highlighted clip slot, whichever track and
+ * scene. An empty highlighted slot rejects with "no clip in the highlighted slot", so
+ * clicking an empty slot reads nothing rather than falling back to another clip. Same
+ * resolved shape as `readClip()`.
+ */
+export function readSelectedClip(timeoutMs = 2000): Promise<ReadClip> {
+  return requestClipRead(CLIP_OUT.read_selected_clip, timeoutMs);
 }
 
 /**

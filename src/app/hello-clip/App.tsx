@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { readClip, writeClip, type ClipNote } from "@m4l-jweb/bridge";
+import { readClip, readSelectedClip, writeClip, type ClipNote } from "@m4l-jweb/bridge";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 
@@ -14,8 +14,11 @@ import { Frame } from "../shared/Frame";
  * Live, not just in the fake Max the unit tests run against.
  *
  * Drop it on a MIDI track. "Write scale" fills the first empty clip slot with a
- * C-major scale; "Read clip" reads the playing (or first) clip back and shows its
- * notes. Round-trip them: write, then read, and the notes should match.
+ * C-major scale. Two reads, and the difference is the lesson: "Read selected clip"
+ * reads the clip the CURSOR is on (Live's highlighted slot - an empty slot reports no
+ * clip), while "Read track clip" reads this device's own track (playing-else-first,
+ * ignoring the selection - what m4l-strudel needs). Round-trip: write, then read, and
+ * the notes should match.
  *
  *   pnpm dev:hello-clip
  *
@@ -32,13 +35,17 @@ export default function HelloClip() {
     return pitches.map((pitch, i) => ({ pitch, start: i * 0.5, duration: 0.5, velocity: 100 }));
   };
 
-  async function read() {
+  // `which` is the source: the clip the CURSOR is on (selected), or this device's own
+  // TRACK (playing-else-first, selection ignored). They differ - which is the point of
+  // having both: clicking an empty slot and reading "selected" reports no clip, where
+  // "track" would fall back to whatever clip the track already has.
+  async function read(which: "selected" | "track") {
     // Clear first, so a failed or empty read never leaves a previous read's notes on
     // screen looking like the current result.
     setNotes([]);
-    setStatus("Reading the playing/first clip on this track...");
+    setStatus(which === "selected" ? "Reading the highlighted clip..." : "Reading this track's playing/first clip...");
     try {
-      const clip = await readClip();
+      const clip = which === "selected" ? await readSelectedClip() : await readClip();
       setNotes(clip.notes);
       // Three distinct outcomes, all made visible: notes read, a clip that exists but
       // is empty, and (in the catch) no clip at all. "0 notes" and "no clip" are not
@@ -49,7 +56,7 @@ export default function HelloClip() {
           : `Read ${clip.notes.length} notes over ${clip.loopEnd} beats.`,
       );
     } catch (err) {
-      // read_error (no clip on the track) or a timeout - both land here and both show.
+      // read_error (no clip) or a timeout - both land here and both show.
       setStatus(err instanceof Error ? err.message : String(err));
     }
   }
@@ -70,9 +77,12 @@ export default function HelloClip() {
       </dd>
 
       <dt>read</dt>
-      <dd>
-        <button onClick={read} style={{ padding: "4px 8px" }}>
-          Read clip on this track
+      <dd style={{ display: "flex", gap: 6 }}>
+        <button onClick={() => read("selected")} style={{ padding: "4px 8px" }}>
+          Read selected clip
+        </button>
+        <button onClick={() => read("track")} style={{ padding: "4px 8px" }}>
+          Read track clip
         </button>
       </dd>
 

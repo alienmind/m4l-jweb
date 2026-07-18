@@ -198,9 +198,13 @@ function firstEmptySlot(): LiveAPI | null {
 }
 
 /**
- * read_notes - pick a clip on this device's track (the playing one, else the
- * first found), read its notes and send them to the UI as
+ * read_notes - pick a clip on this device's TRACK (the playing one, else the first
+ * found), read its notes and send them to the UI as
  * "notes <loopEnd> <n> <pitch start duration> ...".
+ *
+ * This ignores the Live SELECTION on purpose: a device that reads/writes its own
+ * track's pattern (m4l-strudel) wants its track's clip, not wherever the cursor
+ * happens to be. For the selection-driven case use read_selected_clip below.
  */
 function read_notes(): void {
   var clip = pickClip();
@@ -209,6 +213,40 @@ function read_notes(): void {
     outlet(0, "read_error", "no_clip");
     return;
   }
+  emitClipNotes(clip);
+}
+
+/**
+ * read_selected_clip - read the clip the CURSOR is on (Live's highlighted clip slot),
+ * whichever track and scene that is. An empty highlighted slot is "no clip", which is
+ * what makes clicking an empty slot and reading report nothing rather than falling
+ * back to some other clip on the track. Same reply shape as read_notes.
+ */
+function read_selected_clip(): void {
+  var clip = selectedClip();
+  if (!clip) {
+    post("m4l-jweb: highlighted clip slot is empty (or none)\n");
+    outlet(0, "read_error", "no_selection");
+    return;
+  }
+  emitClipNotes(clip);
+}
+
+/** The clip in Live's highlighted clip slot, or null if that slot is empty. */
+function selectedClip(): LiveAPI | null {
+  try {
+    var slot = new LiveAPI("live_set view highlighted_clip_slot");
+    if (!slot || !slot.id || Number(slot.id) === 0) return null;
+    if (parseInt(String(slot.get("has_clip")), 10) !== 1) return null;
+    return new LiveAPI(slot.unquotedpath + " clip");
+  } catch (e) {
+    post("m4l-jweb: selectedClip error " + (e as Error).message + "\n");
+    return null;
+  }
+}
+
+/** Send a clip's notes to the UI: "notes <loopEnd> <n> <pitch start duration> ...". */
+function emitClipNotes(clip: LiveAPI): void {
   var loopEnd = parseFloat(String(clip.get("loop_end")));
   var notes = getNotes(clip, loopEnd);
   if (!notes) return;
