@@ -41,6 +41,10 @@ The repo builds several example devices out of the box to demonstrate the archit
 | **hello-downloads** | audio effect | Fetch-to-disk (`fetchToFile`). A `download` chain hands Max's `[maxurl]` a request, and libcurl writes the file - so the bytes never cross the message bridge. |
 | **hello-state** | audio effect | State persistence (`useStateSync`). Arbitrary JSON, saved into the Ableton Live Set and restored with it, per instance. |
 | **hello-window** | audio effect | Floating windows (`useWindow`). A second page, in a window of its own, for a UI that does not fit in the device view's fixed ~169 px. |
+| **hello-clip** | MIDI effect | Clip I/O (`readClip` / `readSelectedClip` / `writeClip`). Writes a scale into a clip and reads notes back - either this track's own clip, or the one the cursor is on. |
+| **hello-remote** | audio effect | Pattern modulation (the `remote` chain). Binds `live.remote~` to its own parameter by LOM id and sweeps it - `resolveParamId` + `bindRemote` + `writeRemote`, visible as a moving native knob. |
+| **hello-sampler** | instrument | Sample playback (`samples` + `download` chains). A `[buffer~]` per slot, fetched to disk and previewed through the track - mono-vs-stereo A/B'd across two slots. |
+| **hello-instrument** | instrument | Polyphonic repitched sampler (the `instrument` chain). A generated `[poly~]` voice patch plays a keymap of buffers via `playVoice()`, stealing the oldest voice when they run out. |
 
 > **Testing the feature examples:** Because `hello-downloads` and `hello-state` are compiled as **audio effects** with a `passthrough` audio chain, they won't swallow or block sound. You can drop them on the Master channel (or any audio track) to test their UI and features without disrupting your musical signal flow!
 
