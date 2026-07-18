@@ -4,7 +4,7 @@
 measuring honestly. It covers where the two overlap, where this project wins,
 and - the section that matters - where it plainly loses.*
 
-**Entries marked `*` are what changes if [PATCHBOARD-VST3.md](PATCHBOARD-VST3.md)
+**Entries marked `*` are what changes if [FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md)
 is implemented.** They are not shipped today. Everything unmarked is true of the
 repo as it stands.
 
@@ -253,7 +253,7 @@ does, JUCE does too - or will do underneath it.**
 ## Not covered here
 
 Other runtimes (nih-plug, iPlug2, the raw VST3 SDK) are surveyed in
-[PATCHBOARD-VST3.md](PATCHBOARD-VST3.md#the-runtime-what-to-build-on), along with
+[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md#the-runtime-what-to-build-on), along with
 the licensing question - **the VST3 SDK is GPLv3 or a Steinberg agreement, and this
 repo is MIT.** That does not compose silently, and it is a decision that belongs
 before any code is written, not after the plugin works.
