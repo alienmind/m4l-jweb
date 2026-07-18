@@ -9,7 +9,7 @@
  * hello-clip device; here we prove our half.
  */
 import { expect, test } from "vitest";
-import { readClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
+import { readClip, readSelectedClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
 
 /** Capture the outbound messages a function produces. */
 function captureOut(fn) {
@@ -58,6 +58,24 @@ test("read_error rejects, so an empty track is not a silent hang", async () => {
   const p = readClip();
   simulate("read_error");
   await expect(p).rejects.toThrow(/no clip/);
+});
+
+test("readSelectedClip asks for the highlighted slot and parses the same reply", async () => {
+  let selector;
+  const off = tapMessages((m) => {
+    if (m.direction === "out") selector = m.selector;
+  });
+  const p = readSelectedClip();
+  off();
+  expect(selector).toBe("read_selected_clip");
+  simulate("notes", 2, 1, 60, 0, 1);
+  expect((await p).notes).toEqual([{ pitch: 60, start: 0, duration: 1 }]);
+});
+
+test("an empty highlighted slot rejects with a slot-specific message", async () => {
+  const p = readSelectedClip();
+  simulate("read_error", "no_selection");
+  await expect(p).rejects.toThrow(/highlighted slot/);
 });
 
 test("reads are answered in order", async () => {
