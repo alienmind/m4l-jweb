@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.5 - version alignment for the superdough release
+
+A version bump to align with m4l-strudel 0.9.5, which ships the offline-render
+instrument on top of the `saveToFile` + `renderplay` pipe delivered in 0.9.1 (the bridge
+save primitive, the double-buffered transport-locked `renderplay` chain, `hello-render`).
+No library code change beyond the bump; publishes a pinned version m4l-strudel consumes in
+place of the local `link:`.
+
+Backlog added: **hybrid controls - a native-knob POOL the Surface declares**, so any
+device can declare a fixed pool of build-time `live.dial`s that dynamic controls borrow
+from (with the runtime rename + range folded in), generalising the hand-rolled `S1..S8`
+logic in m4l-strudel's superdough device. See [doc/TODO.md](doc/TODO.md) item 2.
+
 ## 0.9.0 - modulation, more chains, and observing Live
 
 **The `remote` chain and pattern modulation.** One `live.remote~` per declared slot
