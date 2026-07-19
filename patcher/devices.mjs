@@ -199,6 +199,28 @@ export default [
   },
   {
     /**
+     * hello-render - the proving ground for the SUPERDOUGH Rendering pipe (m4l-strudel
+     * doc/IDEA-STRUDEL-INSTRUMENT.md), before that repo's superdough device touches it.
+     *
+     * An INSTRUMENT (it originates the track's audio). The app generates a sine-beep WAV
+     * in the browser, `saveToFile`s it next to the .amxd (S2: bytes cross to disk via the
+     * same [maxurl] atomic-place the `download` chain owns), then loads it into a
+     * renderplay slot and loops it, crossfading between two slots at loop boundaries (S3).
+     *
+     * The `renderplay` loop is SELF-CLOCKED off groove~'s own sync outlet, not the host
+     * transport ([plugsync~] beats were found stuck at 0 in testing). `renderSlots` names
+     * the two [buffer~]s the double-buffered player alternates; `download` provides the
+     * [maxurl] the wrapper's atomic file place (saveToFile) drives. See
+     * doc/TEST-CHAIN-RENDERPLAY.md.
+     */
+    name: "hello-render",
+    type: "instrument",
+    chains: ["renderplay", "download"],
+    renderSlots: ["rndA", "rndB"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
      * hello-state
      * Demonstrates the state persistence API (`useStateSync`).
      * Proves that arbitrary JSON blobs can be saved cleanly into the Ableton Live Set and automatically restored.
