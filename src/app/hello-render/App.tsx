@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { saveToFile, renderLoad, renderArm, renderStop, onRenderReady } from "@m4l-jweb/bridge";
+import { useEffect, useRef, useState } from "react";
+import { saveToFile, renderLoad, renderArm, renderStop, renderSync, onRenderReady } from "@m4l-jweb/bridge";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 
@@ -13,11 +13,18 @@ import { Frame } from "../shared/Frame";
  * S3 (renderplay): the two beeps load into slots rndA/rndB and loop, SELF-CLOCKED off the
  * groove's own sync (not the host transport). Arm A/B crossfades between them at the next
  * loop boundary; Stop fades out and holds. No transport needed - it plays on load.
+ *
+ * S3b (transport sync): the proof that the loop can be TRANSPORT-LOCKED. `render_sync`
+ * relocates each groove to Live's exact transport phase. We align ONCE - on transport
+ * start and on a relocate - then rate-1 @loop holds the lock (Live's transport and the
+ * 120 BPM WAV share one clock). We deliberately do NOT re-sync every tick: a per-loop
+ * re-sync is what caused the boundary click in the self-clock era. Freeze/flatten the
+ * track at 120 BPM and the beep must land in the pocket, bar-locked.
  */
 
 const SAMPLE_RATE = 44100;
 const LOOP_BEATS = 4;
-const LOOP_SECONDS = 2; // 4 beats at 120 BPM
+const LOOP_SECONDS = 2; // 4 beats at 120 BPM (the sync math below assumes this tempo)
 
 /**
  * A STEREO sine, exactly a whole number of cycles long, as a 16-bit PCM WAV.
@@ -67,15 +74,44 @@ const SLOTS = {
 } as const;
 type Slot = keyof typeof SLOTS;
 
+/** The transport phase of `beats` as a groove play position in ms (see LOOP_SECONDS note). */
+function phaseMs(beats: number): number {
+  const phase = ((beats % LOOP_BEATS) + LOOP_BEATS) % LOOP_BEATS; // 0..LOOP_BEATS, guard negatives
+  return (phase / LOOP_BEATS) * LOOP_SECONDS * 1000;
+}
+
 export default function HelloRender() {
-  const device = useDevice();
   const [status, setStatus] = useState("Idle. Generate a beep to hear it loop.");
   const [loaded, setLoaded] = useState<Record<Slot, boolean>>({ rndA: false, rndB: false });
+
+  // Align-once state: remember the last transport reading to detect start / relocate.
+  const prevPlaying = useRef(false);
+  const prevBeats = useRef(0);
+
+  // ALIGN ONCE, then let @loop hold. Sync both slots (they stay mutually phase-aligned) on
+  // the transport START edge and on a RELOCATE (a beat jump the 20 Hz poll cannot explain by
+  // normal advance). Not every tick - that would fight the loop and reintroduce the click.
+  function onTick(playing: boolean, beats: number) {
+    const started = playing && !prevPlaying.current;
+    // Normal advance between 50 ms polls is small (0.1 beat at 120 BPM); anything past half a
+    // beat is a jump (relocate, or wrap on a looping arrangement). Backward is always a jump.
+    const jumped = playing && Math.abs(beats - prevBeats.current) > 0.5;
+    if (started || jumped) {
+      const pos = phaseMs(beats);
+      renderSync("rndA", pos);
+      renderSync("rndB", pos);
+      setStatus(`Transport ${started ? "start" : "relocate"} @ ${beats.toFixed(2)} beats: synced to ${pos.toFixed(0)} ms.`);
+    }
+    prevPlaying.current = playing;
+    prevBeats.current = beats;
+  }
+
+  const device = useDevice(onTick);
 
   useEffect(() => {
     onRenderReady((slot) => {
       setLoaded((l) => ({ ...l, [slot]: true }));
-      setStatus(`Slot ${slot} loaded and looping-ready. Arm it to hear it.`);
+      setStatus(`Slot ${slot} loaded and looping-ready. Arm it, then run the transport to lock it.`);
     });
   }, []);
 
@@ -114,6 +150,19 @@ export default function HelloRender() {
       </dd>
       <dt>Transport</dt>
       <dd>
+        {device.playing ? "playing" : "stopped"} @ {device.beats.toFixed(2)} beats
+        {" "}
+        <button
+          onClick={() => {
+            const pos = phaseMs(device.beats);
+            renderSync("rndA", pos);
+            renderSync("rndB", pos);
+            setStatus(`Manual re-sync @ ${device.beats.toFixed(2)} beats: ${pos.toFixed(0)} ms.`);
+          }}
+          style={{ padding: "4px 8px" }}
+        >
+          Re-sync now
+        </button>{" "}
         <button onClick={() => renderStop()} style={{ padding: "4px 8px" }}>
           Stop (fade out)
         </button>

@@ -48,8 +48,9 @@ paths there.
 
 ## S3 - renderplay: the loop and the swap
 
-Confirmed working in Live 2026-07-19. Note the loop is **self-clocked**, not transport-
-locked (see the design note below) - so it plays with the transport stopped.
+Confirmed working in Live 2026-07-19. The loop is **self-clocked** here - so it plays with
+the transport stopped. S3b (below) adds the transport lock on top of this self-clock, which
+stays as the transport-stopped fallback.
 
 1. Do S2 for **both** slots (Generate A at 440 Hz, Generate B at 660 Hz). Each status
    should end `... loaded and looping-ready`.
@@ -64,6 +65,35 @@ locked (see the design note below) - so it plays with the transport stopped.
 
 **Passes if** the loop plays, the arm-swap lands on the loop boundary, stop holds, and two
 instances are independent.
+
+## S3b - transport lock: align once, then hold
+
+The self-clock (S3) plays, but it is NOT pinned to Live's bar - the loop drifts against the
+grid. This spike proves the fix: `render_sync <slot> <positionMs>` relocates each groove to
+the transport's exact phase, and rate-1 `@loop` then holds the lock because the 120 BPM WAV
+and Live's transport share one clock. The UI aligns ONCE on transport start and on a
+relocate (never per tick - that reintroduces the boundary click).
+
+**Set the Live tempo to 120 BPM** (the sine WAVs are 4 beats = 2 s only at 120).
+
+1. Do S2 for slot A (Generate A), then **Arm A**. With the transport stopped you hear the
+   440 Hz loop free-running (self-clock).
+2. **Start Live's transport.** The status shows `Transport start @ <beats> beats: synced to
+   <ms> ms` and the loop jumps to sit on the bar. The "Transport" line shows `playing @ N.NN
+   beats` advancing.
+3. **Relocate** - click somewhere else in the arrangement while playing (or stop and restart
+   from a different point). The status shows a `relocate` sync and the loop re-aligns to the
+   new phase. It should not drift away between relocates.
+4. **Freeze/flatten the track** (right-click the track -> Freeze Track, then Flatten). The
+   rendered audio must land in the pocket - the beep on the bar lines, bar-locked, not
+   floating. This is the acceptance check (G.2): the transport owns playback position.
+5. **Re-sync now** button forces an immediate align at the current beat - use it to confirm
+   the phase math by ear if a start/relocate edge was missed.
+
+**Passes if** starting the transport locks the loop to the bar, relocating re-aligns it, the
+lock holds while playing (no audible drift over many bars), and a freeze/flatten captures the
+audio on the grid. This is what promotes the loop from self-clocked to **transport-locked**;
+the m4l-strudel conductor drives the same `render_sync` from the same LiveAPI `tick`.
 
 ## How the loop is clocked (and what is deferred)
 
@@ -87,9 +117,9 @@ per-loop boundary bang. It needs no transport - the groove is the clock. Control
 
 **Deferred (S3 open items):**
 
-- **Transport-BAR alignment.** The loop is pinned to the groove's own period, not Live's
-  bar. Revisit once a host beat source that actually advances is found (`[plugsync~]`
-  outlet 6 is not it here).
+- **Transport-BAR alignment.** RESOLVED by S3b above: `render_sync` aligns the groove to
+  the LiveAPI `tick` phase (`is_playing` + `current_song_time`, the source `[plugsync~]`
+  outlet 6 failed to be). The self-clock remains only as the transport-stopped fallback.
 - **Loop-wrap tick.** A faint click at the loop seam from `[groove~]`'s loop-point
   interpolation. Worst on a pure sine, ~inaudible on real rendered content. If it ever
   matters on real material: drive playback from `[phasor~]` into `[play~]`/`[wave~]`, or
