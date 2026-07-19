@@ -172,6 +172,12 @@ export const CHAIN_IN = {
   buffer_ready: "buffer_ready",
   /** samples -> UI: `buffer_error <slot> <msg>` - there was no readable file at that path. */
   buffer_error: "buffer_error",
+  /** download -> UI: `save_done <requestId> <bytes>` - the file is written and verified. */
+  save_done: "save_done",
+  /** download -> UI: `save_error <requestId> <msg>` - the write or atomic place failed. */
+  save_error: "save_error",
+  /** renderplay -> UI: `render_ready <slot>` - the WAV finished loading into that slot's buffer~. */
+  render_ready: "render_ready",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -194,6 +200,18 @@ export const CHAIN_OUT = {
   remote_bind: "remote_bind",
   /** UI -> remote: `remote_val <slot> <value>` - the next value for that slot, ramped. */
   remote_val: "remote_val",
+  /** UI -> download: `save_begin <requestId> <destPath> <byteCount>` - open a .part file. */
+  save_begin: "save_begin",
+  /** UI -> download: `save_chunk <requestId> <base64>` - one slice of the payload. */
+  save_chunk: "save_chunk",
+  /** UI -> download: `save_end <requestId>` - close, verify size, atomic place. */
+  save_end: "save_end",
+  /** UI -> renderplay: `render_load <slot> <path> <lengthBeats>` - read a WAV into a slot's buffer~. */
+  render_load: "render_load",
+  /** UI -> renderplay: `render_arm <slot>` - swap playback to that slot at the next loop boundary. */
+  render_arm: "render_arm",
+  /** UI -> renderplay: `render_stop` - fade out and stop. */
+  render_stop: "render_stop",
 } as const;
 
 /**
@@ -347,6 +365,115 @@ export function fetchToFile(url: string, destPath: string, onProgress?: (downloa
     fetchResolvers.set(requestId, { resolve, reject, onProgress });
     outlet(CHAIN_OUT.fetch_to_file, requestId, url, destPath);
   });
+}
+
+/**
+ * Base64-encode raw bytes in slices, so a multi-megabyte buffer does not blow the
+ * call stack (`String.fromCharCode(...hugeArray)` does). btoa wants a binary string;
+ * we build it 32 KB at a time. No newlines, so the result is one safe Max symbol
+ * once re-sliced by SAVE_B64_CHUNK.
+ */
+export function encodeBytesBase64(bytes: ArrayBuffer): string {
+  const view = new Uint8Array(bytes);
+  const SLICE = 0x8000; // 32 KB per fromCharCode call
+  let binary = "";
+  for (let o = 0; o < view.length; o += SLICE) {
+    binary += String.fromCharCode(...view.subarray(o, o + SLICE));
+  }
+  return btoa(binary);
+}
+
+const SAVE_B64_CHUNK = 8192; // base64 chars per message; well under Max atom limits
+
+const saveResolvers = new Map<string, { resolve: (v: { bytes: number }) => void; reject: (e: Error) => void }>();
+let saveBound = false;
+
+/**
+ * Write raw bytes straight to disk via the `download` chain's [js] wrapper.
+ *
+ * The inverse of `fetchToFile`: instead of Max pulling a URL, the UI hands the bytes
+ * over base64 in slices and the wrapper writes them to a `.part` file, then atomically
+ * places it at `destPath` via [maxurl] (the same move fetchToFile phase 2 uses). The
+ * bytes travel base64 because Max splits messages on spaces/commas and base64 has
+ * neither. Requires the `download` chain in the device manifest.
+ *
+ * @param destPath Absolute path (or device-relative, resolved wrapper-side) to write.
+ * @param bytes The payload. A per-cycle WAV is ~350 KB => ~60 messages.
+ * @returns Resolves with the verified byte count once the file is placed.
+ */
+export function saveToFile(destPath: string, bytes: ArrayBuffer): Promise<{ bytes: number }> {
+  if (!saveBound) {
+    saveBound = true;
+    bindInlet(CHAIN_IN.save_done, (id, n) => {
+      const p = saveResolvers.get(String(id));
+      if (p) {
+        p.resolve({ bytes: Number(n) });
+        saveResolvers.delete(String(id));
+      }
+    });
+    bindInlet(CHAIN_IN.save_error, (id, msg) => {
+      const p = saveResolvers.get(String(id));
+      if (p) {
+        p.reject(new Error(String(msg)));
+        saveResolvers.delete(String(id));
+      }
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = Math.random().toString(36).substring(2, 10);
+    saveResolvers.set(requestId, { resolve, reject });
+    const b64 = encodeBytesBase64(bytes);
+    outlet(CHAIN_OUT.save_begin, requestId, destPath, bytes.byteLength);
+    for (let o = 0; o < b64.length; o += SAVE_B64_CHUNK) {
+      outlet(CHAIN_OUT.save_chunk, requestId, b64.slice(o, o + SAVE_B64_CHUNK));
+    }
+    outlet(CHAIN_OUT.save_end, requestId);
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Renderplay - the `renderplay` chain (transport-locked WAV loop playback)
+ * ------------------------------------------------------------------ */
+
+let renderReadyBound = false;
+const renderReadyHandlers = new Set<(slot: string) => void>();
+
+/**
+ * Load a rendered WAV from disk into one of the renderplay slots' [buffer~].
+ *
+ * The path is resolved wrapper-side (relative -> device folder, same as saveToFile
+ * wrote it) and handed to `replace` as one symbol, so spaces in the Live library path
+ * survive. When the buffer finishes reading, the chain replies `render_ready <slot>`;
+ * bind it with `onRenderReady`. `lengthBeats` is how many Live beats one loop of this
+ * WAV spans - the chain uses it to lock the loop to the transport.
+ *
+ * Requires the `renderplay` chain (and `download`, for the [maxurl] the wrapper uses to
+ * resolve the path). Pair the slot names with the device manifest's `renderSlots`.
+ */
+export function renderLoad(slot: string, path: string, lengthBeats: number): void {
+  outlet(CHAIN_OUT.render_load, slot, path, lengthBeats);
+}
+
+/** At the NEXT loop boundary, crossfade playback to `slot` and adopt its loop length. */
+export function renderArm(slot: string): void {
+  outlet(CHAIN_OUT.render_arm, slot);
+}
+
+/** Fade out and stop renderplay. */
+export function renderStop(): void {
+  outlet(CHAIN_OUT.render_stop);
+}
+
+/** Called with the slot name each time a `render_load` finishes reading into its buffer~. */
+export function onRenderReady(fn: (slot: string) => void): void {
+  renderReadyHandlers.add(fn);
+  if (!renderReadyBound) {
+    renderReadyBound = true;
+    bindInlet(CHAIN_IN.render_ready, (slot) => {
+      for (const h of renderReadyHandlers) h(String(slot));
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ *

@@ -749,6 +749,221 @@ function downloadChain(ctx) {
 }
 
 /**
+ * "renderplay" - double-buffered, transport-locked loop playback of a rendered WAV pair.
+ *
+ * This is the Max half of the SUPERDOUGH Rendering design (m4l-strudel
+ * doc/IDEA-STRUDEL-INSTRUMENT.md, section D.3). The app renders a Strudel pattern to a
+ * WAV, `saveToFile`s it next to the device, then:
+ *
+ *   app -> render_load <slot> <path> <lengthBeats>  -> [js] resolves path
+ *                                                    -> render_replace -> [buffer~ <name>]
+ *          render_arm <slot>                         -> swap playback to it at the boundary
+ *          render_stop                               -> fade out
+ *   app <- render_ready <slot>                       when the WAV finished loading
+ *
+ * TRANSPORT LOCK - the mechanism, and why THIS one. The design names `phasor~ @lock` as
+ * the first idea and flags it UNVERIFIED, because an arbitrary loop length (7 beats, say)
+ * does not spell as a note value and the tempo math is fragile. This implements the
+ * design's fallback instead: both slots play through [groove~ @loop 1] (the same player
+ * the `samples` chain proves), and a control-rate boundary detector HARD RE-SYNCS both
+ * grooves to position 0 at every loop boundary. The boundary is read straight off the
+ * host transport - [plugsync~] outlet 6 is song position in beats (a signal; the
+ * m4l-strudel engine already samples it via [snapshot~]) - so `floor(beats / lengthBeats)`
+ * increments exactly once per loop, and [change] turns each increment into the re-sync
+ * bang. No tempo arithmetic, no note-value spelling: the loop is pinned to the transport
+ * by restarting it on the transport's own beat count. Drift between re-syncs is at most
+ * one control tick (~10 ms) and is hidden under the crossfade, which is the fallback's
+ * whole point.
+ *
+ * CROSSFADE, NOT GATING. Both grooves always play, phase-aligned by the shared re-sync;
+ * only the [line~] gains move. `render_arm <slot>` stores the target slot; at the next
+ * boundary the stored index is read out and each slot's gain ramps to (armed==slot) over
+ * 15 ms. So the swap always lands on a loop boundary and a half-faded old loop is never
+ * heard mid-cycle.
+ *
+ * ORIGINATES SOUND, like `samples`: it SUMS into the signal path ([+~]) rather than
+ * claiming a stage, and the buffer names are instance-scoped (`deviceBufName`).
+ *
+ * OPEN (S3, verified in Live, not here): the exact re-sync timing and the equal-power
+ * curve of the crossfade are tuning knobs to confirm by ear on real transport; and the
+ * first loop before the first boundary bang plays at the initial gains (slot 0 up), so a
+ * device should `render_arm` slot 0 once at start. See doc/TEST-CHAIN-RENDERPLAY.md.
+ */
+function renderplayChain(ctx) {
+  const { boxes, lines, device, jwebId, unmatchedId } = ctx;
+  const slots = device?.renderSlots;
+  if (!Array.isArray(slots) || slots.length !== 2) {
+    throw new Error(
+      `the "renderplay" chain needs exactly two renderSlots on device "${device?.name}", got ${JSON.stringify(slots)}. ` +
+        `It is double-buffered by design: one slot loops while the other loads the next render.`,
+    );
+  }
+  const bufName = (slot) => deviceBufName(device, slot);
+  const slotList = slots.join(" ");
+
+  // App stream: claim render_arm / render_stop here; render_load falls through outlet 2
+  // to the wrapper (it needs the path resolved, exactly like `samples`' buffer_load).
+  boxes.push(box("obj-render-route", "route render_arm render_stop", { numoutlets: 3, outlettype: ["", "", ""] }));
+  claimAppMessages(ctx, "obj-render-route", 2);
+
+  // The wrapper resolves the path and hands the load back on its AUX outlet as
+  // `render_replace <slot> <absPath>` - one symbol, so Live-library spaces survive.
+  boxes.push(box("obj-render-replaceroute", "route render_replace", { numoutlets: 2, outlettype: ["", ""] }));
+  lines.push(line(unmatchedId, 1, "obj-render-replaceroute", 0));
+
+  // route strips the selector, so the slot name is the first word now: dispatch per slot.
+  const slotOutlets = { numoutlets: slots.length + 1, outlettype: slots.map(() => "").concat("") };
+  boxes.push(box("obj-render-loadslot", `route ${slotList}`, slotOutlets));
+  lines.push(line("obj-render-replaceroute", 0, "obj-render-loadslot", 0));
+
+  // Boundary clock: the MASTER groove's OWN loop, not the host transport. [plugsync~]
+  // outlet 6 (song-position-in-beats) was measured stuck at 0 while the transport played
+  // (its outlet semantics differ by host), so timing the loop off it left the whole device
+  // silent. groove~'s LAST outlet is a 0..1 sync ramp of loop position, and the groove is
+  // the one thing we confirmed is running - so it is the reliable clock. `[<~ 0.5]` turns
+  // the ramp into a once-per-loop square (1 in the first half, 0 in the second), and
+  // `[edge~]` bangs on its rising edge - which happens right as the ramp wraps to 0, i.e.
+  // at the loop boundary. Slot 0 is the master; both slots share the loop length.
+  // (Transport-BAR alignment is deferred: the loop is self-clocked, not pinned to Live's
+  // bar. Revisit once a host beat source that actually advances is found - S3 open item.)
+  boxes.push(box("obj-render-syncgate", "<~ 0.5", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+  boxes.push(box("obj-render-syncedge", "edge~", { numinlets: 1, numoutlets: 2, outlettype: ["bang", "bang"] }));
+  boxes.push(box("obj-render-boundary", "t b b", { numinlets: 1, numoutlets: 2, outlettype: ["bang", "bang"] }));
+  lines.push(line(`obj-render-groove-${slots[0]}`, 2, "obj-render-syncgate", 0)); // master sync ramp
+  lines.push(line("obj-render-syncgate", 0, "obj-render-syncedge", 0));
+  lines.push(line("obj-render-syncedge", 0, "obj-render-boundary", 0)); // outlet 0 = rising edge = loop wrap
+
+  // A boundary applies the gains only when a swap is PENDING - the first boundary after an
+  // arm (and the first after load). [gate 1 1] starts OPEN so slot 0 fades up on load; the
+  // boundary passes its bang through, then CLOSES the gate. So a held selection is not
+  // re-ramped every loop - that per-loop re-trigger was the audible tick, and it also fought
+  // render_stop (the next boundary kept re-raising the gain the stop had just faded out).
+  // An arm re-opens the gate for exactly one boundary; stop closes it and ramps to silence.
+  // [t b b] fires right-to-left: the bang goes THROUGH the gate (right) before the gate is
+  // closed behind it (left).
+  boxes.push(box("obj-render-pending", "gate 1 1", { numinlets: 2, numoutlets: 1, outlettype: ["bang"] }));
+  boxes.push(box("obj-render-pendclose", "0", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+  lines.push(line("obj-render-boundary", 1, "obj-render-pending", 1)); // right, first: bang through the gate
+  lines.push(line("obj-render-boundary", 0, "obj-render-pendclose", 0)); // left, then: close behind it
+  lines.push(line("obj-render-pendclose", 0, "obj-render-pending", 0));
+  lines.push(line("obj-render-pending", 0, "obj-render-armed", 0)); // gated bang -> read armed -> gains
+
+  // Armed slot index (0/1): stored cold by an arm, read out by a pending boundary.
+  boxes.push(box("obj-render-armed", "i 0", { numinlets: 2, numoutlets: 1, outlettype: ["int"] }));
+  boxes.push(box("obj-render-armslot", `route ${slotList}`, slotOutlets));
+  lines.push(line("obj-render-route", 0, "obj-render-armslot", 0)); // render_arm <slot>
+
+  // An arm re-opens the pending gate (for the next boundary to apply the swap); a stop
+  // closes it (so no boundary re-raises the gain the stop is fading out).
+  boxes.push(box("obj-render-pendopen", "1", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+  lines.push(line("obj-render-route", 0, "obj-render-pendopen", 0)); // any render_arm
+  lines.push(line("obj-render-pendopen", 0, "obj-render-pending", 0));
+  lines.push(line("obj-render-route", 1, "obj-render-pendclose", 0)); // render_stop also closes it
+
+  // Arm stores the target index only (below); the grooves start when their WAV LOADS (so
+  // an arm never restarts a playing groove and clicks), and the crossfade gains move at the
+  // BOUNDARY, so a swap lands on the loop boundary rather than the instant you click. That
+  // makes the transport meaningful: with it stopped there are no boundaries, so nothing
+  // becomes audible; start it and the armed slot fades up at the next boundary.
+
+  // Summing buses, per channel: (slotA*gainA) + (slotB*gainB), then + the device input.
+  boxes.push(box("obj-render-sumslots-l", "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+  boxes.push(box("obj-render-sumslots-r", "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+
+  slots.forEach((slot, i) => {
+    const buf = `obj-render-buf-${slot}`;
+    const groove = `obj-render-groove-${slot}`;
+
+    // buffer~: outlet 1 bangs when a read completes. replace, then report render_ready.
+    boxes.push(box(buf, `buffer~ ${bufName(slot)}`, { numinlets: 1, numoutlets: 2, outlettype: ["float", "bang"] }));
+    boxes.push(box(`obj-render-replace-${slot}`, "prepend replace"));
+    lines.push(line("obj-render-loadslot", i, `obj-render-replace-${slot}`, 0));
+    lines.push(line(`obj-render-replace-${slot}`, 0, buf, 0));
+    boxes.push(box(`obj-render-ready-${slot}`, `prepend render_ready ${slot}`));
+    lines.push(line(buf, 1, `obj-render-ready-${slot}`, 0));
+    lines.push(line(`obj-render-ready-${slot}`, 0, jwebId, 0));
+    // Start this groove looping the moment its WAV has loaded (buffer~ read-complete bang).
+    // It free-runs from here via @loop 1; the gain stays 0 until a boundary raises it.
+    lines.push(line(buf, 1, `obj-render-resync-${slot}`, 0));
+
+    // Player: [groove~ <buf> 2 @loop 1] at rate 1 (the WAV's own tempo; a tempo change is
+    // a full re-render, so rate stays 1). Two signal outlets = L/R.
+    boxes.push(box(`obj-render-rate-${slot}`, "sig~ 1.", { numinlets: 1, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(groove, `groove~ ${bufName(slot)} 2 @loop 1`, { numinlets: 3, numoutlets: 3, outlettype: ["signal", "signal", "signal"] }));
+    lines.push(line(`obj-render-rate-${slot}`, 0, groove, 0));
+
+    // Start message: a bare `0` (a start position in ms) into groove~'s left inlet starts
+    // the loop from the top. Banged once, from the buffer read-complete above.
+    boxes.push(box(`obj-render-resync-${slot}`, "0", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+    lines.push(line(`obj-render-resync-${slot}`, 0, groove, 0));
+
+    // Gain: this slot's target = (armed == i). At the boundary the armed index is read
+    // out, [== i] gives 0/1, [pack <v> 50] makes the `<target> 50ms` list for [line~] - a
+    // short equal-ish crossfade at the boundary.
+    boxes.push(box(`obj-render-istarget-${slot}`, `expr $i1 == ${i}`, { numinlets: 1, numoutlets: 1, outlettype: ["int"] }));
+    boxes.push(box(`obj-render-gainpack-${slot}`, "pack 0. 400", { numinlets: 2, numoutlets: 1, outlettype: [""] }));
+    boxes.push(box(`obj-render-gain-${slot}`, "line~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line("obj-render-armed", 0, `obj-render-istarget-${slot}`, 0));
+    lines.push(line(`obj-render-istarget-${slot}`, 0, `obj-render-gainpack-${slot}`, 0));
+    lines.push(line(`obj-render-gainpack-${slot}`, 0, `obj-render-gain-${slot}`, 0));
+
+    // render_stop: ramp this slot's gain to 0 over 500 ms - a clearly audible fade. The
+    // pending gate (closed by stop) keeps the next boundary from re-raising it.
+    boxes.push(box(`obj-render-stopgain-${slot}`, "0. 500", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+    lines.push(line("obj-render-route", 1, `obj-render-stopgain-${slot}`, 0));
+    lines.push(line(`obj-render-stopgain-${slot}`, 0, `obj-render-gain-${slot}`, 0));
+
+    // Apply the gain to each channel, then sum into the per-channel bus.
+    const mulL = `obj-render-mul-l-${slot}`;
+    const mulR = `obj-render-mul-r-${slot}`;
+    boxes.push(box(mulL, "*~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    boxes.push(box(mulR, "*~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(groove, 0, mulL, 0));
+    lines.push(line(groove, 1, mulR, 0));
+    lines.push(line(`obj-render-gain-${slot}`, 0, mulL, 1));
+    lines.push(line(`obj-render-gain-${slot}`, 0, mulR, 1));
+    lines.push(line(mulL, 0, "obj-render-sumslots-l", i));
+    lines.push(line(mulR, 0, "obj-render-sumslots-r", i));
+
+    // Arm: store this slot's index (cold) in [i]. That is ALL an arm does - it queues the
+    // target. The next transport boundary reads it out and fades the gains, so the swap
+    // lands on the loop boundary, not the instant you click. lengthBeats rode in on
+    // render_load and reaches the boundary detector's cold inlet via render_len below.
+    boxes.push(box(`obj-render-armidx-${slot}`, `${i}`, { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+    lines.push(line("obj-render-armslot", i, `obj-render-armidx-${slot}`, 0));
+    lines.push(line(`obj-render-armidx-${slot}`, 0, "obj-render-armed", 1)); // cold store, no output
+  });
+
+  // render_len still arrives from the wrapper (it carries lengthBeats alongside the path)
+  // but the self-clocked boundary no longer needs it: a [route render_len] swallows it so
+  // it does not fall through to the wrapper as an unknown message. (Kept for when
+  // transport-bar alignment returns and wants the loop length again.)
+  boxes.push(box("obj-render-lenroute", "route render_len", { numoutlets: 2, outlettype: ["", ""] }));
+  lines.push(line(unmatchedId, 1, "obj-render-lenroute", 0));
+
+  // Sum the two per-channel buses onto the device's signal path and become its tail.
+  for (const [ch, sumId] of [
+    [0, "obj-render-sumslots-l"],
+    [1, "obj-render-sumslots-r"],
+  ]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const outId = `obj-render-out-${ch}`;
+    boxes.push(box(outId, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, outId, 0)); // the device input (silence on an instrument)
+    lines.push(line(sumId, 0, outId, 1)); // the rendered mix
+    ctx.setAudioOut(ch, outId, 0);
+  }
+
+  // KNOWN MINOR ARTIFACT (S3): a faint tick at the loop wrap, from [groove~]'s loop-point
+  // interpolation. The WAV loops seamlessly (whole-cycle sine, matched value AND slope at
+  // the seam) and the gains are no longer re-triggered per loop, so this is groove~ itself
+  // reading across the boundary. It is worst on a pure sine (the hardest case for loop
+  // clicks) and is typically inaudible on real rendered content. Proper declick, if ever
+  // needed on real material: drive playback from a [phasor~] into [play~]/[wave~], or bake a
+  // few-ms equal-power loop crossfade into the render. Deferred - not worth it on a tone.
+}
+
+/**
  * "samples" - the first chain that ORIGINATES a sound: a named [buffer~] per slot,
  * loaded from a file on disk, played back through [groove~] into the signal path.
  *
@@ -1327,6 +1542,7 @@ export const CHAINS = {
   reverb: reverbChain,
   remote: remoteChain,
   download: downloadChain,
+  renderplay: renderplayChain,
 };
 
 /**

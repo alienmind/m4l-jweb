@@ -754,6 +754,110 @@ function placeFetch(fetched: ActiveFetch): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Save-to-disk
+ *
+ * The inverse of fetch-to-disk: the APP has the bytes (a rendered WAV), and hands
+ * them over base64 in slices (`saveToFile()` in the bridge). We writebytes them into
+ * a `<dest>.part` file exactly as extractPayload does - same 16 KB truncation cap, same
+ * byte-count verification - then reuse the fetch machinery's PHASE 3 to atomically place
+ * `.part` over the destination through [maxurl]. The destination is never touched until
+ * the .part has been written AND verified. Requires the `download` chain (for [maxurl]).
+ * ------------------------------------------------------------------ */
+
+var SAVE_PLACE_RESPONSE_DICT = "m4ljweb_save_place_response";
+
+interface ActiveSave {
+  requestId: string;
+  /** Absolute, resolved destination. */
+  destPath: string;
+  /** Bytes the app promised in save_begin - the size the .part must match. */
+  expect: number;
+  /** Bytes actually written so far, for the verify. */
+  written: number;
+  /** The open .part file, held across the chunk messages. */
+  file: File | null;
+}
+
+var activeSave: ActiveSave | null = null;
+
+/** The app: `save_begin <requestId> <destPath> <byteCount>` - open the .part file. */
+function save_begin(requestId: string, destPath: string, byteCount: number): void {
+  // A save already in flight is abandoned - its .part is left for the next place/overwrite.
+  if (activeSave && activeSave.file && activeSave.file.isopen) activeSave.file.close();
+
+  var resolved = resolveFetchPath(destPath);
+  var target = partPath(resolved);
+  var f: File | null = null;
+  try {
+    f = new File(target, "write");
+    if (!f.isopen) f.open();
+  } catch (e) {
+    f = null;
+  }
+  if (!f || !f.isopen) {
+    outlet(0, "save_error", requestId, "cannot open " + target);
+    activeSave = null;
+    return;
+  }
+  f.eof = 0;
+  activeSave = { requestId: requestId, destPath: resolved, expect: Number(byteCount), written: 0, file: f };
+}
+
+/** The app: `save_chunk <requestId> <base64>` - write one slice. */
+function save_chunk(requestId: string, b64: string): void {
+  if (!activeSave || activeSave.requestId !== requestId || !activeSave.file) return;
+  var bytes = b64decode(b64);
+  var SLICE = 4096; // File.writebytes truncates large calls (~16 KB cap) - same as extractPayload
+  for (var off = 0; off < bytes.length; off += SLICE) {
+    activeSave.file.writebytes(bytes.slice(off, off + SLICE));
+  }
+  activeSave.written += bytes.length;
+}
+
+/** The app: `save_end <requestId>` - close, verify size, place atomically. */
+function save_end(requestId: string): void {
+  if (!activeSave || activeSave.requestId !== requestId) return;
+  var save = activeSave;
+  if (save.file && save.file.isopen) save.file.close();
+
+  var onDisk = fileSize(partPath(save.destPath));
+  if (onDisk !== save.expect) {
+    outlet(0, "save_error", requestId, "size mismatch: wrote " + onDisk + " bytes, expected " + save.expect);
+    activeSave = null;
+    return;
+  }
+  // PHASE 3: place the verified .part over the destination via [maxurl]. NOTE the
+  // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
+  // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
+  // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
+  var placeUrl = encodeURI("file:///" + partPath(save.destPath));
+  post("m4l-jweb: save place " + placeUrl + " -> " + save.destPath + "\n");
+  var reqDict = new Dict();
+  reqDict.set("url", placeUrl);
+  reqDict.set("http_method", "get");
+  reqDict.set("filename_out", save.destPath);
+  reqDict.set("overwrite_output_file", 1);
+  reqDict.set("response_dict", SAVE_PLACE_RESPONSE_DICT);
+  outlet(1, "maxurl", "dictionary", reqDict.name);
+}
+
+/** maxurl finished the save's place copy. Validate on bytes, like finishPlace. */
+function finishSavePlace(): void {
+  if (!activeSave) return;
+  var save = activeSave;
+  var placed = fileSize(save.destPath);
+  if (placed !== save.expect) {
+    outlet(0, "save_error", save.requestId, "could not place save: " + placed + " bytes at destination, expected " + save.expect);
+    activeSave = null;
+    return;
+  }
+  truncate(partPath(save.destPath)); // [js] cannot delete; zero it
+  post("m4l-jweb: saved " + placed + " bytes to " + save.destPath + "\n");
+  outlet(0, "save_done", save.requestId, placed);
+  activeSave = null;
+}
+
+/* ------------------------------------------------------------------ *
  * Samples - the `samples` chain
  * ------------------------------------------------------------------ */
 
@@ -806,6 +910,41 @@ function buffer_load(slot: string, path: string): void {
   outlet(1, "buffer_replace", slot, resolved);
 }
 
+/**
+ * The app: `render_load <slot> <path> <lengthBeats>` - read a rendered WAV into a
+ * renderplay slot's [buffer~].
+ *
+ * Same path problem, same fix as buffer_load: a relative path is resolved against the
+ * device folder (where saveToFile wrote it), and the resolved path - which contains
+ * spaces on a normal Live install - is handed out of [js] as ONE symbol via the aux
+ * outlet, so `replace` sees a single file rather than three atoms. The loop length rides
+ * alongside as `render_len` for the chain's transport-lock detector.
+ */
+function render_load(slot: string, path: string, lengthBeats: number): void {
+  var resolved = resolveFetchPath(path);
+  var f: File | null = null;
+  try {
+    f = new File(resolved, "read");
+  } catch (e) {
+    f = null;
+  }
+  if (!f || !f.isopen) {
+    outlet(0, "render_error", slot, "no file at " + resolved);
+    return;
+  }
+  var bytes = f.eof;
+  f.close();
+  if (!bytes) {
+    outlet(0, "render_error", slot, "empty file at " + resolved);
+    return;
+  }
+  post("m4l-jweb: render_load " + slot + " -> " + resolved + " (" + lengthBeats + " beats)\n");
+  // Aux outlet (1): the renderplay chain routes render_replace and render_len off it,
+  // the same way the download chain routes maxurl. Outlet 0 belongs to [jweb].
+  outlet(1, "render_len", slot, lengthBeats);
+  outlet(1, "render_replace", slot, resolved);
+}
+
 /** The app: `fetch_to_file <requestId> <url> <destPath>`. */
 function fetch_to_file(requestId: string, url: string, destPath: string): void {
   fetchQueue.push({ requestId: requestId, url: url, destPath: destPath, partBytes: 0 });
@@ -824,6 +963,8 @@ function maxurl_done(msgType: string, dictName: string): void {
   // hook, a request the device made lands here, finds no `currentFetch`, and is
   // dropped in silence - which looks exactly like maxurl never answering.
   if (typeof onMaxurlReply === "function" && onMaxurlReply(dictName)) return;
+  // A save's place copy comes back on its own dict, and has no `currentFetch` behind it.
+  if (dictName === SAVE_PLACE_RESPONSE_DICT) return finishSavePlace();
   if (!currentFetch) return;
   var fetched = currentFetch;
 
