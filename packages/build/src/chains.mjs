@@ -801,10 +801,12 @@ function renderplayChain(ctx) {
   const bufName = (slot) => deviceBufName(device, slot);
   const slotList = slots.join(" ");
 
-  // App stream: claim render_arm / render_stop here; render_load falls through outlet 2
-  // to the wrapper (it needs the path resolved, exactly like `samples`' buffer_load).
-  boxes.push(box("obj-render-route", "route render_arm render_stop", { numoutlets: 3, outlettype: ["", "", ""] }));
-  claimAppMessages(ctx, "obj-render-route", 2);
+  // App stream: claim render_arm / render_stop / render_sync here; render_load falls through
+  // the last outlet to the wrapper (it needs the path resolved, like `samples`' buffer_load).
+  // render_sync <slot> <positionMs> relocates a slot's groove to a transport phase; it is
+  // appended last so render_arm/render_stop keep their outlet indices.
+  boxes.push(box("obj-render-route", "route render_arm render_stop render_sync", { numoutlets: 4, outlettype: ["", "", "", ""] }));
+  claimAppMessages(ctx, "obj-render-route", 3);
 
   // The wrapper resolves the path and hands the load back on its AUX outlet as
   // `render_replace <slot> <absPath>` - one symbol, so Live-library spaces survive.
@@ -853,6 +855,15 @@ function renderplayChain(ctx) {
   boxes.push(box("obj-render-armslot", `route ${slotList}`, slotOutlets));
   lines.push(line("obj-render-route", 0, "obj-render-armslot", 0)); // render_arm <slot>
 
+  // render_sync <slot> <positionMs>: strip the slot, drop <positionMs> into that slot's
+  // groove~ left inlet as a float = a playback position in ms (per slot, in the forEach
+  // below). The conductor sends this on (re)start / relocate to pin the loop to Live's exact
+  // transport phase; then rate-1 @loop HOLDS the lock (shared clock, no per-loop re-sync).
+  // The self-clocked boundary above is only the transport-STOPPED fallback - a sync just
+  // moves the play head, it does not fight the loop. See doc/TEST-CHAIN-RENDERPLAY.md.
+  boxes.push(box("obj-render-syncslot", `route ${slotList}`, slotOutlets));
+  lines.push(line("obj-render-route", 2, "obj-render-syncslot", 0)); // render_sync <slot> <positionMs>
+
   // An arm re-opens the pending gate (for the next boundary to apply the swap); a stop
   // closes it (so no boundary re-raises the gain the stop is fading out).
   boxes.push(box("obj-render-pendopen", "1", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
@@ -896,6 +907,10 @@ function renderplayChain(ctx) {
     // the loop from the top. Banged once, from the buffer read-complete above.
     boxes.push(box(`obj-render-resync-${slot}`, "0", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
     lines.push(line(`obj-render-resync-${slot}`, 0, groove, 0));
+
+    // render_sync target: a float position (ms) from obj-render-syncslot relocates THIS
+    // groove's play head to the transport phase. Same inlet, same semantics as the resync 0.
+    lines.push(line("obj-render-syncslot", i, groove, 0));
 
     // Gain: this slot's target = (armed == i). At the boundary the armed index is read
     // out, [== i] gives 0/1, [pack <v> 50] makes the `<target> 50ms` list for [line~] - a

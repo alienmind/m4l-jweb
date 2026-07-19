@@ -210,6 +210,8 @@ export const CHAIN_OUT = {
   render_load: "render_load",
   /** UI -> renderplay: `render_arm <slot>` - swap playback to that slot at the next loop boundary. */
   render_arm: "render_arm",
+  /** UI -> renderplay: `render_sync <slot> <positionMs>` - relocate a slot's loop to a transport phase. */
+  render_sync: "render_sync",
   /** UI -> renderplay: `render_stop` - fade out and stop. */
   render_stop: "render_stop",
 } as const;
@@ -458,6 +460,20 @@ export function renderLoad(slot: string, path: string, lengthBeats: number): voi
 /** At the NEXT loop boundary, crossfade playback to `slot` and adopt its loop length. */
 export function renderArm(slot: string): void {
   outlet(CHAIN_OUT.render_arm, slot);
+}
+
+/**
+ * Relocate a slot's loop to a transport phase: `positionMs` is a playback position in
+ * milliseconds, dropped straight into that slot's [groove~] left inlet.
+ *
+ * The conductor sends this on (re)start / relocate to pin the audio to Live's exact
+ * transport phase - `(beats mod loopBeats) / loopBeats * loopSeconds * 1000`. Because the
+ * WAV is rendered to be exactly `loopBeats` long at the current tempo, a rate-1 `@loop`
+ * then HOLDS the lock with no per-loop re-sync (Live's transport and the audio share one
+ * clock). Sync both slots to keep the double buffer mutually phase-aligned.
+ */
+export function renderSync(slot: string, positionMs: number): void {
+  outlet(CHAIN_OUT.render_sync, slot, positionMs);
 }
 
 /** Fade out and stop renderplay. */
