@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/surface",
-	"version": "0.9.1",
+	"version": "0.9.5",
 	"description": "m4l-jweb: declare a device's Live parameters as code - the surface Push actually sees - plus a mocked-Live dev harness.",
 	"type": "module",
 	"license": "MIT",
