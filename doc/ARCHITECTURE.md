@@ -824,6 +824,28 @@ Add your own next to them, either in the library or in your repo's
 owns a selector, put its name in `CHAIN_IN`/`CHAIN_OUT` so devices spread it in
 rather than retyping it.
 
+### saveToFile and the renderplay chain (offline-render playback)
+
+Added for m4l-strudel's Route B (rendering Strudel to audio). The inverse of
+`fetchToFile`: `saveToFile(path, bytes)` hands the UI's bytes to `[js]` base64 in slices,
+which `writebytes` them to a `<dest>.part` and then places the `.part` atomically over the
+destination via `[maxurl]` (the same file:// move fetch phase 3 uses). `render_load` reads
+the WAV into a `renderplay` slot's `[buffer~]`; the `renderplay` chain plays a
+double-buffered pair, crossfading between them at loop boundaries. Two hard-won facts:
+
+- **Save destinations must be FLAT filenames in the device folder.** `[js]` `File` and
+  `[maxurl]` resolve a subdirectory differently, so `sub/x.wav` writes the `.part` where
+  `File`/`fileSize` agree but maxurl cannot reach it - the place returns `-1`. Every disk
+  write here (download, save) stays flat in `deviceFolder()`.
+- **`[plugsync~]` is NOT the transport source; LiveAPI is.** A device that needs the host
+  transport reads it from `tick <playing> <beats>` (`liveapi.ts` polls `is_playing` +
+  `current_song_time` at 20 Hz), the same tick the strudel devices follow. `[plugsync~]`
+  outlet 6 measured stuck at 0 in Live. So transport-locked audio is driven by the APP
+  (which has `tick`) setting the player's position, not by a Max-side transport clock -
+  the renderplay chain is a play/position/gain primitive, the timing brain lives upstream.
+
+The `hello-render` demo device exercises both; see doc/TEST-CHAIN-RENDERPLAY.md.
+
 ## The build pipeline
 
 `pnpm build` is `tsc -b && node scripts/build-ui.mjs && m4l-jweb build`. Bundling
