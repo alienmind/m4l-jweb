@@ -69,10 +69,10 @@
 				"box": {
 					"disablefind": 0,
 					"id": "obj-jweb",
-					"maxclass": "jweb",
+					"maxclass": "jweb~",
 					"numinlets": 1,
-					"numoutlets": 1,
-					"outlettype": [""],
+					"numoutlets": 3,
+					"outlettype": ["signal", "signal", ""],
 					"patching_rect": [16.0, 104.0, 400.0, 169.0],
 					"presentation": 1,
 					"presentation_rect": [0.0, 0.0, 420.0, 169.0],
@@ -84,7 +84,7 @@
 			{ "patchline": { "destination": ["obj-midiout", 0], "source": ["obj-midiin", 0] } },
 			{ "patchline": { "destination": ["obj-js", 0], "source": ["obj-thisdevice", 0] } },
 			{ "patchline": { "destination": ["obj-jweb", 0], "source": ["obj-js", 0] } },
-			{ "patchline": { "destination": ["obj-js", 0], "source": ["obj-jweb", 0] } }
+			{ "patchline": { "destination": ["obj-js", 0], "source": ["obj-jweb", 2] } }
 		],
 		"latency": 0,
 		"is_mpe": 0,

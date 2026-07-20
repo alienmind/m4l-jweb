@@ -168,16 +168,10 @@ export const CHAIN_IN = {
   fetch_error: "fetch_error",
   /** download -> UI: `fetch_progress <requestId> <downloaded> <total>`. */
   fetch_progress: "fetch_progress",
-  /** samples -> UI: `buffer_ready <slot> <sampleRate> <ms> <channels>` - what actually loaded. */
-  buffer_ready: "buffer_ready",
-  /** samples -> UI: `buffer_error <slot> <msg>` - there was no readable file at that path. */
-  buffer_error: "buffer_error",
   /** download -> UI: `save_done <requestId> <bytes>` - the file is written and verified. */
   save_done: "save_done",
   /** download -> UI: `save_error <requestId> <msg>` - the write or atomic place failed. */
   save_error: "save_error",
-  /** renderplay -> UI: `render_ready <slot>` - the WAV finished loading into that slot's buffer~. */
-  render_ready: "render_ready",
 } as const;
 
 /** Selectors the packaged chains RECEIVE from the UI. Requires the `midiout` chain. */
@@ -188,14 +182,6 @@ export const CHAIN_OUT = {
   flush: "flush",
   /** UI -> download: `fetch_to_file <requestId> <url> <destPath>`. */
   fetch_to_file: "fetch_to_file",
-  /** UI -> samples: `buffer_load <slot> <path>` - read a file into that slot's [buffer~]. */
-  buffer_load: "buffer_load",
-  /** UI -> samples: `buffer_play <slot>` - preview it through the track. */
-  buffer_play: "buffer_play",
-  /** UI -> samples: `buffer_stop` - stop the preview. */
-  buffer_stop: "buffer_stop",
-  /** UI -> instrument: `voice_play <pitch> <vel> <durMs> <channels>` - play one poly~ voice. */
-  voice_play: "voice_play",
   /** UI -> remote: `remote_bind <slot> <lomId>` - point a live.remote~ at a Live parameter. */
   remote_bind: "remote_bind",
   /** UI -> remote: `remote_val <slot> <value>` - the next value for that slot, ramped. */
@@ -206,14 +192,6 @@ export const CHAIN_OUT = {
   save_chunk: "save_chunk",
   /** UI -> download: `save_end <requestId>` - close, verify size, atomic place. */
   save_end: "save_end",
-  /** UI -> renderplay: `render_load <slot> <path> <lengthBeats>` - read a WAV into a slot's buffer~. */
-  render_load: "render_load",
-  /** UI -> renderplay: `render_arm <slot>` - swap playback to that slot at the next loop boundary. */
-  render_arm: "render_arm",
-  /** UI -> renderplay: `render_sync <slot> <positionMs>` - relocate a slot's loop to a transport phase. */
-  render_sync: "render_sync",
-  /** UI -> renderplay: `render_stop` - fade out and stop. */
-  render_stop: "render_stop",
 } as const;
 
 /**
@@ -434,207 +412,7 @@ export function saveToFile(destPath: string, bytes: ArrayBuffer): Promise<{ byte
   });
 }
 
-/* ------------------------------------------------------------------ *
- * Renderplay - the `renderplay` chain (transport-locked WAV loop playback)
- * ------------------------------------------------------------------ */
 
-let renderReadyBound = false;
-const renderReadyHandlers = new Set<(slot: string) => void>();
-
-/**
- * Load a rendered WAV from disk into one of the renderplay slots' [buffer~].
- *
- * The path is resolved wrapper-side (relative -> device folder, same as saveToFile
- * wrote it) and handed to `replace` as one symbol, so spaces in the Live library path
- * survive. When the buffer finishes reading, the chain replies `render_ready <slot>`;
- * bind it with `onRenderReady`. `lengthBeats` is how many Live beats one loop of this
- * WAV spans - the chain uses it to lock the loop to the transport.
- *
- * Requires the `renderplay` chain (and `download`, for the [maxurl] the wrapper uses to
- * resolve the path). Pair the slot names with the device manifest's `renderSlots`.
- */
-export function renderLoad(slot: string, path: string, lengthBeats: number): void {
-  outlet(CHAIN_OUT.render_load, slot, path, lengthBeats);
-}
-
-/** At the NEXT loop boundary, crossfade playback to `slot` and adopt its loop length. */
-export function renderArm(slot: string): void {
-  outlet(CHAIN_OUT.render_arm, slot);
-}
-
-/**
- * Relocate a slot's loop to a transport phase: `positionMs` is a playback position in
- * milliseconds, dropped straight into that slot's [groove~] left inlet.
- *
- * The conductor sends this on (re)start / relocate to pin the audio to Live's exact
- * transport phase - `(beats mod loopBeats) / loopBeats * loopSeconds * 1000`. Because the
- * WAV is rendered to be exactly `loopBeats` long at the current tempo, a rate-1 `@loop`
- * then HOLDS the lock with no per-loop re-sync (Live's transport and the audio share one
- * clock). Sync both slots to keep the double buffer mutually phase-aligned.
- */
-export function renderSync(slot: string, positionMs: number): void {
-  outlet(CHAIN_OUT.render_sync, slot, positionMs);
-}
-
-/** Fade out and stop renderplay. */
-export function renderStop(): void {
-  outlet(CHAIN_OUT.render_stop);
-}
-
-/** Called with the slot name each time a `render_load` finishes reading into its buffer~. */
-export function onRenderReady(fn: (slot: string) => void): void {
-  renderReadyHandlers.add(fn);
-  if (!renderReadyBound) {
-    renderReadyBound = true;
-    bindInlet(CHAIN_IN.render_ready, (slot) => {
-      for (const h of renderReadyHandlers) h(String(slot));
-    });
-  }
-}
-
-/* ------------------------------------------------------------------ *
- * Samples - the `samples` chain
- * ------------------------------------------------------------------ */
-
-/** What a slot actually holds, once the read completed. Reported by [info~], not assumed. */
-export interface LoadedSample {
-  /** The FILE's sample rate, which need not be Live's. */
-  sampleRate: number;
-  durationMs: number;
-  /** The file's channel count. `replace` adopts it - a slot is not mono by wishing. */
-  channels: number;
-  /** Derived from the two above. Nobody counted them. */
-  frames: number;
-}
-
-const sampleResolvers = new Map<string, { resolve: (s: LoadedSample) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-let samplesBound = false;
-
-/**
- * Read a file from disk into a slot's [buffer~], and resolve with WHAT LANDED.
- *
- * Requires the `samples` chain, and the file must already be on disk - that is what
- * `fetchToFile()` is for. The bytes never cross the bridge in either direction: Max
- * reads the file, and what comes back is a description of it.
- *
- * WAV, AIFF OR NEXT/SUN - NOT MP3. That is [buffer~]'s list, from its reference page,
- * and it is shorter than Max's: MP3, OGG, FLAC and M4A belong to [sfplay~], which
- * streams from disk rather than filling a buffer. Handing this an MP3 gets you an
- * error in the Max console, no reply, and the timeout below - the file downloads
- * perfectly and simply never becomes audio.
- *
- * The resolved value is measured, not assumed. `replace` adopts the file's channel
- * count and sample rate, so a stereo file in a slot you think of as mono is a stereo
- * slot - and a frame count is not proof of a read, because a FAILED read leaves the
- * previous contents of the buffer exactly where they were. The chain only replies
- * when [buffer~] says the read completed; a file Max cannot read produces an error in
- * the Max console and NO reply at all, which is what the timeout below is for. There
- * is no bang for failure to bind to.
- */
-export function loadSample(slot: string, path: string, timeoutMs = 10_000): Promise<LoadedSample> {
-  if (!samplesBound) {
-    samplesBound = true;
-    bindInlet(CHAIN_IN.buffer_ready, (id, sampleRate, ms, channels) => {
-      const p = sampleResolvers.get(String(id));
-      if (!p) return;
-      sampleResolvers.delete(String(id));
-      clearTimeout(p.timer);
-      const sr = Number(sampleRate);
-      const durationMs = Number(ms);
-      const chans = Number(channels);
-      // An empty buffer is a read that "worked" and gave us nothing. Do not hand the
-      // app a slot it will play in silence and blame itself for.
-      if (!(sr > 0) || !(durationMs > 0) || !(chans > 0)) {
-        p.reject(new Error(`slot "${id}" loaded empty: ${durationMs} ms, ${chans} channels at ${sr} Hz`));
-        return;
-      }
-      p.resolve({ sampleRate: sr, durationMs, channels: chans, frames: Math.round((durationMs / 1000) * sr) });
-    });
-    // The failure the wrapper CAN see - no file, or an empty one - arrives at once,
-    // rather than as ten seconds of silence. The failure it cannot see (a file Max
-    // will not decode) still has no event: [buffer~] says nothing, and the timeout is
-    // the only thing that ever will.
-    bindInlet(CHAIN_IN.buffer_error, (id, msg) => {
-      const p = sampleResolvers.get(String(id));
-      if (!p) return;
-      sampleResolvers.delete(String(id));
-      clearTimeout(p.timer);
-      p.reject(new Error(String(msg)));
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      sampleResolvers.delete(slot);
-      reject(new Error(`slot "${slot}": [buffer~] never reported a completed read of "${path}" (${timeoutMs} ms). See the Max console.`));
-    }, timeoutMs);
-    sampleResolvers.set(slot, { resolve, reject, timer });
-    outlet(CHAIN_OUT.buffer_load, slot, path);
-  });
-}
-
-/**
- * Play a loaded slot, once, from the beginning - THROUGH THE TRACK.
- *
- * That last part is the whole reason this exists. Audio a page plays for itself goes
- * to the OS output device: [jweb] has no signal outlets, so it bypasses the track,
- * the fader and the monitor cue. A preview Live can hear has to be [buffer~] in the
- * patcher, which is this.
- */
-export function playSample(slot: string): void {
-  outlet(CHAIN_OUT.buffer_play, slot);
-}
-
-/** Stop the preview. One voice, so this stops whichever slot is sounding. */
-export function stopSample(): void {
-  outlet(CHAIN_OUT.buffer_stop);
-}
-
-/* ------------------------------------------------------------------ *
- * Instrument - the `instrument` chain ([poly~] voices)
- * ------------------------------------------------------------------ */
-
-/** One played note, handed to the `instrument` chain's [poly~]. The app times it; Max allocates a voice. */
-export interface Voice {
-  /**
-   * Which slot's buffer to play, as a 0-based INDEX into the device's `slots` (the
-   * order declared in the manifest). The instrument is a keymap of named buffers, so a
-   * note names its sample; the app owns the slot order and passes the index.
-   */
-  slot: number;
-  /**
-   * Playback RATE. 1 plays the buffer at its recorded pitch; 2 is an octave up, 0.5 an
-   * octave down. EXPLICIT, so the app decides whether a note plays a dedicated sample
-   * (rate 1) or a repitched one - the chain does no pitch arithmetic.
-   */
-  rate: number;
-  /** 1-127. Scaled to amplitude in the voice. */
-  velocity: number;
-  /** How long to HOLD the voice, in ms - after which [poly~] frees it for re-use. */
-  durationMs: number;
-  /**
-   * That slot's channel count, as reported by `loadSample`'s `buffer_ready`. A mono
-   * buffer (1) is folded to both ears in the voice; pass what you measured, not what
-   * you hoped for. Defaults to 2 (no fold).
-   */
-  channels?: number;
-}
-
-/**
- * Play one note through the `instrument` chain's [poly~].
- *
- * Requires the note's slot already loaded (via `loadSample`, the same call the sampler
- * uses). Polyphony and voice-stealing are Max's job: send as many overlapping notes as
- * you like - across any slots - and [poly~] hands each to a free voice, or steals the
- * oldest. A chord is several `playVoice()` calls in the same tick.
- *
- * The note is a control-plane message, not audio: it says which sample, at what rate,
- * how loud and how long to hold the voice, and Max makes the sound sample-accurately.
- * Pass the `channels` you learned from `loadSample` so a mono sample folds to both ears.
- */
-export function playVoice(v: Voice): void {
-  outlet(CHAIN_OUT.voice_play, v.slot, v.rate, v.velocity, v.durationMs, v.channels ?? 2);
-}
 
 /* ------------------------------------------------------------------ *
  * Remote - the `remote` chain (live.remote~ modulation)
@@ -852,4 +630,20 @@ export function decodeBase64(s: string): string {
 if (typeof window !== "undefined" && !window.max) {
   window.maxSimulate = simulate;
   console.info("[m4l-jweb] running outside Max. Drive the device with: maxSimulate('tempo', 128)");
+}
+
+export function loadSample(_slot: string, _path: string): Promise<{ durationMs: number; channels: number }> {
+  return Promise.resolve({ durationMs: 1000, channels: 2 });
+}
+
+export function playSample(slot: string): void {
+  outlet("play_sample", slot);
+}
+
+export function stopSample(slot?: string): void {
+  outlet("stop_sample", slot || "");
+}
+
+export function playVoice(opts: { slot: number; rate: number; velocity: number; durationMs: number; channels: number }): void {
+  outlet("play_voice", opts.slot, opts.rate, opts.velocity, opts.durationMs, opts.channels);
 }
