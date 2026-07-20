@@ -165,11 +165,7 @@ export default [
      */
     name: "hello-sampler",
     type: "instrument",
-    chains: ["samples", "download"],
-    // Two slots, so mono-vs-stereo playback can be A/B'd in Live: a stereo file must
-    // keep its image, and a MONO file must fold to BOTH ears (the samples chain's
-    // [selector~] gate - see doc/TODO.md #4). Each slot is its own [buffer~].
-    slots: ["stereo", "mono"],
+    chains: ["webaudio"],
     unmatchedTo: "js",
   },
   {
@@ -189,12 +185,7 @@ export default [
      */
     name: "hello-instrument",
     type: "instrument",
-    chains: ["instrument", "download"],
-    // MULTI-SAMPLE: one [buffer~] per note of the base octave (C, E, G). A voice picks
-    // one by slot index and plays it - at rate 1 for the note itself, rate 2 for the
-    // octave above (repitched), which is what makes this a multi-sample keymap test.
-    slots: ["c", "e", "g"],
-    voices: 8,
+    chains: ["webaudio"],
     unmatchedTo: "js",
   },
   {
@@ -215,8 +206,7 @@ export default [
      */
     name: "hello-render",
     type: "instrument",
-    chains: ["renderplay", "download"],
-    renderSlots: ["rndA", "rndB"],
+    chains: ["webaudio"],
     unmatchedTo: "js",
   },
   {

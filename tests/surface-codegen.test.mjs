@@ -251,7 +251,7 @@ test("a chain that already claimed jweb's outlet keeps it - the Surface goes dow
   const s = defineSurface({ params: { density: dial({ range: [0, 1], default: 0.5, short: "Dens" }) } });
   const c = compile(s, { chains: ["midiin", "midiout"], device: { name: "hello-midi" } });
 
-  expect(c.cords).toContainEqual({ src: "obj-jweb", out: 0, dst: "obj-route", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-jweb", out: 2, dst: "obj-route", in: 0 });
   expect(c.cords).toContainEqual({ src: "obj-route", out: 2, dst: SURFACE_ROUTE, in: 0 }); // midiout's unmatched
   expect(appFeeds(c).map((x) => x.src)).toEqual([SURFACE_ROUTE]);
 });

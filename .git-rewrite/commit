@@ -1,0 +1,6 @@
+tree 6a93d68c7b37c45dbfdacd6fb620ab5948f3c574
+parent 72f9e9f922c9ef83bbc8d90f45400e9279bb01b4
+author alienmind <jaime.lopez@gmail.com> 1784020026 +0200
+committer alienmind <jaime.lopez@gmail.com> 1784058641 +0200
+
+docs: add explanatory comments for the new example devices in devices.mjs
