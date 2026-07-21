@@ -690,6 +690,28 @@ function partPath(destPath: string): string {
   return destPath + ".part";
 }
 
+/**
+ * Where a SAVE lands before it has earned its destination - and deliberately NOT
+ * `<dest>.part`.
+ *
+ * `[js]` cannot delete a file, so a spent `.part` is truncated to zero bytes and left.
+ * For a download that is harmless: the destination is derived from the URL, so the same
+ * sample re-fetched reuses (and overwrites) the same scratch file. A SAVE has no such
+ * guarantee - an audio export names its file after the moment it was rendered, so every
+ * bounce would strand another 0-byte `superdough-export-<n>.wav.part` next to the real
+ * one, forever.
+ *
+ * One fixed scratch name per device folder instead: reused, overwritten, and never more
+ * than a single stray zero-byte file however many exports are made. Safe because saves
+ * are strictly one at a time (`activeSave`), and separate from the fetch scratch so a
+ * download in flight cannot collide with a save.
+ */
+function savePartPath(destPath: string): string {
+  var cut = destPath.lastIndexOf("/");
+  var dir = cut < 0 ? "" : destPath.slice(0, cut + 1);
+  return dir + "m4l-jweb-save.part";
+}
+
 interface ActiveFetch {
   requestId: string;
   url: string;
@@ -786,7 +808,7 @@ function save_begin(requestId: string, destPath: string, byteCount: number): voi
   if (activeSave && activeSave.file && activeSave.file.isopen) activeSave.file.close();
 
   var resolved = resolveFetchPath(destPath);
-  var target = partPath(resolved);
+  var target = savePartPath(resolved);
   var f: File | null = null;
   try {
     f = new File(target, "write");
@@ -820,7 +842,7 @@ function save_end(requestId: string): void {
   var save = activeSave;
   if (save.file && save.file.isopen) save.file.close();
 
-  var onDisk = fileSize(partPath(save.destPath));
+  var onDisk = fileSize(savePartPath(save.destPath));
   if (onDisk !== save.expect) {
     outlet(0, "save_error", requestId, "size mismatch: wrote " + onDisk + " bytes, expected " + save.expect);
     activeSave = null;
@@ -830,7 +852,7 @@ function save_end(requestId: string): void {
   // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
   // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
   // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
-  var placeUrl = encodeURI("file:///" + partPath(save.destPath));
+  var placeUrl = encodeURI("file:///" + savePartPath(save.destPath));
   post("m4l-jweb: save place " + placeUrl + " -> " + save.destPath + "\n");
   var reqDict = new Dict();
   reqDict.set("url", placeUrl);
@@ -851,7 +873,7 @@ function finishSavePlace(): void {
     activeSave = null;
     return;
   }
-  truncate(partPath(save.destPath)); // [js] cannot delete; zero it
+  truncate(savePartPath(save.destPath)); // [js] cannot delete; zero it, and reuse it
   post("m4l-jweb: saved " + placed + " bytes to " + save.destPath + "\n");
   outlet(0, "save_done", save.requestId, placed);
   activeSave = null;
