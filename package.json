@@ -1,7 +1,7 @@
 {
 	"name": "m4l-jweb",
 	"private": true,
-	"version": "0.9.9",
+	"version": "1.0.0",
 	"type": "module",
 	"packageManager": "pnpm@10.29.3",
 	"description": "Build Ableton Live (.amxd) devices from a TypeScript repo - React UI, LiveAPI glue, CI builds, no Max editor.",
@@ -23,7 +23,8 @@
 		"preview": "vite preview --host 127.0.0.1 --port 4175",
 		"test": "vitest run",
 		"format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"packages/*/src/**/*.{ts,tsx,mjs}\" \"tests/**/*.mjs\" \"patcher/*.mjs\" \"wrapper/*.ts\"",
-		"release": "pnpm -r --filter=./packages/* publish --access public"
+		"readmes": "node scripts/gen-readmes.mjs",
+		"release": "node scripts/gen-readmes.mjs && pnpm -r --filter=./packages/* publish --access public"
 	},
 	"dependencies": {
 		"@m4l-jweb/bridge": "workspace:*",
