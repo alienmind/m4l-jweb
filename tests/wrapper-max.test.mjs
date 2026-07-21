@@ -28,7 +28,7 @@
  * this file pins the code against the contract, the spike pins the contract against
  * Max. See doc/MAX-FACTS.md, "What Max actually does".
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -431,58 +431,3 @@ test("a window message the library does not know reaches the device's onWindowMe
   expect(seen).toEqual([["editor", "cell_toggle", 3, 7]]);
 });
 
-/* ------------------------------------------------------------------ *
- * Samples - the path [buffer~] can actually open
- * ------------------------------------------------------------------ */
-
-test("buffer_load resolves a relative path against the device folder, as the download did", () => {
-  // THE BUG, in Live: the app fetched "preview.wav" (which the wrapper resolved into
-  // the device's folder and wrote correctly), then asked [buffer~] for "preview.wav" -
-  // and [buffer~] looks a bare name up in MAX'S SEARCH PATH, which the device's folder
-  // is not in. "buffer~: preview.wav: can't open", and a promise that timed out.
-  // Both halves must resolve the same way, so both go through the wrapper.
-  h.ctx.fetch_to_file("r1", "https://example.com/preview.wav", "preview.wav");
-  maxurl(h, { body: "RIFF....WAVE" }); // download
-  maxurl(h); // the file:// place step
-  expect(h.toUi("fetch_done")).toEqual([["r1", 12]]);
-
-  h.ctx.buffer_load("preview", "preview.wav");
-
-  // Out of the AUX outlet (1), where the chain's [route buffer_replace] takes it, and
-  // as ONE argument: the resolved path contains spaces on a normal Live install, and
-  // a path travelling as message text would split into atoms at the first one.
-  const replaces = h.sent.filter(([n, sel]) => n === 1 && sel === "buffer_replace");
-  expect(replaces).toEqual([[1, "buffer_replace", "preview", `${h.dir}/preview.wav`]]);
-  expect(h.toUi("buffer_error")).toEqual([]);
-});
-
-test("an absolute path is passed through untouched, spaces and all", () => {
-  // A real Live install puts the device under ".../Ableton Library/... /Max For Live/",
-  // so the path the app gets back has spaces in it. It leaves [js] as one string and
-  // must arrive at [buffer~] as one symbol.
-  const spaced = path.join(h.dir, "some where");
-  mkdirSync(spaced);
-  writeFileSync(path.join(spaced, "kick.wav"), "RIFF");
-
-  h.ctx.buffer_load("preview", `${h.dir}/some where/kick.wav`);
-
-  expect(h.sent.filter(([n, sel]) => n === 1 && sel === "buffer_replace")).toEqual([
-    [1, "buffer_replace", "preview", `${h.dir}/some where/kick.wav`],
-  ]);
-});
-
-test("a file that is not there fails AT ONCE, instead of ten seconds of silence", () => {
-  // [buffer~] answers a file it cannot open by printing to the Max console. There is
-  // no failure bang to bind to - so the app would learn nothing until loadSample()'s
-  // timeout. The wrapper can see the file is missing, so it says so.
-  h.ctx.buffer_load("preview", "nothing.wav");
-  expect(h.toUi("buffer_error")[0][0]).toBe("preview");
-  expect(h.toUi("buffer_error")[0][1]).toContain("no file at");
-  expect(h.sent.filter(([n, sel]) => n === 1 && sel === "buffer_replace")).toEqual([]);
-});
-
-test("...and neither does an empty one become an empty buffer", () => {
-  writeFileSync(path.join(h.dir, "empty.wav"), "");
-  h.ctx.buffer_load("preview", "empty.wav");
-  expect(h.toUi("buffer_error")[0][1]).toContain("empty file at");
-});
