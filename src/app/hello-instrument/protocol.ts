@@ -1,20 +1,27 @@
 /**
  * protocol.ts (hello-instrument) - every selector crossing this device's bridge.
  *
- * Two chains own them: `instrument` (buffer_load / voice_play, and buffer_ready back)
- * and `download` (fetch_to_file and its replies). `loadSample()`, `playVoice()` and
- * `fetchToFile()` in @m4l-jweb/bridge wrap the exchanges; the app types no selector.
+ * Almost nothing, and that is the point: the device makes sound with the `webaudio`
+ * chain, which carries AUDIO on [jweb~]'s signal outlets rather than messages. Sample
+ * loading and voice triggering happen entirely in the page (fetch + decodeAudioData +
+ * AudioBufferSourceNode), so the `buffer_load`/`voice_play` exchange this device used
+ * to need does not exist any more.
  *
- * CHAIN_OUT is not spread wholesale - it also carries `midinote`/`buffer_play`, which
- * belong to chains this device does not have. An unrouted selector falls on the floor
- * silently, and the protocol lint is what catches it, so declare only what this
- * device's Max side actually routes.
+ * What DOES still cross as a message is MIDI IN: `notein` from the `midiin` chain,
+ * which `onNote` binds - that is how a MIDI device in front of this one plays it.
+ *
+ * CHAIN_OUT is deliberately not spread wholesale: it carries selectors belonging to
+ * chains this device does not have. An unrouted selector falls on the floor silently,
+ * and the protocol lint is what catches it, so declare only what this device's Max side
+ * actually routes.
  */
-import { DEVICE_IN } from "@m4l-jweb/bridge";
+import { CHAIN_IN, DEVICE_IN } from "@m4l-jweb/bridge";
 
 /** Device -> UI. */
 export const IN = {
   ...DEVICE_IN,
+  /** midiin -> UI: `notein <pitch> <velocity>`. Note-ons only, here. */
+  notein: CHAIN_IN.notein,
 } as const;
 
 /** UI -> device. */

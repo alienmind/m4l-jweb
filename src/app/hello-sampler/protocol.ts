@@ -1,16 +1,15 @@
 /**
  * protocol.ts (hello-sampler) - every selector that crosses this device's bridge.
  *
- * Two chains own all of them, so they are spread/picked in from the library rather
- * than retyped: `samples` (buffer_load / buffer_play / buffer_stop, and buffer_ready
- * back) and `download` (fetch_to_file, and its three replies). `loadSample()` and
- * `fetchToFile()` in @m4l-jweb/bridge are the promise-shaped wrappers around exactly
- * those exchanges - the app types no selector at all.
+ * Only the handshake, because sampling no longer crosses the bridge at all: the page
+ * fetches and decodes the audio itself and plays it through the `webaudio` chain's
+ * signal path. The `samples` chain (buffer_load / buffer_play / buffer_stop) that used
+ * to own these selectors was removed in 0.9.9, along with the [buffer~] it drove.
  *
- * CHAIN_OUT is not spread wholesale: it also carries `midinote` and `flush`, which
- * belong to `midiout`, a chain this device does not have. An unrouted selector is a
- * message falling on the floor, silently, and the protocol lint is the only thing
- * that would ever say so - so declare only what this device's Max side actually routes.
+ * CHAIN_OUT is not spread wholesale: it carries `midinote` and `flush`, which belong to
+ * `midiout`, a chain this device does not have. An unrouted selector is a message
+ * falling on the floor, silently, and the protocol lint is the only thing that would
+ * ever say so - so declare only what this device's Max side actually routes.
  */
 import { DEVICE_IN } from "@m4l-jweb/bridge";
 
