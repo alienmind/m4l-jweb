@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/wrapper",
-	"version": "0.9.5",
+	"version": "0.9.9",
 	"description": "m4l-jweb: the Max for Live glue layer connecting a device to LiveAPI.",
 	"type": "module",
 	"license": "MIT",
