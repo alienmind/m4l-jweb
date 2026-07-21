@@ -158,25 +158,29 @@ on disk, `buffer~` reads it, MSP plays it, and `[js]` sends only control message
 - **The channel count comes from the FILE, not the declaration.** `replace` adopted a
   stereo file's layout on its own. Anything reading a buffer asks `channelcount()`.
 
-**...and a third, which the `samples` chain shipped with: `[buffer~]` DOES NOT RESOLVE
-A RELATIVE PATH THE WAY THE DEVICE DOES.** A bare name is looked up in **Max's search
-path**, which does not contain the device's own folder - so `preview.wav`, downloaded
-by `fetchToFile()` into exactly that folder a second earlier, came back
-`buffer~: preview.wav: can't open`. Two resolutions of one path, and the device wrote
-the file correctly and then looked for it somewhere else. **A path from the app is
-resolved ONCE, in the wrapper** (`resolveFetchPath()`), and the resolved path is handed
-to the buffer - which also keeps it a single symbol, since a real install's path
-(`.../Ableton Library/.../Max For Live/...`) has spaces in it and would otherwise split
-into atoms in the patcher.
+**...and a third: `[buffer~]` DOES NOT RESOLVE A RELATIVE PATH THE WAY THE DEVICE
+DOES.** A bare name is looked up in **Max's search path**, which does not contain the
+device's own folder - so `preview.wav`, downloaded by `fetchToFile()` into exactly that
+folder a second earlier, came back `buffer~: preview.wav: can't open`. Two resolutions
+of one path, and the device wrote the file correctly and then looked for it somewhere
+else. The rule that follows applies to **any** path handed from the app to a Max object:
+resolve it ONCE, in the wrapper (`resolveFetchPath()`), and pass the resolved path as a
+single symbol - a real install's path (`.../Ableton Library/.../Max For Live/...`) has
+spaces and would otherwise split into atoms in the patcher.
 
 **And the format list is `[buffer~]`'s, not Max's: WAV, AIFF, Next/Sun - no MP3.** MP3,
 OGG, FLAC and M4A belong to `[sfplay~]`, which streams from disk instead of filling a
 buffer. A format `buffer~` will not decode produces a line in the Max console and *no
-bang*, so there is nothing for an app to await - which is why `loadSample()` carries a
-timeout and the wrapper pre-checks the file it can see.
+bang*, so there is nothing for an app to await.
 
-**VERIFIED IN LIVE** (`hello-sampler`, an `instrument`): fetch to disk -> `replace` ->
-`[groove~]` -> the track. The first device in this repo that originates a sound.
+**VERIFIED IN LIVE** (by `hello-sampler` as it was then, an `instrument`): fetch to disk
+-> `replace` -> `[groove~]` -> the track.
+
+> **Superseded as an ARCHITECTURE, still true as a FACT.** The `samples` and
+> `instrument` chains that this drove were removed in 0.9.9: `[jweb~]` lets the page
+> decode and play audio itself, so a sampler needs no `[buffer~]` at all. Everything
+> measured above remains true of Max, and applies the moment a device drives `[buffer~]`
+> from `[js]` again.
 
 ## `[maxurl]`: a URL, streamed straight to disk, with no `[node.script]`
 
@@ -263,6 +267,25 @@ feature was then written with a dictionary key (`downloadfilename`) that appears
 nowhere in it. The spike was right, the notes were right, and the implementation did
 not read them. Measuring a thing and then not consulting what you measured costs
 exactly as much as never measuring it.
+
+## `[plugsync~]` outlet 6 (song position) reads STUCK AT 0 in Live (2026-07-19)
+
+Measured while the transport was **playing**, in a device built to time a loop off it:
+`[plugsync~]`'s outlet 6 - documented as song position in beats, and the obvious way to
+get transport phase into the signal domain - never left 0. A loop clocked off it never
+fired a boundary, and the device sat silent.
+
+**The transport source that DOES work is the LiveAPI poll**, which the packaged wrapper
+already runs: `is_playing` + `current_song_time` at 20 Hz, emitted as
+`tick <playing> <beats>`. Every device in both repos follows that tick, and it is
+correct at any tempo and across loop jumps. Do not reach for `[plugsync~]` beats
+because it sounds lower-latency; it did not work here, and the control-rate tick did.
+
+Two smaller `[groove~]` facts from the same spike, if a loop player is ever built again:
+its **last outlet is a 0..1 loop-position ramp**, so `[<~ 0.5]` -> `[edge~]` turns the
+wrap into a per-loop boundary bang and the groove becomes its own clock with no
+transport at all; and its **loop point interpolates**, leaving a faint click at the seam
+- worst on a pure sine, near-inaudible on real material.
 
 ## Live's Browser is unreachable from `[js]` (spike, 2026-07-17)
 

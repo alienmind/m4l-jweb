@@ -28,8 +28,11 @@ any other programming language.
 
 Max ships two mechanisms that, together, cover almost everything a device needs.
 
-- **`[jweb]`** is a full Chromium browser view embedded in the device. It runs
-  anything the web runs: React, canvas, WebAssembly, Web Workers.
+- **`[jweb~]`** is a full Chromium browser view embedded in the device. It runs
+  anything the web runs: React, canvas, WebAssembly, Web Workers - and its two SIGNAL
+  outlets carry the page's Web Audio output straight into Max's audio graph, which is
+  what lets a device's sound be a web page's sound. (The plain `[jweb]`, message
+  outlets only, is what this library was built on until 0.9.9.)
 - **`[js]`** is old, but it holds LiveAPI, and it always runs - even inside a
   frozen device.
 
@@ -824,14 +827,17 @@ Add your own next to them, either in the library or in your repo's
 owns a selector, put its name in `CHAIN_IN`/`CHAIN_OUT` so devices spread it in
 rather than retyping it.
 
-### saveToFile and the renderplay chain (offline-render playback)
+### saveToFile - bytes from the page to disk
 
-Added for m4l-strudel's Route B (rendering Strudel to audio). The inverse of
-`fetchToFile`: `saveToFile(path, bytes)` hands the UI's bytes to `[js]` base64 in slices,
-which `writebytes` them to a `<dest>.part` and then places the `.part` atomically over the
-destination via `[maxurl]` (the same file:// move fetch phase 3 uses). `render_load` reads
-the WAV into a `renderplay` slot's `[buffer~]`; the `renderplay` chain plays a
-double-buffered pair, crossfading between them at loop boundaries. Two hard-won facts:
+The inverse of `fetchToFile`: `saveToFile(path, bytes)` hands the UI's bytes to `[js]`
+base64 in slices, which `writebytes` them to a `<dest>.part` and then places the `.part`
+atomically over the destination via `[maxurl]` (the same file:// move fetch phase 3 uses).
+
+It was built for the offline-render pipeline that 0.9.9 retired, and it outlived it: a
+page that generates audio still wants to WRITE it (m4l-strudel's Export audio), and a
+downloaded sample still needs to exist as a real file to be draggable into a track.
+
+Two hard-won facts, both still binding:
 
 - **Save destinations must be FLAT filenames in the device folder.** `[js]` `File` and
   `[maxurl]` resolve a subdirectory differently, so `sub/x.wav` writes the `.part` where
@@ -839,12 +845,14 @@ double-buffered pair, crossfading between them at loop boundaries. Two hard-won 
   write here (download, save) stays flat in `deviceFolder()`.
 - **`[plugsync~]` is NOT the transport source; LiveAPI is.** A device that needs the host
   transport reads it from `tick <playing> <beats>` (`liveapi.ts` polls `is_playing` +
-  `current_song_time` at 20 Hz), the same tick the strudel devices follow. `[plugsync~]`
-  outlet 6 measured stuck at 0 in Live. So transport-locked audio is driven by the APP
-  (which has `tick`) setting the player's position, not by a Max-side transport clock -
-  the renderplay chain is a play/position/gain primitive, the timing brain lives upstream.
+  `current_song_time` at 20 Hz). `[plugsync~]` outlet 6 measured stuck at 0 in Live -
+  see [MAX-FACTS.md](MAX-FACTS.md).
 
-The `hello-render` demo device exercises both; see doc/TEST-CHAIN-RENDERPLAY.md.
+> **Gone in 0.9.9:** the `renderplay` chain (double-buffered `[buffer~]` playback with a
+> boundary crossfade), the `samples` chain, the `instrument` chain, and the wrapper's
+> `render_load`/`buffer_load` path resolvers. All of them existed because `[jweb]` could
+> not put audio on the track; `[jweb~]` can, so the page plays its own audio and the
+> `webaudio` chain carries it. `saveToFile` is the only piece of that era still shipping.
 
 ## The build pipeline
 
@@ -1018,10 +1026,13 @@ document.
   **[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md)**: most of this architecture is not actually
   about Max, but the LiveAPI wrapper does not port and the headless build is the price.
   Not started.
-- **The native audio bridge** (Phase 8) - see [FEAT-NATIVE-AUDIO.md](FEAT-NATIVE-AUDIO.md);
-  Route B (offline render) first.
-- **Verify below Live 12.** `[jweb]` dates to Max 8, so Live 10/11 *should* work.
-  Nobody has checked.
+- ~~**The native audio bridge** (Phase 8)~~ - **DONE in 0.9.9, and not the way it was
+  planned.** The four-route analysis (a C++ external, a socket bridge, offline render,
+  PCM over messages) was answered by an object that already existed: `[jweb~]` carries
+  the page's Web Audio straight into the signal graph. See the `webaudio` chain above.
+- **Verify below Live 12 / Max 9.** Devices now require `[jweb~]`, which is newer than
+  the plain `[jweb]` this library started on. Which Max version first shipped it has not
+  been established, so treat older hosts as unverified.
 
 
 ---
