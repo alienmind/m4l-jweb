@@ -1,121 +1,146 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { onNote } from "@m4l-jweb/bridge";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 
 /**
- * hello-instrument - the marquee: POLYPHONY, and now MULTI-SAMPLE.
+ * hello-instrument - a PLAYABLE multi-sample instrument.
  *
- * Uses the native Web Audio API. 
- * `jweb~` supports direct audio signal routing into Max!
+ * What it demonstrates, in one device:
+ *
+ *   1. The page fetches and decodes real audio files (three piano notes) and plays
+ *      them through `[jweb~]`'s signal outlets, so they land on the track's fader.
+ *   2. **MIDI IN drives it** (`midiin` chain -> `onNote`). Put hello-midi, a clip, or
+ *      a keyboard in front of it on the track and it plays what they send. This is
+ *      what makes it an *instrument* rather than a page that happens to make noise.
+ *   3. A real KEYMAP: three samples cover the whole keyboard. Each incoming pitch
+ *      picks the nearest recorded note and is repitched from it, so C#3 is a real C
+ *      recording shifted up one semitone rather than a stretched anything.
+ *   4. POLYPHONY, for free. Every note is its own AudioBufferSourceNode; the browser
+ *      mixes them. There is no voice allocator here because Web Audio does not need
+ *      one - the `[poly~]` this device used to drive is gone.
  */
 
 const SAMPLE_BASE = "https://raw.githubusercontent.com/alienmind/m4l-jweb/main/samples/piano";
 
-const NOTES = [
-  { key: "c", label: "C", slot: 0, file: "c1.wav" },
-  { key: "e", label: "E", slot: 1, file: "e1.wav" },
-  { key: "g", label: "G", slot: 2, file: "g1.wav" },
+/**
+ * The recorded notes, and the MIDI pitch each one actually sounds. Repitching is
+ * relative, so what matters is the DISTANCE between these numbers and the incoming
+ * note - 60/64/67 is a C major triad in the middle of the keyboard (C4 = 60, the MIDI
+ * standard; Live labels that C3, which is a naming convention, not a different pitch).
+ */
+const SAMPLES = [
+  { key: "c", label: "C", pitch: 60, file: "c1.wav" },
+  { key: "e", label: "E", pitch: 64, file: "e1.wav" },
+  { key: "g", label: "G", pitch: 67, file: "g1.wav" },
 ] as const;
 
-const PADS = [
-  { id: "C3", note: 0, rate: 1, octave: 3 },
-  { id: "E3", note: 1, rate: 1, octave: 3 },
-  { id: "G3", note: 2, rate: 1, octave: 3 },
-  { id: "C4", note: 0, rate: 2, octave: 4 },
-  { id: "E4", note: 1, rate: 2, octave: 4 },
-  { id: "G4", note: 2, rate: 2, octave: 4 },
-] as const;
+/** The pads, for playing it by hand when no MIDI is connected. */
+const PADS = [60, 62, 64, 65, 67, 69, 71, 72] as const;
 
-const STEP_MS = 750;
-const HOLD_MS = 1000;
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const noteName = (pitch: number) => `${NOTE_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1}`;
 
-const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+const STEP_MS = 400;
+const HOLD_MS = 1400;
+
+/** Lazily created: constructing an AudioContext at module scope can leave it suspended. */
+let ctx: AudioContext | null = null;
+function audioContext(): AudioContext {
+  if (!ctx) ctx = new AudioContext();
+  if (ctx.state === "suspended") void ctx.resume();
+  return ctx;
+}
 
 export default function HelloInstrument() {
   const device = useDevice();
-  const [status, setStatus] = useState("Idle - fetch, then load, then Strike or Play a chord.");
-  const [loaded, setLoaded] = useState<Record<number, AudioBuffer>>({});
-  const [active, setActive] = useState<string[]>(["C3", "E3", "G3"]);
+  const [status, setStatus] = useState("Load the samples, then play the pads or send MIDI.");
+  const [loaded, setLoaded] = useState<Record<string, AudioBuffer>>({});
   const [running, setRunning] = useState(false);
-  const [lit, setLit] = useState<string[]>([]);
-  
-  const activeSources = useRef<AudioBufferSourceNode[]>([]);
+  const [lit, setLit] = useState<number[]>([]);
+  const [midiCount, setMidiCount] = useState(0);
 
-  const ready = NOTES.every((n) => loaded[n.slot]);
+  // The bound-once MIDI handler must see the CURRENT samples, not the empty object it
+  // closed over at mount.
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
 
-  function toggle(id: string) {
-    setActive((a) => (a.includes(id) ? a.filter((p) => p !== id) : [...a, id]));
-  }
+  const ready = SAMPLES.every((s) => loaded[s.key]);
 
-  function strike(padIds: string[]) {
-    setLit(padIds);
-    for (const id of padIds) {
-      const pad = PADS.find((p) => p.id === id);
-      if (!pad) continue;
-      const buffer = loaded[pad.note];
-      if (!buffer) continue;
-      
-      const source = audioCtx.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = pad.rate;
-      
-      // We can add a simple envelope or just stop it after HOLD_MS
-      source.connect(audioCtx.destination);
-      source.start();
-      
-      const durationSeconds = HOLD_MS / 1000;
-      source.stop(audioCtx.currentTime + durationSeconds);
-      
-      activeSources.current.push(source);
-      source.onended = () => {
-        activeSources.current = activeSources.current.filter((s) => s !== source);
-      };
-    }
-  }
+  /** Play one note: nearest recorded sample, repitched to the pitch asked for. */
+  const play = useCallback((pitch: number, velocity = 100) => {
+    const nearest = SAMPLES.reduce((best, s) =>
+      Math.abs(s.pitch - pitch) < Math.abs(best.pitch - pitch) ? s : best,
+    );
+    const buffer = loadedRef.current[nearest.key];
+    if (!buffer) return;
+
+    const ac = audioContext();
+    const source = ac.createBufferSource();
+    source.buffer = buffer;
+    // Twelve-tone equal temperament: one semitone is a factor of 2^(1/12).
+    source.playbackRate.value = Math.pow(2, (pitch - nearest.pitch) / 12);
+
+    const amp = ac.createGain();
+    amp.gain.value = velocity / 127;
+    source.connect(amp);
+    amp.connect(ac.destination);
+
+    // A piano decays; there is no note-off to wait for (see onNote). Release over the
+    // last 150 ms so the tail fades instead of clicking off.
+    const now = ac.currentTime;
+    const end = now + HOLD_MS / 1000;
+    amp.gain.setValueAtTime(amp.gain.value, end - 0.15);
+    amp.gain.linearRampToValueAtTime(0, end);
+    source.start(now);
+    source.stop(end + 0.01);
+    source.onended = () => {
+      source.disconnect();
+      amp.disconnect();
+    };
+
+    setLit((l) => [...l, pitch]);
+    setTimeout(() => setLit((l) => l.filter((p) => p !== pitch)), 150);
+  }, []);
+
+  // MIDI from the track: whatever is in front of this device on the chain plays it.
+  // Bound once - `play` reads the samples through a ref.
+  useEffect(() => {
+    onNote((pitch, velocity) => {
+      setMidiCount((n) => n + 1);
+      play(pitch, velocity);
+    });
+  }, [play]);
 
   async function fetchAndLoad() {
     setRunning(false);
     setLoaded({});
     try {
-      const next: Record<number, AudioBuffer> = {};
-      for (const n of NOTES) {
-        setStatus(`Downloading ${n.file}...`);
-        const res = await fetch(`${SAMPLE_BASE}/${n.file}`);
+      const next: Record<string, AudioBuffer> = {};
+      for (const s of SAMPLES) {
+        setStatus(`Downloading ${s.file}...`);
+        const res = await fetch(`${SAMPLE_BASE}/${s.file}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const arrayBuffer = await res.arrayBuffer();
-        
-        setStatus(`Loading ${n.file}...`);
-        const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        next[n.slot] = decodedBuffer;
+        setStatus(`Decoding ${s.file}...`);
+        next[s.key] = await audioContext().decodeAudioData(await res.arrayBuffer());
       }
       setLoaded(next);
-      setStatus(`Loaded ${NOTES.length} samples. Strike or Play a chord.`);
+      setStatus(`Loaded ${SAMPLES.length} samples. Play the pads, or send MIDI into the track.`);
     } catch (err) {
-      setStatus(`Failed: ${err instanceof Error ? err.message : String(err)} (samples resolve only once this branch is on main)`);
+      setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  // The arpeggio, for hearing polyphony without a MIDI source: notes overlap because
+  // each one rings for HOLD_MS, well past the STEP_MS between them.
   useEffect(() => {
     if (!running || !ready) return;
     let i = 0;
-    const tick = () => {
-      const pads = activeRef.current;
-      const lows = pads.filter((id) => PADS.find((p) => p.id === id)?.octave === 3);
-      const highs = pads.filter((id) => PADS.find((p) => p.id === id)?.octave === 4);
-      const chords = [lows, highs].filter((c) => c.length > 0);
-      if (chords.length === 0) return;
-      strike(chords[i % chords.length]);
-      i++;
-    };
+    const tick = () => play(PADS[i++ % PADS.length]);
     tick();
     const id = setInterval(tick, STEP_MS);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, ready]);
-
-  const canPlay = ready && active.length > 0;
+  }, [running, ready, play]);
 
   return (
     <Frame title="HELLO INSTRUMENT" device={device}>
@@ -125,39 +150,36 @@ export default function HelloInstrument() {
           Fetch &amp; Load (C, E, G)
         </button>
       </dd>
-      <dt>Pads</dt>
+      <dt>Keys</dt>
       <dd>
         <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-          {PADS.map((p) => {
-            const on = active.includes(p.id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggle(p.id)}
-                aria-pressed={on}
-                title={`${p.octave === 3 ? "dedicated sample" : "repitched +1 octave"} - click to ${on ? "remove" : "add"}`}
-                style={{
-                  padding: "6px 10px",
-                  fontWeight: on ? 700 : 400,
-                  outline: lit.includes(p.id) ? "2px solid currentColor" : "none",
-                  opacity: on ? 1 : 0.5,
-                }}
-              >
-                {p.id}
-              </button>
-            );
-          })}
+          {PADS.map((pitch) => (
+            <button
+              key={pitch}
+              onClick={() => play(pitch)}
+              disabled={!ready}
+              title={`${noteName(pitch)} - repitched from the nearest recorded sample`}
+              style={{
+                padding: "6px 10px",
+                outline: lit.includes(pitch) ? "2px solid currentColor" : "none",
+                opacity: ready ? 1 : 0.5,
+              }}
+            >
+              {noteName(pitch)}
+            </button>
+          ))}
         </div>
       </dd>
-      <dt>Chord</dt>
+      <dt>Arpeggio</dt>
       <dd>
-        <button onClick={() => strike(active)} disabled={!canPlay || running} style={{ padding: "6px 12px" }}>
-          Strike
-        </button>{" "}
-        <button onClick={() => setRunning((r) => !r)} disabled={!canPlay} style={{ padding: "6px 12px", fontWeight: 700 }}>
+        <button onClick={() => setRunning((r) => !r)} disabled={!ready} style={{ padding: "6px 12px", fontWeight: 700 }}>
           {running ? "■ Stop" : "▶ Play"}
         </button>
         <div style={{ marginTop: "2px", opacity: 0.75 }}>{status}</div>
+        <div style={{ marginTop: "2px", opacity: 0.75 }}>
+          MIDI notes received: {midiCount}
+          {midiCount === 0 && " - put a MIDI device (hello-midi, a clip, a keyboard) before this one"}
+        </div>
       </dd>
     </Frame>
   );

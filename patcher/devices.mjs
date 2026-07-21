@@ -103,7 +103,7 @@ export default [
   {
     /**
      * NOT AN EXAMPLE - A TEST CASE, and the only one in this repo whose assertion is
-     * made with your EARS. Keep it. doc/LISTENING.md is how to run it.
+     * made with your EARS. Keep it.
      *
      * hello-audio's signal path, backwards. It shares hello-audio's app folder
      * (`ui`), its surface and its three dials, so the ONLY difference between the two
@@ -185,28 +185,31 @@ export default [
      */
     name: "hello-instrument",
     type: "instrument",
-    chains: ["webaudio"],
+    // `webaudio` carries the page's sound out; `midiin` brings the track's notes IN, so
+    // a MIDI device (hello-midi, a clip, a keyboard) placed before it PLAYS it. An
+    // instrument that ignores MIDI is a noise box, not an instrument.
+    chains: ["webaudio", "midiin"],
     unmatchedTo: "js",
   },
   {
     /**
-     * hello-render - the proving ground for the SUPERDOUGH Rendering pipe (m4l-strudel
-     * doc/IDEA-STRUDEL-INSTRUMENT.md), before that repo's superdough device touches it.
+     * hello-synth - a MIDI-playable synthesizer, generated in the page.
      *
-     * An INSTRUMENT (it originates the track's audio). The app generates a sine-beep WAV
-     * in the browser, `saveToFile`s it next to the .amxd (S2: bytes cross to disk via the
-     * same [maxurl] atomic-place the `download` chain owns), then loads it into a
-     * renderplay slot and loops it, crossfading between two slots at loop boundaries (S3).
+     * The pair to hello-instrument, and deliberately the other half of the problem:
+     * that device PLAYS RECORDED AUDIO (fetch, decode, repitch), this one GENERATES
+     * it (an OscillatorNode per held note). Same two chains, because both are real
+     * instruments: `webaudio` carries the sound out, `midiin` brings the notes in.
      *
-     * The `renderplay` loop is SELF-CLOCKED off groove~'s own sync outlet, not the host
-     * transport ([plugsync~] beats were found stuck at 0 in testing). `renderSlots` names
-     * the two [buffer~]s the double-buffered player alternates; `download` provides the
-     * [maxurl] the wrapper's atomic file place (saveToFile) drives. See
-     * doc/TEST-CHAIN-RENDERPLAY.md.
+     * It also exercises note-OFFS, which hello-instrument does not need: a struck
+     * sample decays by itself, an oscillator rings until told to stop.
+     *
+     * Was `hello-render` until 0.9.9, when it proved the offline WAV render + Max loop
+     * pipeline. That pipeline is retired, and a demo of a double buffer with nothing
+     * left to double-buffer proves nothing - so it became the synth the name now says.
      */
-    name: "hello-render",
+    name: "hello-synth",
     type: "instrument",
-    chains: ["webaudio"],
+    chains: ["webaudio", "midiin"],
     unmatchedTo: "js",
   },
   {
