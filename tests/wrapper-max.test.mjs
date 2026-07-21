@@ -220,8 +220,12 @@ function maxurl(h, { status = 200, body = "payload", error = null } = {}) {
     // HTTP status to report.
     const src = decodeURI(String(req.url).replace("file:///", ""));
     if (out && existsSync(src)) writeFileSync(out, readFileSync(src));
-    h.dicts.set("m4ljweb_place_response", { status: 0 });
-    h.ctx.maxurl_done("dictionary", "m4ljweb_place_response");
+    // Answer the dict the REQUEST asked for. Fetch and save place through the same cord
+    // and are told apart only by this name, so hardcoding the fetch one made a save look
+    // like it never completed - which is the shape of the bug that stranded a .part.
+    const reply = String(req.response_dict || "m4ljweb_place_response");
+    h.dicts.set(reply, { status: 0 });
+    h.ctx.maxurl_done("dictionary", reply);
     return;
   }
 
@@ -269,6 +273,69 @@ test("a successful fetch places the file and reports the bytes", () => {
   expect(readFileSync(`${h.dir}/out.json`, "utf8")).toBe("hello world");
   expect(h.toUi("fetch_done")).toEqual([["r1", 11]]);
   expect(h.toUi("fetch_error")).toEqual([]);
+});
+
+/* ------------------------------------------------------------------ *
+ * Save-to-disk - the inverse of fetch, and the scratch file it reuses
+ * ------------------------------------------------------------------ */
+
+/** Drive a whole save: begin, one chunk of bytes, end, then the file:// place. */
+function save(h, requestId, destPath, text) {
+  const bytes = Buffer.from(text, "utf8");
+  h.ctx.save_begin(requestId, destPath, bytes.length);
+  h.ctx.save_chunk(requestId, bytes.toString("base64"));
+  h.ctx.save_end(requestId);
+  maxurl(h); // the place
+}
+
+test("a save writes its bytes and reports them", () => {
+  save(h, "s1", "bounce.wav", "RIFFdata");
+  expect(readFileSync(`${h.dir}/bounce.wav`, "utf8")).toBe("RIFFdata");
+  expect(h.toUi("save_done")).toEqual([["s1", 8]]);
+  expect(h.toUi("save_error")).toEqual([]);
+});
+
+test("saves share ONE scratch file, whatever they are called", () => {
+  // THE BUG: the scratch file used to be `<dest>.part`, on the reasoning that the next
+  // write to the same destination would overwrite it. True for a download, whose name
+  // comes from its URL - but an audio export names its file after the moment it was
+  // rendered, so every bounce stranded another 0-byte `<unique-name>.wav.part` beside
+  // the real one. [js] cannot delete a file, so they accumulated forever.
+  save(h, "s1", "export-111.wav", "one");
+  save(h, "s2", "export-222.wav", "two");
+
+  expect(readFileSync(`${h.dir}/export-111.wav`, "utf8")).toBe("one");
+  expect(readFileSync(`${h.dir}/export-222.wav`, "utf8")).toBe("two");
+
+  // Neither destination has a shadow, however many saves ran.
+  expect(existsSync(`${h.dir}/export-111.wav.part`)).toBe(false);
+  expect(existsSync(`${h.dir}/export-222.wav.part`)).toBe(false);
+
+  // One reused scratch file, left empty - [js] still cannot delete it.
+  expect(existsSync(`${h.dir}/m4l-jweb-save.part`)).toBe(true);
+  expect(statSync(`${h.dir}/m4l-jweb-save.part`).size).toBe(0);
+});
+
+test("the destination is never touched until the bytes are verified", () => {
+  const bytes = Buffer.from("RIFFdata", "utf8");
+  h.ctx.save_begin("s1", "bounce.wav", bytes.length);
+  h.ctx.save_chunk("s1", bytes.toString("base64"));
+  h.ctx.save_end("s1");
+  // The place has NOT been answered yet: the .wav must not exist.
+  expect(existsSync(`${h.dir}/bounce.wav`)).toBe(false);
+  maxurl(h);
+  expect(existsSync(`${h.dir}/bounce.wav`)).toBe(true);
+});
+
+test("a short write is refused rather than placed", () => {
+  const bytes = Buffer.from("RIFFdata", "utf8");
+  h.ctx.save_begin("s1", "bounce.wav", bytes.length + 99); // promise more than we send
+  h.ctx.save_chunk("s1", bytes.toString("base64"));
+  h.ctx.save_end("s1");
+
+  expect(h.toUi("save_error")[0][0]).toBe("s1");
+  expect(h.toUi("save_error")[0][1]).toContain("size mismatch");
+  expect(existsSync(`${h.dir}/bounce.wav`)).toBe(false);
 });
 
 test("the place step is validated on BYTES, because a file:// reply has no HTTP status", () => {
