@@ -112,14 +112,23 @@ export default function HelloSynth() {
     [noteOff],
   );
 
-  // MIDI from the track. Both halves: a sustaining voice needs the release.
+  // MIDI from the track. Both halves: a sustaining voice needs the release. Bound ONCE
+  // (the handlers are subscribers now, so binding twice would double every note) and
+  // reading the current callbacks through refs.
+  const noteOnRef = useRef(noteOn);
+  noteOnRef.current = noteOn;
+  const noteOffRef = useRef(noteOff);
+  noteOffRef.current = noteOff;
+  const bound = useRef(false);
   useEffect(() => {
+    if (bound.current) return;
+    bound.current = true;
     onNote((pitch, velocity) => {
       setMidiCount((n) => n + 1);
-      noteOn(pitch, velocity);
+      noteOnRef.current(pitch, velocity);
     });
-    onNoteOff((pitch) => noteOff(pitch));
-  }, [noteOn, noteOff]);
+    onNoteOff((pitch) => noteOffRef.current(pitch));
+  }, []);
 
   /** A pad click is a note with no release of its own, so give it a fixed length. */
   function strike(pitch: number) {
