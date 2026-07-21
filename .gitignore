@@ -1,3 +1,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# git filter-branch scratch space, committed once by accident (182 files of rewrite
+# bookkeeping). Never again.
+.git-rewrite/
+rewrite.cjs
