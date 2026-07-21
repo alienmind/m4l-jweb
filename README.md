@@ -43,8 +43,9 @@ The repo builds several example devices out of the box to demonstrate the archit
 | **hello-window** | audio effect | Floating windows (`useWindow`). A second page, in a window of its own, for a UI that does not fit in the device view's fixed ~169 px. |
 | **hello-clip** | MIDI effect | Clip I/O (`readClip` / `readSelectedClip` / `writeClip`). Writes a scale into a clip and reads notes back - either this track's own clip, or the one the cursor is on. |
 | **hello-remote** | audio effect | Pattern modulation (the `remote` chain). Binds `live.remote~` to its own parameter by LOM id and sweeps it - `resolveParamId` + `bindRemote` + `writeRemote`, visible as a moving native knob. |
-| **hello-sampler** | instrument | Sample playback (`samples` + `download` chains). A `[buffer~]` per slot, fetched to disk and previewed through the track - mono-vs-stereo A/B'd across two slots. |
-| **hello-instrument** | instrument | Polyphonic repitched sampler (the `instrument` chain). A generated `[poly~]` voice patch plays a keymap of buffers via `playVoice()`, stealing the oldest voice when they run out. |
+| **hello-sampler** | instrument | Sample playback in the page (`webaudio` chain). Fetched, decoded with `decodeAudioData`, and played through the track - no `[buffer~]`, no disk. |
+| **hello-instrument** | instrument | Playable multi-sample instrument (`webaudio` + `midiin`). Three piano notes cover the keyboard by repitching from the nearest one, and **MIDI into the track plays it** - put `hello-midi` or a clip in front. Polyphony is the browser's. |
+| **hello-synth** | instrument | The same job from the other side: audio **generated** rather than recorded (`webaudio` + `midiin`). An oscillator per held note, so it also exercises note-OFFs, which a decaying sample does not need. |
 
 > **Testing the feature examples:** Because `hello-downloads` and `hello-state` are compiled as **audio effects** with a `passthrough` audio chain, they won't swallow or block sound. You can drop them on the Master channel (or any audio track) to test their UI and features without disrupting your musical signal flow!
 
@@ -133,10 +134,15 @@ Standard plus the Max for Live add-on. You do **not** need a separate Cycling '7
 Max license on top - Max for Live bundles the Max runtime, and this repo never
 opens the Max editor anyway.
 
-**Versions.** Developed and tested against **Live 12 with Max 9** on Windows. The
-`[jweb]` object the whole UI depends on arrived in **Max 8**, so Live 10 and 11
-should work in principle - but that is reasoning from the docs, not something I
-have run. Treat anything below Live 12 as unverified.
+**Versions.** Developed and tested against **Live 12 with Max 9** on Windows.
+
+The floor moved up in 0.9.9. Devices are now built on **`[jweb~]`** - the browser view
+WITH signal outlets - rather than plain `[jweb]`, and the generated patcher declares
+Max 9. Plain `[jweb]` dates to Max 8, which is where the old "Live 10/11 should work in
+principle" claim came from; `[jweb~]` is newer than that, and I have not established
+which Max version first shipped it. **Treat anything below Live 12 / Max 9 as
+unverified**, and check `[jweb~]` exists before assuming an older host will load these
+devices at all.
 
 **Platforms.** Live runs on **macOS and Windows** only. The build runs anywhere
 Node does, so CI on Linux is fine - you just cannot run the result there.

@@ -6,9 +6,8 @@ effort to biggest. What has shipped is recorded where it belongs: **what the lib
 does** in [README.md](../README.md), **how and why (including everything measured in
 Live)** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-- Designs still being argued - how Strudel's own audio could reach a track - are in
-  [FEAT-NATIVE-AUDIO.md](FEAT-NATIVE-AUDIO.md).
-- The cross-repo plan is [m4l-strudel's PLAN.md](../../m4l-strudel/doc/PLAN.md).
+- How a page's audio could reach a track used to be the big open design question here.
+  `[jweb~]` settled it in 0.9.9 - see item 3 below.
 - The two rules everything follows: **`[js]` is a control plane, not a data plane**
   (bulk data travels via disk, never through Max messages), and **gate every unknown
   behind a cheap spike that can fail in an afternoon rather than a week.**
@@ -62,20 +61,29 @@ rule as item 1, applied to the native/dynamic control split. Gate the unknown Ma
 (runtime rename, runtime range change on a frozen dial) behind the existing spikes
 before folding them into the contract.
 
-## 3. The native audio bridge (JS -> Max MSP)
+## 3. The native audio bridge (JS -> Max MSP) - SOLVED, 0.9.9
 
-Stream raw PCM from the JS runtime (WebAudio in `[jweb]`) into Max's `~` graph, so a
-Strudel **instrument** can act like a plugin instead of bypassing the track. `[jweb]`
-has no `~` outlets; bridging realtime audio over the JSON message bridge is impossible
-(latency, jitter, CPU). It needs a native C++ external or a local socket bridge.
+**Closed. The premise was false.** This item read: "`[jweb]` has no `~` outlets;
+bridging realtime audio over the JSON message bridge is impossible (latency, jitter,
+CPU). It needs a native C++ external or a local socket bridge." The first clause is
+true only of `[jweb]`. **`[jweb~]` (Max 8/9) has two signal outlets**, so the page's
+Web Audio output goes straight into Max's `~` graph - no external, no socket, no PCM
+over the message bridge.
 
-This closes effectively m4l-jweb 1.0
+What shipped instead of a C++ external:
+- `base.json` emits `[jweb~]` (outlets: signal L, signal R, messages on **2**), and
+  `claimAppMessages()` reads the message stream from outlet 2.
+- The `webaudio` chain sums those signal outlets into the device's path with `[+~]`,
+  so an audio effect stays a pass-through and an instrument originates sound.
+- The `renderplay`, `samples` and `instrument` chains - all workarounds for the missing
+  outlets - were deleted, along with their bridge APIs.
 
-**Read [FEAT-NATIVE-AUDIO.md](FEAT-NATIVE-AUDIO.md) first**: it argues the native external is
-the LEAST promising of four routes, and that **Route B (offline render +
-`saveToFile()` + `[buffer~]`) is the spike to run first** - also the concrete first
-step toward the Rack's instrument slot. See m4l-strudel's
-[SPIKE-OFFLINE.md](../../m4l-strudel/doc/SPIKE-OFFLINE.md).
+The old four-route analysis (a C++ external, a socket bridge, offline render, PCM over
+the message bridge) is superseded and its design doc deleted: none of the four was
+needed, because none of them considered `[jweb~]` - we did not know it existed. Route B
+(offline render + `saveToFile` + `[buffer~]`) was built, shipped in 0.9.x, and is now
+retired - see [m4l-strudel's drawer](../../m4l-strudel/doc/DRAWER_OF_FAILED_IDEAS.md)
+for what it cost and what it taught.
 
 ## 4. (for next generation) A VST3 backend, so a device runs outside Live
 
