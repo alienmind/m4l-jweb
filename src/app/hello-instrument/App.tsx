@@ -104,13 +104,19 @@ export default function HelloInstrument() {
   }, []);
 
   // MIDI from the track: whatever is in front of this device on the chain plays it.
-  // Bound once - `play` reads the samples through a ref.
+  // Bound ONCE (handlers are subscribers - binding twice would double every note);
+  // `play` is reached through a ref, and reads the samples through one too.
+  const playRef = useRef(play);
+  playRef.current = play;
+  const bound = useRef(false);
   useEffect(() => {
+    if (bound.current) return;
+    bound.current = true;
     onNote((pitch, velocity) => {
       setMidiCount((n) => n + 1);
-      play(pitch, velocity);
+      playRef.current(pitch, velocity);
     });
-  }, [play]);
+  }, []);
 
   async function fetchAndLoad() {
     setRunning(false);

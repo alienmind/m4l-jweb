@@ -279,6 +279,31 @@ export function sendNote(note: Note): void {
   outlet(CHAIN_OUT.midinote, note.pitch, note.velocity, note.durationMs, note.channel ?? 1, note.delayMs ?? 0);
 }
 
+/* ------------------------------------------------------------------ *
+ * Incoming MIDI notes
+ *
+ * `bindInlet` keeps ONE handler per selector - a second bind REPLACES the first. So
+ * `onNote` and `onNoteOff` must not each call it: whichever ran last would win and the
+ * other's events would vanish. (They did, and a synth that bound both went deaf to
+ * every note-on.) Instead ONE `notein` binding fans out to two subscriber sets, which
+ * also means two `onNote` callers no longer silently clobber each other.
+ * ------------------------------------------------------------------ */
+
+const noteOnHandlers = new Set<(pitch: number, velocity: number) => void>();
+const noteOffHandlers = new Set<(pitch: number) => void>();
+let noteinBound = false;
+
+function bindNotein(): void {
+  if (noteinBound) return;
+  noteinBound = true;
+  bindInlet(CHAIN_IN.notein, (pitch, velocity) => {
+    const p = Number(pitch);
+    // Max's `midiparse` reports a release as velocity ZERO, not as a distinct message.
+    if (Number(velocity) === 0) for (const fn of noteOffHandlers) fn(p);
+    else for (const fn of noteOnHandlers) fn(p, Number(velocity));
+  });
+}
+
 /**
  * Bind incoming MIDI note-ONS. Note-offs are filtered out, which is what a one-shot
  * wants: a struck sample (a piano, a drum) decays on its own and a release message
@@ -288,27 +313,20 @@ export function sendNote(note: Note): void {
  * effect has no MIDI ports).
  */
 export function onNote(fn: (pitch: number, velocity: number) => void): void {
-  bindInlet(CHAIN_IN.notein, (pitch, velocity) => {
-    const v = Number(velocity);
-    if (v === 0) return;
-    fn(Number(pitch), v);
-  });
+  noteOnHandlers.add(fn);
+  bindNotein();
 }
 
 /**
  * Bind incoming MIDI note-OFFS - the releases `onNote` drops.
  *
- * A note-off reaches the page as `notein <pitch> 0` (Max's `midiparse` reports a
- * release as velocity zero rather than as a distinct message). Bind this when the
- * voice you start SUSTAINS: an oscillator held open by a note-on rings forever unless
- * something tells it the key came up. Both binders can be used together - they read
- * the same stream and split it by velocity.
+ * Bind this when the voice you start SUSTAINS: an oscillator held open by a note-on
+ * rings forever unless something tells it the key came up. Safe to use alongside
+ * `onNote` - they share one binding and split the stream by velocity.
  */
 export function onNoteOff(fn: (pitch: number) => void): void {
-  bindInlet(CHAIN_IN.notein, (pitch, velocity) => {
-    if (Number(velocity) !== 0) return;
-    fn(Number(pitch));
-  });
+  noteOffHandlers.add(fn);
+  bindNotein();
 }
 
 /**
