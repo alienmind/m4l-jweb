@@ -279,12 +279,35 @@ export function sendNote(note: Note): void {
   outlet(CHAIN_OUT.midinote, note.pitch, note.velocity, note.durationMs, note.channel ?? 1, note.delayMs ?? 0);
 }
 
-/** Bind incoming MIDI. Note-offs are filtered out: `makenote` already owns the release. */
+/**
+ * Bind incoming MIDI note-ONS. Note-offs are filtered out, which is what a one-shot
+ * wants: a struck sample (a piano, a drum) decays on its own and a release message
+ * would only cut it short. A SUSTAINING voice needs the other half - see `onNoteOff`.
+ *
+ * Requires the `midiin` chain, and therefore a device of type "instrument" (an audio
+ * effect has no MIDI ports).
+ */
 export function onNote(fn: (pitch: number, velocity: number) => void): void {
   bindInlet(CHAIN_IN.notein, (pitch, velocity) => {
     const v = Number(velocity);
     if (v === 0) return;
     fn(Number(pitch), v);
+  });
+}
+
+/**
+ * Bind incoming MIDI note-OFFS - the releases `onNote` drops.
+ *
+ * A note-off reaches the page as `notein <pitch> 0` (Max's `midiparse` reports a
+ * release as velocity zero rather than as a distinct message). Bind this when the
+ * voice you start SUSTAINS: an oscillator held open by a note-on rings forever unless
+ * something tells it the key came up. Both binders can be used together - they read
+ * the same stream and split it by velocity.
+ */
+export function onNoteOff(fn: (pitch: number) => void): void {
+  bindInlet(CHAIN_IN.notein, (pitch, velocity) => {
+    if (Number(velocity) !== 0) return;
+    fn(Number(pitch));
   });
 }
 
@@ -630,20 +653,4 @@ export function decodeBase64(s: string): string {
 if (typeof window !== "undefined" && !window.max) {
   window.maxSimulate = simulate;
   console.info("[m4l-jweb] running outside Max. Drive the device with: maxSimulate('tempo', 128)");
-}
-
-export function loadSample(_slot: string, _path: string): Promise<{ durationMs: number; channels: number }> {
-  return Promise.resolve({ durationMs: 1000, channels: 2 });
-}
-
-export function playSample(slot: string): void {
-  outlet("play_sample", slot);
-}
-
-export function stopSample(slot?: string): void {
-  outlet("stop_sample", slot || "");
-}
-
-export function playVoice(opts: { slot: number; rate: number; velocity: number; durationMs: number; channels: number }): void {
-  outlet("play_voice", opts.slot, opts.rate, opts.velocity, opts.durationMs, opts.channels);
 }
