@@ -189,6 +189,28 @@ crossing that device's bridge. If you add a message:
 against its own Max side. That is deliberate: an unrouted selector is a message
 falling on the floor, and it produces no error at runtime.
 
+## Pull request summaries
+
+Title: `<version> - <the areas that changed>`, plainly. "1.1.0 - better external windows
+and declarative controls", not a metaphor and not personification.
+
+Numbered, plain headings: `## Enhancement 1 - <what it now does>`. Open with one line
+saying what the release is for. Then, per enhancement: what it does, how it compiles or
+works, why that design, and any limit that survives.
+
+LEAVE OUT:
+
+- Proof of work. No "measured in Live", no "verified", no "byte for byte", no test
+  counts, no Review notes section. The diff and the CI say that.
+- The story of getting there. What an earlier attempt got wrong, what was believed for
+  months, which spike was decisive - that belongs in the evidence log
+  (`doc/MAX-FACTS.md`, `doc/DRAWER_OF_FAILED_IDEAS.md`), not in a review request.
+- Emphasis for its own sake. No bold shouting, no "the non-obvious part is", no framing a
+  change as a discovery.
+
+Keep concrete numbers when they carry the argument (17 MB will not fit in a payload),
+and drop them when they are just credentials.
+
 ## Verifying your work
 
 ```bash
