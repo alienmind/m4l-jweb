@@ -612,7 +612,10 @@ function audioWindowBoxes(id, spec) {
         numinlets: 1,
         numoutlets: 3,
         outlettype: ["signal", "signal", ""],
-        rendermode: 1,
+        rendermode: spec.rendermode ?? 1,
+        // The ring buffer between Chromium's audio thread and MSP. Unset keeps the
+        // object's default; the surface spec documents the documented range.
+        ...(spec.latency != null ? { latency: spec.latency } : {}),
         // On the PATCHING canvas at the origin, filling the window. See FITTED
         // WINDOWS below for why this one is not in presentation like the others.
         patching_rect: [0, 0, spec.width, spec.height],
@@ -658,7 +661,7 @@ const HELPER_Y = -260;
  * `[pcontrol]`'s `close` is the same message the app sends, so nothing special
  * needs to be true about the window afterwards.
  */
-function mixAudioWindow(ctx, id, subpatcherId, pcontrolId) {
+function mixAudioWindow(ctx, id, subpatcherId, pcontrolId, spec = {}) {
   const { boxes, lines, device } = ctx;
 
   // openAudio() leaves ctx.audioIn throwing on a MIDI device, but its message talks
@@ -687,11 +690,12 @@ function mixAudioWindow(ctx, id, subpatcherId, pcontrolId) {
   // the last report, which is what a meter wants and costs a float per channel per
   // interval rather than a stream of samples.
   const tap = (suffix) => `obj-window-${id}-peak-${suffix}`;
-  // 10 ms - fast enough that the trace reads as the shape of the sound rather than a
-  // meter twitching. It is still an ENVELOPE and not a waveform: what crosses is one
-  // float per channel per report, not samples, because no page can be handed audio.
-  boxes.push(box(tap("l"), "peakamp~ 10", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
-  boxes.push(box(tap("r"), "peakamp~ 10", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  // Default 10 ms - fast enough that the trace reads as the shape of the sound rather
+  // than a meter twitching. It is still an ENVELOPE and not a waveform: what crosses is
+  // one float per channel per report, not samples, because no page can be handed audio.
+  const levelMs = spec.levelInterval ?? 10;
+  boxes.push(box(tap("l"), `peakamp~ ${levelMs}`, { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  boxes.push(box(tap("r"), `peakamp~ ${levelMs}`, { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
   // `pak` and not `pack`: both inlets hot, so a change on either channel reports
   // rather than waiting for the left one to move.
   boxes.push(box(tap("pak"), "pak f f", { numinlets: 2, numoutlets: 1, outlettype: [""] }));
@@ -883,7 +887,7 @@ export function applyWindows(ctx) {
       },
     });
 
-    if (audio) mixAudioWindow(ctx, id, subpatcherId, pcontrolId);
+    if (audio) mixAudioWindow(ctx, id, subpatcherId, pcontrolId, spec);
   });
 }
 
