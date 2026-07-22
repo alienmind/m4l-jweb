@@ -8,7 +8,7 @@
  *   wrapper/device.ts  - extra [js] message handlers, concatenated last
  */
 import archiver from "archiver";
-import { createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
+import { cpSync, createReadStream, createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { copyFile, rename, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -283,6 +283,43 @@ export async function generatePatchers(root) {
  * wrapper.js. The loose ui.html/wrapper.js are for inspection, not a runtime
  * requirement.
  */
+/**
+ * Deliver a `site:` window's content as a SIDECAR FOLDER, and tell the wrapper
+ * where it is.
+ *
+ * Every other window rides inside wrapper.js as base64 and is written to a real
+ * file on first load. That works because a window is one self-contained HTML file
+ * of a few hundred kB. A whole prebuilt site is tens of MB across hundreds of
+ * files, and base64 is 4 bytes per 3 - so it ships as a plain folder next to the
+ * .amxd instead, and the wrapper points the window's [jweb] at
+ * `file:///<device folder>/<device>-site/<window>/index.html`.
+ *
+ * The cost is honest and documented: the .amxd is no longer self-contained, and
+ * the folder has to travel with it. The wrapper says so out loud when the folder
+ * is missing rather than opening a blank window.
+ */
+function siteWindowsBanner(root, outDir, d, surface) {
+  const windows = surface?.windows ?? {};
+  const ids = Object.keys(windows).filter((id) => windows[id].site);
+  if (!ids.length) return "";
+
+  const map = {};
+  for (const id of ids) {
+    const from = path.join(root, windows[id].site);
+    if (!existsSync(path.join(from, "index.html"))) {
+      throw new Error(
+        `window "${id}" of "${d.name}" declares site "${windows[id].site}", but there is no index.html there - ` +
+          `build the site first (this repo: \`pnpm build:repl\`)`,
+      );
+    }
+    const rel = `${d.name}-site/${id}`;
+    cpSync(from, path.join(outDir, rel), { recursive: true });
+    map[id] = `${rel}/index.html`;
+    console.log(`m4l-jweb: ${windows[id].site} -> dist/${path.basename(outDir)}/${rel}/ (sidecar)`);
+  }
+  return `var SITE_WINDOWS = ${JSON.stringify(map)};\n`;
+}
+
 export async function packageDevices(root) {
   const dist = path.join(root, "dist");
   const { name, version } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
@@ -333,7 +370,7 @@ export async function packageDevices(root) {
     // The device's declared watches ride in as a data banner, like the build stamp:
     // WATCH_SPECS is what the packaged wrapper's setupWatches() attaches observers from.
     const watch = await loadWatch(root, d.ui ?? d.name);
-    let wrapperData = banner + watchSpecsBanner(watch) + wrapperJs;
+    let wrapperData = banner + watchSpecsBanner(watch) + siteWindowsBanner(root, outDir, d, await loadSurface(root, d.ui ?? d.name)) + wrapperJs;
     const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
 
     // Main UI payload
@@ -419,6 +456,14 @@ export async function packageDevices(root) {
     }
     for (const f of installers) {
       archive.file(path.join(templates, f), { name: f, mode: 0o755 });
+    }
+    // A `site:` window's sidecar folder is part of the release, not an extra: the
+    // .amxd alone opens that window empty. It is a directory rather than a listed
+    // file, so it is added as a tree.
+    for (const d of readdirSync(outDir, { withFileTypes: true })) {
+      if (d.isDirectory() && d.name.slice(-5) === "-site") {
+        archive.directory(path.join(outDir, d.name), `${name}/${d.name}`);
+      }
     }
     archive.finalize();
   });

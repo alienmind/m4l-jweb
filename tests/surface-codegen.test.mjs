@@ -497,6 +497,101 @@ test("a declared window compiles to a subpatcher holding its own [jweb]", () => 
   expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } });
 });
 
+/* ------------------------------------------------------------------ *
+ * The SOUNDING window - `audio: true`
+ * ------------------------------------------------------------------ */
+
+const toneWindow = () =>
+  defineSurface({
+    params: {},
+    windows: { tone: window({ title: "Tone", width: 400, height: 300, entry: "Tone", audio: true }) },
+  });
+
+/** A sounding window needs the signal path, so its device is an instrument. */
+const compileAudioWindow = () => compile(toneWindow(), { device: { type: "instrument" } });
+
+test("an audio window holds a [jweb~] whose L and R leave the subpatcher", () => {
+  const sub = compileAudioWindow().box("obj-window-tone-sub");
+
+  // Three outlets on the [p] box, declared in the saved file: L, R, then the page's
+  // messages. Max reads outlet ORDER off the x position of the outlet boxes inside,
+  // which is why L sits left of R sits left of the message outlet.
+  expect(sub.numoutlets).toBe(3);
+  expect(sub.outlettype).toEqual(["signal", "signal", ""]);
+
+  const inner = sub.patcher.boxes.map((b) => b.box);
+  expect(inner.find((b) => b.id === "obj-jweb").maxclass).toBe("jweb~");
+  const x = (id) => inner.find((b) => b.id === id).patching_rect[0];
+  expect(x("obj-out-l")).toBeLessThan(x("obj-out-r"));
+  expect(x("obj-out-r")).toBeLessThan(x("obj-out"));
+
+  // jweb~ outlets: 0 and 1 are the sound, 2 is what the page says.
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-jweb", 0], destination: ["obj-out-l", 0] } });
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-jweb", 1], destination: ["obj-out-r", 0] } });
+  expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-jweb", 2], destination: ["obj-tag", 0] } });
+});
+
+test("an audio window is summed into the device's signal path", () => {
+  const c = compileAudioWindow();
+
+  for (const [ch, side] of [
+    [0, "l"],
+    [1, "r"],
+  ]) {
+    const mix = `obj-window-tone-mix-${side}`;
+    expect(c.box(mix).text).toBe("+~");
+    // Inlet 0 is whatever held the stage before (here plugin~, nothing else claimed
+    // one); inlet 1 is the window's page. Summed, not substituted - a device with
+    // audio coming in keeps it.
+    expect(c.cords).toContainEqual({ src: "obj-plugin", out: ch, dst: mix, in: 0 });
+    expect(c.cords).toContainEqual({ src: "obj-window-tone-sub", out: ch, dst: mix, in: 1 });
+    // ...and the mix is the new tail, so it reaches the device output.
+    expect(c.cords).toContainEqual({ src: mix, out: 0, dst: "obj-plugout", in: ch });
+  }
+});
+
+test("an audio window's page is loaded at device load, not when someone opens it", () => {
+  const c = compileAudioWindow();
+
+  // A page that has never loaded has no AudioContext and makes no sound, so a
+  // device silent until the user happens to open a window would be a trap. The
+  // loadbang pulses the window open and shut again through the SAME [pcontrol] the
+  // app drives.
+  expect(c.box("obj-window-tone-ka-loadbang").text).toBe("loadbang");
+  expect(c.box("obj-window-tone-ka-open").text).toBe("open");
+  expect(c.box("obj-window-tone-ka-close").text).toBe("close");
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-ka-loadbang", out: 0, dst: "obj-window-tone-ka-open", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-ka-open", out: 0, dst: "obj-window-tone-pcontrol", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-ka-close", out: 0, dst: "obj-window-tone-pcontrol", in: 0 });
+  // The close is DELAYED - closing in the same event as the open would race the
+  // page's own load.
+  expect(c.box("obj-window-tone-ka-delay").text).toMatch(/^delay \d+$/);
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-ka-delay", out: 0, dst: "obj-window-tone-ka-close", in: 0 });
+});
+
+test("a plain window is untouched by the audio primitive", () => {
+  // The CRITICAL CONSTRAINT of the whole feature: `audio` ADDS a second primitive.
+  // A window that does not ask for sound compiles to exactly what it always did -
+  // one message outlet, a plain [jweb], and no mix stage anywhere.
+  const c = compile(mapWindow(), { device: { type: "instrument" } });
+  const sub = c.box("obj-window-map-sub");
+
+  expect(sub.numoutlets).toBe(1);
+  expect(sub.outlettype).toEqual([""]);
+  expect(sub.patcher.boxes.find((b) => b.box.id === "obj-jweb").box.maxclass).toBe("jweb");
+  expect(c.cords).toContainEqual({ src: "obj-window-map-sub", out: 0, dst: "obj-js", in: 0 });
+  expect(c.boxes.some((b) => b.box.id.indexOf("obj-window-map-mix") === 0)).toBe(false);
+  // Straight wire in, straight wire out: no stage was claimed.
+  expect(c.cords).toContainEqual({ src: "obj-plugin", out: 0, dst: "obj-plugout", in: 0 });
+});
+
+test("a sounding window on a MIDI device fails the build, and says why", () => {
+  // plugin~/plugout~ do not exist there, so the cords would come from boxes that
+  // are not in the patcher - which Max opens as a device with missing objects and
+  // no explanation.
+  expect(() => compile(toneWindow(), { device: { type: "midi" } })).toThrow(/audio: true.*type "midi"/s);
+});
+
 test("a window does NOT float unless it asks to", () => {
   // The default is right for a window you work IN. Floating everything would put an
   // editor permanently over the set.

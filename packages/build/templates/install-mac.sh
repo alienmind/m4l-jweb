@@ -61,6 +61,16 @@ for f in "$src"/*.adg "$src"/*.adv; do
 	echo "  installed $(basename "$f") (preset)"
 done
 
+# A `site:` window's content is a whole prebuilt site - too big to ride inside the
+# .amxd as a payload - so it ships as a folder NEXT TO the device and has to be
+# installed with it. Without the folder the device still plays; that window opens
+# empty, and the wrapper says so in the Max console.
+for d in "$src"/*-site; do
+	[ -d "$d" ] || continue
+	cp -R "$d" "$dest/"
+	echo "  installed $(basename "$d")/ (site sidecar)"
+done
+
 echo "Installed to $dest"
 echo "In Live: User Library > Max For Live > $device_name"
 echo "NOTE: Live embeds a copy of the device in the set. Instances already"

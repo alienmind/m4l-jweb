@@ -134,3 +134,14 @@ test("window and state definitions are kept on the surface", () => {
   expect(s.windows.map.title).toBe("Map");
   expect(s.state.config.default.voices).toBe(4);
 });
+
+test("a window holds either a component or a prebuilt site, never both and never neither", () => {
+  const win = (extra) => ({ params: {}, windows: { studio: window({ title: "Studio", width: 400, height: 300, ...extra }) } });
+
+  // Both is ambiguous - which one would load? Neither opens an empty window. Both
+  // would otherwise fail deep in the build (an unresolvable vite entry, or a page
+  // that never gets a url), where the message names anything but the declaration.
+  expect(() => defineSurface(win({ entry: "Studio", site: "dist/site" }))).toThrow(/both/);
+  expect(() => defineSurface(win({}))).toThrow(/neither/);
+  expect(defineSurface(win({ site: "dist/site" })).windows.studio.site).toBe("dist/site");
+});

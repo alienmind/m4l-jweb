@@ -65,6 +65,15 @@ foreach ($f in @(Get-ChildItem (Join-Path $src "*.adg") -ErrorAction SilentlyCon
     Write-Host "  installed $($f.Name) (preset)"
 }
 
+# A `site:` window's content is a whole prebuilt site - too big to ride inside the
+# .amxd as a payload - so it ships as a folder NEXT TO the device and has to be
+# installed with it. Without the folder the device still plays; that window opens
+# empty, and the wrapper says so in the Max console.
+foreach ($d in @(Get-ChildItem (Join-Path $src "*-site") -Directory -ErrorAction SilentlyContinue)) {
+    Copy-Item $d.FullName $dest -Recurse -Force
+    Write-Host "  installed $($d.Name)/ (site sidecar)"
+}
+
 Write-Host "Installed to $dest"
 Write-Host "In Live: User Library > Max For Live > $deviceName"
 Write-Host "NOTE: Live embeds a copy of the device in the set. Instances already"
