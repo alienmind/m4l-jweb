@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.1.0 - windows that make sound, and controls that say what they are
+
+**A window can BE the instrument.** `window({ audio: true })` compiles to `[jweb~]`
+inside the window's subpatcher, its L/R leaving on a pair of outlets and summed into
+the device's audio path at the same `[+~]` stage the `webaudio` chain uses. A
+`loadbang` pulses the window open and shut once at device load, because a page in a
+window nobody opened never loads at all - and a page that never loaded has no
+AudioContext and makes no sound. Verified in Live: the audio starts without the window
+ever being opened and keeps running with it closed.
+
+**A window can be a whole prebuilt SITE.** `window({ site: "<dir>" })` takes its
+content from a directory instead of a component, delivered as a folder next to the
+`.amxd` rather than base64 inside it - the payload path does not scale to tens of MB.
+The installers and the release zip carry the folder; the wrapper says so in the console
+when it is missing rather than opening a blank window.
+
+**Windows resize now.** A window shown in PRESENTATION cannot have its page resized at
+runtime (the rect is accepted and never redrawn), so a sounding window is laid out on
+the patching canvas with the page at the origin and the plumbing parked above it. Max
+has no resize notification, so the wrapper polls `window getsize` and fits the page.
+
+**Controls can be described at RUNTIME.** `describeParam(id, { name, unit, range })`
+and `onParamRange()` in the bridge, `knobPool(8)` and `useControls()` in the surface:
+a device whose real controls come from the user's code declares a pool of dials and
+lends them out, and each one carries the borrower's name, unit and travel. All three
+attributes take on the device panel - an earlier spike recorded the opposite and was
+believed for months. `_parameter_range` was never the obstacle: the parameter reports
+in the NEW domain afterwards, so a page still normalizing 0..1 scales twice and pins
+the control at its minimum. Hence the handshake - the wrapper answers whether the range
+took, and exactly one side scales.
+
+**Pages can talk to each other's windows.** `window_send <winId> <selector> <value>`,
+`sendToWindow()` app-side. State slots already crossed that gap but a slot SAVES WITH
+THE SET, which is wrong for anything continuous - a swept knob would write the Live set
+on every frame.
+
+**A sounding window reports its level** (`[peakamp~]` -> `window_level`), because
+`[jweb~]` has audio out and no audio in: no page can ever be handed audio, so a device
+view that wants to show what its window plays has to be told in messages.
+
+**Native layout takes explicit row sizes.** `rows: [1, 4, 4]` is one control on the
+first row and four on each of the next two. Column-major could not express a transport
+button above two banks of dials, and interleaved them instead.
+
+**Fixed:** every window URL was sent twice (loadbang and live.thisdevice both call
+`loadWebview`), which is invisible for a 250 kB page and a double load for a 17 MB one.
+
+New measured facts in [doc/MAX-FACTS.md](doc/MAX-FACTS.md): runtime rename/unit/range,
+`[jweb~]` having no audio input, and presentation windows not resizing.
+
+
 ## 0.9.5 - version alignment for the superdough release
 
 A version bump to align with m4l-strudel 0.9.5, which ships the offline-render
