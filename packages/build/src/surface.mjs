@@ -643,6 +643,27 @@ function mixAudioWindow(ctx, id, subpatcherId, pcontrolId) {
     ctx.setAudioOut(ch, mixId, 0);
   }
 
+  // The LEVEL of what this window is playing, as messages, for a page to draw.
+  //
+  // It has to be messages: [jweb~] is "Web browser with audio output" - one control
+  // inlet, no signal inlet - so no page can be handed a signal, and the device view
+  // cannot see the window's audio any other way. [peakamp~] reports the peak since
+  // the last report, which is what a meter wants and costs a float per channel per
+  // interval rather than a stream of samples.
+  const tap = (suffix) => `obj-window-${id}-peak-${suffix}`;
+  boxes.push(box(tap("l"), "peakamp~ 40", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  boxes.push(box(tap("r"), "peakamp~ 40", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  // `pak` and not `pack`: both inlets hot, so a change on either channel reports
+  // rather than waiting for the left one to move.
+  boxes.push(box(tap("pak"), "pak f f", { numinlets: 2, numoutlets: 1, outlettype: [""] }));
+  boxes.push(box(tap("pre"), `prepend window_level ${id}`, { numinlets: 1, numoutlets: 1, outlettype: [""] }));
+  lines.push(line(subpatcherId, 0, tap("l"), 0));
+  lines.push(line(subpatcherId, 1, tap("r"), 0));
+  lines.push(line(tap("l"), 0, tap("pak"), 0));
+  lines.push(line(tap("r"), 0, tap("pak"), 1));
+  lines.push(line(tap("pak"), 0, tap("pre"), 0));
+  lines.push(line(tap("pre"), 0, ctx.unmatchedId, 0));
+
   const ka = (suffix) => `obj-window-${id}-ka-${suffix}`;
   boxes.push(box(ka("loadbang"), "loadbang", { numinlets: 1, numoutlets: 1, outlettype: ["bang"] }));
   boxes.push(box(ka("open"), "open", { maxclass: "message", numinlets: 2, numoutlets: 1 }));

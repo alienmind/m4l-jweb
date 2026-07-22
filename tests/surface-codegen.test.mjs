@@ -566,6 +566,20 @@ test("an audio window is summed into the device's signal path", () => {
   }
 });
 
+test("an audio window reports its level, because no page can be handed audio", () => {
+  // [jweb~] is "Web browser with audio output" - one control inlet, no signal
+  // inlet - so a device view that wants to show what its window is playing can
+  // only be TOLD, in messages.
+  const c = compileAudioWindow();
+  expect(c.box("obj-window-tone-peak-l").text).toMatch(/^peakamp~/);
+  expect(c.box("obj-window-tone-peak-pre").text).toBe("prepend window_level tone");
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-sub", out: 0, dst: "obj-window-tone-peak-l", in: 0 });
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-sub", out: 1, dst: "obj-window-tone-peak-r", in: 0 });
+  // `pak`, not `pack`: both inlets hot, so a change on either channel reports.
+  expect(c.box("obj-window-tone-peak-pak").text).toBe("pak f f");
+  expect(c.cords).toContainEqual({ src: "obj-window-tone-peak-pre", out: 0, dst: "obj-js", in: 0 });
+});
+
 test("an audio window's page is loaded at device load, not when someone opens it", () => {
   const c = compileAudioWindow();
 

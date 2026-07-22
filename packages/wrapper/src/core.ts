@@ -146,6 +146,21 @@ function window_send(winId: string, selector: string, value: unknown): void {
   messnamed("window-read-" + winId, selector, value);
 }
 
+/**
+ * How loud a sounding window is, on its way to the DEVICE VIEW's page.
+ *
+ * The patcher sends this, not a page: a `[peakamp~]` on the window's own outlets
+ * (see applyWindows). It exists because [jweb~] has no signal inlet - "Web browser
+ * with audio output" - so a page can never be handed audio, and a device view that
+ * wants to show what its window is playing has to be told in messages.
+ *
+ * Straight to outlet 0 and not through reply(): the destination is the device view
+ * by definition, whoever happens to be mid-dispatch.
+ */
+function window_level(winId: string, left: number, right: number): void {
+  outlet(0, "level_" + winId, left, right);
+}
+
 /* ------------------------------------------------------------------ *
  * State persistence
  *
