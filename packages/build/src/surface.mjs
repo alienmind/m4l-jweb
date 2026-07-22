@@ -528,9 +528,11 @@ export function applySurface(ctx) {
  */
 const FLOAT_MSG = "window flags grow close title float, window exec";
 
-function floatBoxes(spec) {
+function floatBoxes(spec, audio = false) {
   if (!spec.alwaysOnTop) return [];
-  const y = 96 + spec.height + 80;
+  // A sounding window shows its patching canvas, so anything that is not the page
+  // is parked above the origin, out of sight (see FITTED WINDOWS).
+  const y = audio ? -140 : 96 + spec.height + 80;
   return [
     { box: { id: "obj-float-loadbang", maxclass: "newobj", text: "loadbang", numinlets: 1, numoutlets: 1, outlettype: ["bang"], patching_rect: [220, y, 60, 22] } },
     // A MESSAGE box - the comma is what makes it two messages, which is the point.
@@ -566,7 +568,6 @@ function floatLines(spec) {
  * subpatcher, so the `webaudio` chain's mix stage applies unchanged.
  */
 function audioWindowBoxes(id, spec) {
-  const outletY = 96 + spec.height + 48;
   return [
     {
       box: {
@@ -576,16 +577,33 @@ function audioWindowBoxes(id, spec) {
         numoutlets: 3,
         outlettype: ["signal", "signal", ""],
         rendermode: 1,
-        patching_rect: [16, 96, spec.width, spec.height],
-        presentation: 1,
-        presentation_rect: [0, 0, spec.width, spec.height],
+        // On the PATCHING canvas at the origin, filling the window. See FITTED
+        // WINDOWS below for why this one is not in presentation like the others.
+        patching_rect: [0, 0, spec.width, spec.height],
         varname: "obj-jweb",
       },
     },
-    { box: { id: "obj-out-l", maxclass: "outlet", patching_rect: [16, outletY, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal L" } },
-    { box: { id: "obj-out-r", maxclass: "outlet", patching_rect: [56, outletY, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal R" } },
+    { box: { id: "obj-out-l", maxclass: "outlet", patching_rect: [16, HELPER_Y + 80, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal L" } },
+    { box: { id: "obj-out-r", maxclass: "outlet", patching_rect: [56, HELPER_Y + 80, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal R" } },
   ];
 }
+
+/**
+ * FITTED WINDOWS - where the plumbing goes so the page can own the window.
+ *
+ * A window that is worth resizing (an editor, a whole REPL) has to have its page
+ * grow with it, and the wrapper does that by writing the [jweb]'s rect at runtime.
+ * MEASURED, in this repo: a runtime rect change is accepted but never redrawn when
+ * the object is shown in PRESENTATION - which is how every window here was laid
+ * out. On the patching canvas it does redraw, and that is the whole reason a
+ * sounding window is built differently: `openinpresentation` is off, the page sits
+ * at the canvas origin, and everything else - the inlet, the receive, the tag, the
+ * outlets - is moved ABOVE the origin, off the top of what the window shows.
+ *
+ * The plain window is untouched by this and stays in presentation. It is a fixed
+ * reference card; nothing about it wants to be dragged bigger.
+ */
+const HELPER_Y = -260;
 
 /**
  * Sum a sounding window into the device's audio path, and make sure its page is
@@ -722,9 +740,11 @@ export function applyWindows(ctx) {
           fileversion: 1,
           appversion: { major: 8, minor: 0, revision: 0, architecture: "x64", modernui: 1 },
           rect: [100, 100, spec.width, spec.height],
-          openinpresentation: 1,
+          // A sounding window shows its PATCHING canvas, so the page can be resized
+          // at runtime - see FITTED WINDOWS above.
+          openinpresentation: audio ? 0 : 1,
           boxes: [
-            { box: { id: "obj-in", maxclass: "inlet", patching_rect: [16, 16, 30, 30], numinlets: 0, numoutlets: 1, outlettype: [""] } },
+            { box: { id: "obj-in", maxclass: "inlet", patching_rect: [16, audio ? HELPER_Y : 16, 30, 30], numinlets: 0, numoutlets: 1, outlettype: [""] } },
             // The page's URL cannot be WIRED here - this [jweb] is inside a
             // subpatcher and the wrapper's [js] is outside it. The wrapper reaches
             // it by NAME instead (messnamed), once the payload is extracted.
@@ -736,7 +756,7 @@ export function applyWindows(ctx) {
                 numinlets: 0,
                 numoutlets: 1,
                 outlettype: [""],
-                patching_rect: [16, 56, 160, 22],
+                patching_rect: [16, audio ? HELPER_Y + 40 : 56, 160, 22],
               },
             },
             ...(audio
@@ -771,11 +791,19 @@ export function applyWindows(ctx) {
                 outlettype: [""],
                 // On a sounding window the signal outlets own the left of the row,
                 // and outlet ORDER is x order - so the messages move right.
-                patching_rect: [audio ? 200 : 16, 96 + spec.height + 16, 160, 22],
+                patching_rect: [audio ? 200 : 16, audio ? HELPER_Y + 40 : 96 + spec.height + 16, 160, 22],
               },
             },
-            { box: { id: "obj-out", maxclass: "outlet", patching_rect: [audio ? 200 : 16, 96 + spec.height + 48, 30, 30], numinlets: 1, numoutlets: 0 } },
-            ...floatBoxes(spec),
+            {
+              box: {
+                id: "obj-out",
+                maxclass: "outlet",
+                patching_rect: [audio ? 200 : 16, audio ? HELPER_Y + 80 : 96 + spec.height + 48, 30, 30],
+                numinlets: 1,
+                numoutlets: 0,
+              },
+            },
+            ...floatBoxes(spec, audio),
           ],
           lines: [
             { patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } },

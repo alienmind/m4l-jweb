@@ -531,6 +531,22 @@ test("an audio window holds a [jweb~] whose L and R leave the subpatcher", () =>
   expect(sub.patcher.lines).toContainEqual({ patchline: { source: ["obj-jweb", 2], destination: ["obj-tag", 0] } });
 });
 
+test("an audio window shows its patching canvas, so the page can be resized at runtime", () => {
+  // MEASURED in this repo: a rect written at runtime is accepted but never redrawn
+  // while the object is shown in PRESENTATION. A window worth dragging bigger
+  // therefore shows the patching canvas, with the page at the origin and every
+  // other box parked above it, off the top of what the window shows.
+  const sub = compileAudioWindow().box("obj-window-tone-sub");
+  expect(sub.patcher.openinpresentation).toBe(0);
+
+  const inner = sub.patcher.boxes.map((b) => b.box);
+  const at = (id) => inner.find((b) => b.id === id).patching_rect;
+  expect(at("obj-jweb").slice(0, 2)).toEqual([0, 0]);
+  for (const id of ["obj-in", "obj-recv", "obj-tag", "obj-out", "obj-out-l", "obj-out-r"]) {
+    expect(at(id)[1], `${id} would be visible inside the window`).toBeLessThan(0);
+  }
+});
+
 test("an audio window is summed into the device's signal path", () => {
   const c = compileAudioWindow();
 
