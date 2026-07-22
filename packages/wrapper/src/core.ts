@@ -518,8 +518,12 @@ function window(id: string): void {
     // A window's page owns the code in devices like this one, so it is the page
     // that knows what a parameter now IS. Same handlers, and param_range's answer
     // rides replyWindow back to the window that asked.
-    else if (selector === "param_label") (param_label as any).apply(null, args);
-    else if (selector === "param_unit") (param_unit as any).apply(null, args);
+    // PLAIN CALLS, with the arguments already flattened. `.apply(null, ...)` would
+    // hand these functions a `this` with no patcher on it - at [js] global scope the
+    // global object IS the jsthis, and only a plain call inherits it. A spread would
+    // compile to the same .apply, so the label is joined here instead.
+    else if (selector === "param_label") param_label(String(args[0]), args.slice(1).join(" "));
+    else if (selector === "param_unit") param_unit(String(args[0]), args.slice(1).join(" "));
     else if (selector === "param_range") param_range(String(args[0]), Number(args[1]), Number(args[2]));
     else if (typeof onWindowMessage === "function") (onWindowMessage as any).apply(null, [id, selector].concat(args as any[]));
     else post("m4l-jweb: window " + id + " sent unhandled '" + selector + "'\n");
