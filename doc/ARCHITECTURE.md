@@ -1037,6 +1037,17 @@ and the `webaudio` chain - the page's own output on the track, which retired the
 **native layout** (`layout.native` dials in the device view, and the two-screen panel -
 see the section above, verified in Live).
 
+**Shipped in 1.1.0, all verified in Live.** A window can BE the instrument
+(`window({ audio: true })` compiles to `[jweb~]` and its output is summed into the
+device's signal path; the page loads at device load and keeps playing with the window
+closed). A window can hold a whole prebuilt SITE, delivered as a folder beside the
+`.amxd` because the base64 payload path does not scale to tens of MB. Windows resize,
+which needs the patching canvas rather than presentation - a rect written at runtime in
+presentation is accepted and never redrawn. Controls can be described at RUNTIME - name,
+unit and range on a borrowed dial - and the hybrid-control pool (`knobPool` +
+`useControls`) is that mechanism generalised. Pages can message each other's windows
+(`sendToWindow`).
+
 **Every Stage 1 spike has been run, in Live** - `set` semantics, `[buffer~]` driven
 from `[js]`, and `[maxurl]` streaming a URL to disk, including both of its failure
 modes. What they measured is at the end of this document. Nothing downstream is gated
@@ -1055,8 +1066,6 @@ four of its planned routes turned out to be unnecessary.
 - **A file contract** - `defineFiles()`: a device declares that it writes to disk, and
   the build derives the `download` chain, the folder plumbing and the selectors, instead
   of three things having to be remembered together.
-- **Hybrid controls** - a pool of native `live.dial`s the Surface declares, that dynamic
-  controls borrow from. Generalises m4l-strudel's hand-rolled `S1..S8`.
 - **Extract the contract pattern** - lift the shared codegen once a third declaration
   exists, then `defineDevice()`: declare what the Max side has, generate everything else.
   `defineSurface()` and `defineWatch()` are the first two instances.
