@@ -126,6 +126,56 @@ with hide/show, rather than one view that reflows its dials (see "Native layout"
 ARCHITECTURE.md). A reflow API (`useNativeLayout` / a `native_rect` wrapper handler) was
 built, measured to not work, and removed rather than shipped.
 
+## Renaming, re-uniting and RE-RANGING a dial at runtime (2026-07-22)
+
+**Measured in Live, on a frozen M4L device: all three take on the DEVICE PANEL.** An
+earlier spike recorded the opposite and was believed for months; it was wrong.
+
+- `_parameter_shortname` renames the dial on the panel. It does NOT reach Live's
+  parameter registry or a Rack macro picker, which keep the build-time short name. A
+  frozen device cannot rename a parameter there, so any UI that wants the name visible
+  must render it itself.
+- `_parameter_unitstyle` takes (`Hz` = 3, `dB` = 4, ... per Max's own list), so the
+  readout prints "600 Hz" instead of "600". Anything outside the list is style 9,
+  Custom, with the string in `_parameter_units` - and it still prints.
+- `_parameter_range` takes, **and the parameter then REPORTS IN THE NEW DOMAIN.** That
+  is the whole trap, and what made the first attempt look like a Max limitation: the
+  page went on normalizing 0..1, so it scaled an already-scaled value and the control
+  sat at its minimum. The attribute was never the problem - the double scaling was.
+
+The shipping shape is therefore a HANDSHAKE, not a blind write: the wrapper applies the
+range, reads it back, and answers `param_range_ok` / `param_range_failed`; the caller
+normalizes only while the answer is no. Exactly one scaling, wherever it lives. See
+`describeParam()` / `onParamRange()` in @m4l-jweb/bridge and `useControls()` in
+@m4l-jweb/surface/react.
+
+## `[jweb~]` has audio OUT and no audio IN (Max 9 reference, 2026-07-22)
+
+`[jweb~]` is "Web browser with audio output": ONE control inlet, and outlets L, R and
+messages. There is no signal inlet, so **a page can never be handed audio**. Anything a
+page wants to know about sound it did not make has to arrive as messages - a
+`[peakamp~]` or `[snapshot~]` tap, at message rate - and a page cannot compute a
+waveform of another page's output at all.
+
+Two consequences worth stating: a device view cannot scope the sound of an audio WINDOW
+it hosts, and pixels cannot cross between two Chromium contexts either (no shared
+memory, no server, no frame grab), so mirroring one page's canvas into another means
+shipping encoded frames as messages - which costs a synchronous GPU read inside
+whichever page is making the sound.
+
+## A window shown in PRESENTATION cannot be resized at runtime (2026-07-22)
+
+Same root as the `presentation_rect` fact above, met again in a floating window: writing
+the page box's rect while the subpatcher window opens in presentation is accepted and
+never redrawn, so the page keeps its build-time size in a window the user just dragged
+bigger. On the PATCHING canvas it does redraw.
+
+So a resizable window is built the other way round: `openinpresentation` off, the page
+at the canvas origin, everything else (inlet, receive, tag, outlets) parked at negative
+coordinates where the window does not show it, and the wrapper polling the window size
+and fitting the page to it - Max has no resize NOTIFICATION, only the `window getsize`
+query.
+
 ## `[pattr]`: what actually saves into the Live SET
 
 **Confirmed in Live: a value written into a bound `[dict]` came back, byte for byte,
