@@ -127,6 +127,22 @@ export function uiReady(): void {
   outlet("ui_ready");
 }
 
+/**
+ * Send a message to the page in another of this device's windows.
+ *
+ * Two pages of one device are two Chromium contexts: no shared globals, no
+ * shared memory, no events between them. They talk through Max, and this is the
+ * message that does not persist - the receiving page gets `<selector> <value>` on
+ * the inlet it bound with `bindInlet`, and nothing is written to the Live set.
+ *
+ * Use a STATE SLOT instead for anything that must survive a save (the pattern,
+ * a preset). Use this for what is happening NOW: a transport change, a knob
+ * position, a nudge to re-read something.
+ */
+export function sendToWindow(windowId: string, selector: string, value: unknown): void {
+  outlet("window_send", windowId, selector, value);
+}
+
 /* ------------------------------------------------------------------ *
  * The chain contract
  *
