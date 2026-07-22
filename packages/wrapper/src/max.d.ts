@@ -183,6 +183,17 @@ declare const EXTRA_PAYLOAD_B64: string[][] | undefined;
  */
 declare const WATCH_SPECS: { key: string; path: string; property: string }[] | undefined;
 
+/**
+ * Injected by @m4l-jweb/build for every window declared with `site:` - window id
+ * -> the path of its index.html RELATIVE to the device folder.
+ *
+ * Such a window's content is a whole prebuilt site, far too big to ride inside
+ * wrapper.js as base64, so it ships as a folder next to the .amxd instead. That
+ * is the one case where a device is not self-contained: the folder must travel
+ * with the .amxd, and the wrapper says so if it does not.
+ */
+declare const SITE_WINDOWS: { [id: string]: string } | undefined;
+
 /*
  * Device hooks.
  *

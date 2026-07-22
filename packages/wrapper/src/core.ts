@@ -65,6 +65,7 @@ function loadbang(): void {
 
 /** Manual re-init, handy while developing. */
 function reload(): void {
+  sentWindowUrls = {}; // a manual reload MEANS re-fetch, dedupe or not
   loadWebview();
   setupTempoObserver();
   startTickPoll();
@@ -430,9 +431,68 @@ function loadWindows(): void {
   var prefix = windowPrefix();
   for (var i = 0; i < ids.length; i++) {
     var winId = ids[i];
-    var winUrl = encodeURI("file:///" + folder + "/" + prefix + winId + ".html") + "?v=" + encodeURIComponent(buildStamp());
-    messnamed("window-read-" + winId, "url", winUrl);
-    post("m4l-jweb: window " + winId + " -> " + winUrl + "\n");
+    // listWindowIds() includes the `site:` windows, because everything else that
+    // walks the windows (the state fan-out) must see them. They have no extracted
+    // payload though, so pointing one at `<device>_<id>.html` would load a file
+    // that is not there - and then the real url below would load the page a second
+    // time.
+    if (isSiteWindow(winId)) continue;
+    sendWindowUrl(winId, folder + "/" + prefix + winId + ".html");
+  }
+
+  // A `site:` window's page is not an extracted payload - it is a folder that
+  // shipped alongside the .amxd, so its URL is built from SITE_WINDOWS instead.
+  if (typeof SITE_WINDOWS !== "undefined") {
+    for (var siteId in SITE_WINDOWS) {
+      if (!SITE_WINDOWS.hasOwnProperty(siteId)) continue;
+      var target = folder + "/" + SITE_WINDOWS[siteId];
+      if (!fileExists(target)) {
+        // Not fatal - the device plays on, the window just opens empty - but it
+        // is invisible without saying it: nothing else in Max reports a page that
+        // did not load.
+        post(
+          "m4l-jweb: window '" + siteId + "' is missing its sidecar folder - expected " + target +
+            ". Install the whole '<device>-site' folder NEXT TO the .amxd.\n",
+        );
+      }
+      sendWindowUrl(siteId, target);
+    }
+  }
+}
+
+/**
+ * Point one window's [jweb] at a file, ONCE per url.
+ *
+ * loadbang and live.thisdevice both call loadWebview (they must: either can be
+ * the one that runs in a given load), so without this every page is fetched
+ * twice. For a small window that is waste; for a `site:` window it is tens of MB
+ * and a visible second load.
+ */
+function sendWindowUrl(winId: string, target: string): void {
+  var url = encodeURI("file:///" + target) + "?v=" + encodeURIComponent(buildStamp());
+  if (sentWindowUrls[winId] === url) return;
+  sentWindowUrls[winId] = url;
+  messnamed("window-read-" + winId, "url", url);
+  post("m4l-jweb: window " + winId + " -> " + url + "\n");
+}
+
+/** What each window was last pointed at, so a second load does not re-fetch it. */
+var sentWindowUrls: { [id: string]: string } = {};
+
+/** Is this window's content a sidecar folder rather than an extracted payload? */
+function isSiteWindow(winId: string): boolean {
+  return typeof SITE_WINDOWS !== "undefined" && SITE_WINDOWS.hasOwnProperty(winId);
+}
+
+/** Does a path exist on disk? Max's File opens what is there and nothing else. */
+function fileExists(target: string): boolean {
+  try {
+    var f = new File(target, "read");
+    var open = f.isopen;
+    if (open) f.close();
+    return open;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -449,6 +509,14 @@ function windowPrefix(): string {
  */
 function listWindowIds(): string[] {
   var ids: string[] = [];
+  // A `site:` window has no payload to be listed from, but it is a window like any
+  // other everywhere else - state fan-out included, which is how a page in one
+  // window learns what a page in another just wrote.
+  if (typeof SITE_WINDOWS !== "undefined") {
+    for (var siteId in SITE_WINDOWS) {
+      if (SITE_WINDOWS.hasOwnProperty(siteId)) ids.push(siteId);
+    }
+  }
   if (typeof EXTRA_PAYLOAD_NAMES === "undefined") return ids;
   var prefix = windowPrefix();
   for (var i = 0; i < EXTRA_PAYLOAD_NAMES.length; i++) {
