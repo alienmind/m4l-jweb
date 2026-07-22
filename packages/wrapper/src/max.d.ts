@@ -40,6 +40,26 @@ declare let outlets: number;
  * disk. (Hence `noImplicitThis: false` in wrapper/tsconfig.json.)
  */
 
+/**
+ * A box in the patcher, reached with `this.patcher.getnamed("<varname>")`.
+ *
+ * Only what the wrapper actually uses is declared. `setattr` is the documented
+ * writer and `message` the older form; both are present in the wild, so the
+ * wrapper tries one and falls back to the other.
+ */
+declare interface Maxobj {
+  /** Hide or show in the device (presentation) view. Works at runtime; position does not. */
+  hidden: number;
+  /** Patching-canvas rect [left, top, right, bottom]. */
+  rect: number[];
+  /** Presentation rect. Accepted at runtime but never redrawn - see MAX-FACTS.md. */
+  presentation_rect: number[];
+  getattr(name: string): unknown;
+  setattr(name: string, ...values: unknown[]): void;
+  message(selector: string, ...args: unknown[]): void;
+  subpatcher(): { wind?: { visible: boolean; size: number[] }; getnamed(varname: string): Maxobj | null } | null;
+}
+
 /** Max's scheduler. There is no `setTimeout` in [js]. */
 declare class Task {
   constructor(fn: () => void, ctx: unknown);

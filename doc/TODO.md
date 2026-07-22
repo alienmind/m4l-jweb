@@ -63,54 +63,7 @@ extract from, two was not. Leave the user-facing APIs bespoke. End state is
 Do NOT build the generic compiler first and express the Surface in terms of it. An
 abstraction from one example is a guess.
 
-## 2. Hybrid controls: a native-knob pool the Surface declares
-
-**MOSTLY SHIPPED (2026-07-22), and the pessimism in the old text was WRONG.**
-
-A device has more controls than it can afford native `live.dial`s: a dial is stamped
-into the frozen `.amxd` at build time, while a device's real controls are dynamic
-(m4l-strudel discovers its `slider()`s per pattern, and its Studio's patterns name
-their own). That borrowing is now library business:
-
-- `knobPool(8)` declares the pool - eight interchangeable 0..1 dials.
-- `useControls(surface, controls, poolIds)` hands them out in order, seeds a freshly
-  borrowed dial from the control's own value, returns a slot when a control goes
-  away, and gives back `{ norm, raw, set, slot }` per control.
-- `describeParam(id, { name, unit, range })` and `onParamRange()` in the bridge say
-  what a dial IS at runtime; the wrapper applies each and reports what took.
-
-**What the old text got wrong.** It recorded a spike as "negative on both" - that a
-frozen dial takes neither a new name nor a new range - and told the API not to
-promise either. Re-run in Live on 2026-07-22, both TAKE:
-
-    strudel: param_label param-s1 'S1' -> 'cutoff'
-    strudel: param_unit  param-s1 'Hz' -> style 3
-    strudel: param_range param-s1 -> 200,2200
-
-The range was never the problem. `_parameter_range` always applied; what broke the
-first attempt is that the parameter then REPORTS IN THE NEW DOMAIN, and the page
-went on normalizing 0..1 - two scalings fighting, knob pinned at its minimum. The
-fix is not a different attribute, it is agreeing who scales: the wrapper answers
-`param_range_ok` / `param_range_failed`, and the borrower scales only while the
-answer is no. `useControls` does that for every device.
-
-**The one limit that IS real.** The name reaches the DEVICE PANEL and not Live's
-parameter registry or a Rack macro picker, which keep the pool's `S1..S8`. A frozen
-device cannot rename a parameter there. So the name stays a nice-to-have that the
-web UI must render itself - exactly as the old text said, for the wrong reason.
-
-**What is left of this item:**
-
-- Port m4l-strudel's `useSliderKnobs` onto `useControls` and delete the duplicate.
-  It has been moved onto `describeParam`/`onParamRange` already, so what remains is
-  the borrowing bookkeeping, which is now here.
-- Use the pool in a demo device, so the contract has an example in this repo. None
-  of the `hello-*` devices has dynamic controls today; the smallest honest one is a
-  hello-audio variant whose parameter list comes from a menu.
-- Re-check the registry/macro-picker limit on a current Max before anyone designs
-  around it again, and write the result here either way.
-
-## 3. A folder-path helper, because revealing a folder is impossible
+## 2. A folder-path helper, because revealing a folder is impossible
 
 Every device that writes files hits the same wall: the user asks "where did it go", and
 neither the page nor Max can open a file manager. `; max launchbrowser <folder>` is the
@@ -133,7 +86,7 @@ failure mode is a lie in the UI, and no device should have to rediscover it. Shi
 a small bridge/surface helper with the honest three-way result (copied / user copied /
 not copied) rather than a boolean.
 
-## 4. (for next generation) A VST3 backend, so a device runs outside Live
+## 3. (for next generation) A VST3 backend, so a device runs outside Live
 
 Assessed in [FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md): the app, the bridge, the surface
 and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the
