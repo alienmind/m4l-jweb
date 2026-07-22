@@ -289,6 +289,102 @@ function setNativeHidden(varname: string, hidden: number): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * What a parameter IS, said at RUNTIME
+ *
+ * A surface declares a parameter's name, unit and range at build time, which is
+ * right whenever the device knows what its own controls do. It does not when the
+ * control is whatever the user's code just asked for - a pattern's `slider()`, a
+ * modulation slot pointed somewhere new - and an unnamed 0..1 dial then says
+ * nothing about the sound it is moving, on the panel or on Push.
+ *
+ * `describeParam()` in @m4l-jweb/bridge is the app side. What is measured, in Live:
+ *
+ *   name   reaches the DEVICE PANEL, and NOT Live's parameter registry or the Rack
+ *          macro picker - a frozen device cannot rename a parameter there.
+ *   unit   takes: the unit STYLE, so a readout says "600 Hz" and not "600".
+ *   range  takes, AND CHANGES THE DOMAIN THE PARAMETER REPORTS. A page still
+ *          normalizing 0..1 would then scale an already-scaled value and the
+ *          control sticks at its minimum - which is exactly how the first attempt
+ *          at this failed and was reverted. So it is ANSWERED, and the caller
+ *          stops normalizing when the answer is yes.
+ * ------------------------------------------------------------------ */
+
+/** Max's unit styles, in the order its own reference lists them. 9 = Custom. */
+var UNITSTYLE: { [name: string]: number } = { int: 0, float: 1, ms: 2, Hz: 3, dB: 4, "%": 5, pan: 6, st: 7, midi: 8 };
+var UNITSTYLE_CUSTOM = 9;
+
+/** The live.* object a surface id compiles to. Mirrors applySurface's varname. */
+function paramBox(id: string): Maxobj | null {
+  try {
+    var obj = this.patcher.getnamed("param-" + id);
+    if (!obj) post("m4l-jweb: param " + id + " -> getnamed('param-" + id + "') null\n");
+    return obj || null;
+  } catch (e) {
+    post("m4l-jweb: param " + id + " lookup error: " + (e as Error).message + "\n");
+    return null;
+  }
+}
+
+/** Write an attribute whichever way this Max build offers. */
+function setAttr(obj: Maxobj, attr: string, a: unknown, b?: unknown): void {
+  if (typeof obj.setattr === "function") {
+    if (b === undefined) obj.setattr(attr, a);
+    else obj.setattr(attr, a, b);
+  } else {
+    if (b === undefined) obj.message(attr, a);
+    else obj.message(attr, a, b);
+  }
+}
+
+function param_label(id: string, ...rest: unknown[]): void {
+  // A name with a space in it arrives as several arguments; put it back together.
+  var label = Array.prototype.slice.call(arguments, 1).join(" ");
+  if (!id || !label) return;
+  var obj = paramBox(id);
+  if (!obj) return;
+  var before = obj.getattr("_parameter_shortname");
+  if (String(before) === label) return;
+  setAttr(obj, "_parameter_shortname", label);
+  var after = obj.getattr("_parameter_shortname");
+  // The device view is told as well: its own controls should show what the code
+  // called this, not the declared short name.
+  outlet(0, "param_desc", id, label);
+  post(
+    "m4l-jweb: param_label " + id + " '" + before + "' -> '" + after + "'" + (String(after) === label ? "" : " (did NOT take)") + "\n",
+  );
+}
+
+function param_unit(id: string, ...rest: unknown[]): void {
+  var unit = Array.prototype.slice.call(arguments, 1).join(" ");
+  if (!id || !unit) return;
+  var obj = paramBox(id);
+  if (!obj) return;
+  var known = UNITSTYLE[unit];
+  var style = known === undefined ? UNITSTYLE_CUSTOM : known;
+  setAttr(obj, "_parameter_unitstyle", style);
+  // A unit Max does not know still prints, as a custom suffix.
+  if (style === UNITSTYLE_CUSTOM) setAttr(obj, "_parameter_units", unit);
+  var after = Number(obj.getattr("_parameter_unitstyle"));
+  post("m4l-jweb: param_unit " + id + " '" + unit + "' -> style " + after + (after === style ? "" : " (did NOT take)") + "\n");
+}
+
+function param_range(id: string, lo: number, hi: number): void {
+  var min = Number(lo);
+  var max = Number(hi);
+  if (!id || !(max > min)) return;
+  var obj = paramBox(id);
+  if (!obj) return;
+  setAttr(obj, "_parameter_range", min, max);
+  var after = obj.getattr("_parameter_range");
+  var took = !!after && Number(after[0]) === min && Number(after[1]) === max;
+  // WHO SCALES. The answer goes back to whoever asked (a window included), and the
+  // device view is told too, because its own controls have the same question.
+  reply(took ? "param_range_ok" : "param_range_failed", id);
+  outlet(0, "param_desc_range", id, min, max, took ? 1 : 0);
+  post("m4l-jweb: param_range " + id + " -> " + String(after) + (took ? "" : " (did NOT take)") + "\n");
+}
+
+/* ------------------------------------------------------------------ *
  * Parameter LOM ids - what the `remote` chain binds to
  *
  * `get_param_id <id>` from the app; `param_id <id> <lomId>` back, 0 if unresolved.
@@ -419,6 +515,12 @@ function window(id: string): void {
     if (selector === "ui_ready") ui_ready();
     else if (selector === "get_state") get_state(String(args[0]));
     else if (selector === "sync_state") (sync_state as any).apply(null, args);
+    // A window's page owns the code in devices like this one, so it is the page
+    // that knows what a parameter now IS. Same handlers, and param_range's answer
+    // rides replyWindow back to the window that asked.
+    else if (selector === "param_label") (param_label as any).apply(null, args);
+    else if (selector === "param_unit") (param_unit as any).apply(null, args);
+    else if (selector === "param_range") param_range(String(args[0]), Number(args[1]), Number(args[2]));
     else if (typeof onWindowMessage === "function") (onWindowMessage as any).apply(null, [id, selector].concat(args as any[]));
     else post("m4l-jweb: window " + id + " sent unhandled '" + selector + "'\n");
   } finally {

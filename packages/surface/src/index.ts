@@ -223,6 +223,32 @@ export const dial = (spec: Omit<DialSpec, "kind">): DialSpec => ({
   kind: "dial",
   ...spec,
 });
+
+/**
+ * A POOL of interchangeable native dials, for a device whose real controls are not
+ * known until it runs.
+ *
+ * A `live.dial` is stamped into the frozen `.amxd` at build time, so a device cannot
+ * grow one when the user's code asks for a control. What it can do is reserve a
+ * fixed number of them and lend them out - `slider()` calls in a pattern, the
+ * parameters of whatever effect was just loaded - and that borrowing is the same
+ * problem in every device that has it.
+ *
+ *   params: { ...knobPool(8) }        // s1..s8, all 0..1
+ *
+ * The dials are declared 0..1 because a borrower's real range is not known here.
+ * `useControls()` in ./react then hands them out in order, tells Live what each one
+ * currently IS (name, unit, range - see describeParam in @m4l-jweb/bridge), and
+ * keeps the scaling straight.
+ */
+export const knobPool = <N extends number>(count: N, prefix = "s"): Record<string, DialSpec> => {
+  const out: Record<string, DialSpec> = {};
+  for (let i = 1; i <= count; i++) {
+    // The short name is what Push prints when nothing has borrowed the slot yet.
+    out[`${prefix}${i}`] = dial({ range: [0, 1], default: 0, short: `${prefix.toUpperCase()}${i}` });
+  }
+  return out;
+};
 export const toggle = (spec: Omit<ToggleSpec, "kind">): ToggleSpec => ({
   kind: "toggle",
   ...spec,
@@ -274,10 +300,20 @@ export interface NativeLayout<K extends string = string> {
    */
   params: readonly K[];
   /**
-   * Max rows per column. Default 3 - the device view is a fixed ~169 px tall and a
-   * `live.dial` needs a 56 px pitch, so only 3 fit vertically.
+   * How the controls are arranged. Default 3.
+   *
+   * A NUMBER is rows per column, filled column-major: three down, then the next
+   * column. Adding a parameter never reshuffles the ones before it.
+   *
+   * AN ARRAY is the size of each row, filled left to right - `[1, 4, 4]` puts one
+   * control on the first row and four on each of the next two. Column-major cannot
+   * express that, and it is what a panel usually wants to say: a transport button
+   * ABOVE two banks of dials, rather than interleaved with them.
+   *
+   * Either way the device view is a fixed ~169 px tall and a `live.dial` needs a
+   * 56 px pitch, so three rows is the ceiling.
    */
-  rows?: number;
+  rows?: number | number[];
   /**
    * LAYERED "two screens" instead of side-by-side. When true, `[jweb]` is built
    * full-width and the dials OVERLAP its left, and the app flips between them with
@@ -403,7 +439,12 @@ export function defineSurface<
       if (!def.params[id]) throw new Error(`surface: layout.native names "${id}", which is not a declared parameter`);
     }
     const rows = native.rows ?? 3;
-    if (rows < 1 || rows > 3) throw new Error(`surface: layout.native.rows must be 1..3 - the device view is 169 px tall`);
+    if (Array.isArray(rows)) {
+      if (rows.length > 3) throw new Error(`surface: layout.native.rows has ${rows.length} rows - the device view is 169 px tall and holds 3`);
+      if (rows.some((n) => !(n > 0))) throw new Error(`surface: layout.native.rows must be positive counts, e.g. [1, 4, 4]`);
+    } else if (rows < 1 || rows > 3) {
+      throw new Error(`surface: layout.native.rows must be 1..3 - the device view is 169 px tall`);
+    }
     if (native.switch !== undefined && !def.params[native.switch]) {
       throw new Error(`surface: layout.native.switch names "${native.switch}", which is not a declared parameter`);
     }

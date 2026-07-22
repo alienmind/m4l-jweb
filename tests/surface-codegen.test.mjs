@@ -329,6 +329,59 @@ test("computeNativeSlots fills column-major, then overflows into the next column
   expect(width).toBe(112);
 });
 
+test("rows given as sizes lay the panel out in rows, not columns", () => {
+  // `[1, 4, 4]` is what a panel usually wants to say: the transport button ABOVE
+  // two banks of dials. Column-major put it in the same column as the first two
+  // dials and interleaved the rest, which is the misalignment this fixes.
+  const s = defineSurface({
+    params: {
+      play: button({ default: false, label: "Play", short: "Play" }),
+      a: dial({ range: [0, 1], default: 0, short: "A" }),
+      b: dial({ range: [0, 1], default: 0, short: "B" }),
+      c: dial({ range: [0, 1], default: 0, short: "C" }),
+      d: dial({ range: [0, 1], default: 0, short: "D" }),
+      e: dial({ range: [0, 1], default: 0, short: "E" }),
+    },
+    layout: { native: { params: ["play", "a", "b", "c", "d", "e"], rows: [1, 4, 4] } },
+  });
+  const { slots } = computeNativeSlots(s);
+
+  const y = (id) => slots.get(id)[1];
+  const x = (id) => slots.get(id)[0];
+  // The button owns the first row alone.
+  expect(y("a")).toBeGreaterThan(y("play"));
+  // Row two is left to right at one height...
+  expect(y("a")).toBe(y("b"));
+  expect(y("b")).toBe(y("c"));
+  expect(y("c")).toBe(y("d"));
+  expect(x("a")).toBeLessThan(x("b"));
+  // ...and the fifth dial starts row three rather than continuing row two.
+  expect(y("e")).toBeGreaterThan(y("d"));
+  expect(x("e")).toBe(x("a"));
+
+  const rects = [...slots.values()];
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      expect(overlaps(rects[i], rects[j]), `slots ${i} and ${j} overlap`).toBe(false);
+    }
+  }
+});
+
+test("a row layout still places a parameter the rows did not account for", () => {
+  // Silently dropping one would mean a declared parameter with no presentation
+  // rect: invisible in the device view, with nothing to say why.
+  const s = defineSurface({
+    params: {
+      a: dial({ range: [0, 1], default: 0, short: "A" }),
+      b: dial({ range: [0, 1], default: 0, short: "B" }),
+    },
+    layout: { native: { params: ["a", "b"], rows: [1] } },
+  });
+  const { slots } = computeNativeSlots(s);
+  expect(slots.has("b")).toBe(true);
+  expect(slots.get("b")[1]).toBeGreaterThan(slots.get("a")[1]);
+});
+
 test("a surface with no native layout produces an empty zone", () => {
   const s = defineSurface({ params: { a: dial({ range: [0, 1], default: 0, short: "A" }) } });
   expect(computeNativeSlots(s)).toEqual({ slots: new Map(), width: 0 });
