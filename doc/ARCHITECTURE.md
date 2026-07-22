@@ -854,6 +854,40 @@ Two hard-won facts, both still binding:
 > not put audio on the track; `[jweb~]` can, so the page plays its own audio and the
 > `webaudio` chain carries it. `saveToFile` is the only piece of that era still shipping.
 
+### The native audio bridge: four routes, and the object that made all four moot
+
+This was the biggest open item in the backlog for most of the library's life, and it is
+recorded here rather than in TODO.md because it is settled. It read: *"`[jweb]` has no
+`~` outlets; bridging realtime audio over the JSON message bridge is impossible
+(latency, jitter, CPU). It needs a native C++ external or a local socket bridge."*
+
+**The first clause is true only of `[jweb]`.** `[jweb~]` - which shipped with Max years
+before this library existed - has two signal outlets. The page's Web Audio output goes
+straight into Max's `~` graph: no external, no socket, no PCM over the message bridge.
+What actually shipped in 0.9.9 was small:
+
+- `base.json` emits `[jweb~]` (outlets: signal L, signal R, messages on **2**), and
+  `claimAppMessages()` reads the message stream from outlet 2 instead of outlet 0. That
+  outlet move is the one breaking change the whole migration cost.
+- The `webaudio` chain sums those signal outlets into the device's path with `[+~]`, so
+  an audio effect stays a pass-through and an instrument originates sound.
+- Three chains and their bridge APIs were **deleted**, not migrated.
+
+**The lesson is about the shape of the mistake, not the fix.** Four routes were analysed
+in detail - a C++ external, a socket bridge, offline rendering, PCM over messages - and
+one of them (offline render + `saveToFile` + `[buffer~]`, "route B") was fully built and
+shipped in 0.9.x: a double-buffered `renderplay` chain, a transport-locked boundary
+crossfade, a conductor state machine, a render progress UI. All of it was elaborate,
+all of it worked, and all of it was unnecessary. Not one of the four routes questioned
+the premise, because the premise was a *capability* claim about an object we had read
+about but not exhaustively checked. An afternoon in the Max object reference would have
+saved months.
+
+So: when an item's cost is measured in weeks, re-verify its premise before designing
+around it - especially a premise of the form "X cannot do Y". What route B cost and what
+it taught is kept in
+[m4l-strudel's drawer of failed ideas](../../m4l-strudel/doc/DRAWER_OF_FAILED_IDEAS.md).
+
 ## The build pipeline
 
 `pnpm build` is `tsc -b && node scripts/build-ui.mjs && m4l-jweb build`. Bundling
@@ -997,39 +1031,40 @@ the library-owned selector contracts; **the Surface** (parameters declared once 
 generated into objects, wiring, selectors, hooks and mocks - confirmed in Live, on a
 Push); **composable audio chains** (the build owns `plugin~`/`plugout~`, a chain
 claims a stage, and the order of the list is the signal path - confirmed by ear);
-**fetch-to-disk** (the last `[node.script]` deleted); **`buffer~`/`poly~` sample
-playback** (the `samples` and `instrument` chains - the latter's polyphony confirmed in
-Live); and **native layout** (`layout.native` dials in the device view, and the
-two-screen panel - see the section above, verified in Live).
+**fetch-to-disk** (the last `[node.script]` deleted); **native audio out** (`[jweb~]`
+and the `webaudio` chain - the page's own output on the track, which retired the
+`samples`, `instrument` and `renderplay` chains rather than extending them); and
+**native layout** (`layout.native` dials in the device view, and the two-screen panel -
+see the section above, verified in Live).
 
 **Every Stage 1 spike has been run, in Live** - `set` semantics, `[buffer~]` driven
 from `[js]`, and `[maxurl]` streaming a URL to disk, including both of its failure
 modes. What they measured is at the end of this document. Nothing downstream is gated
 on an unknown any more.
 
-**What remains** (in priority order, detailed in [TODO.md](TODO.md)):
-
 **Settled since** (2026-07-17): Spike R1 ran and answered NO - Live's Browser is
 unreachable from `[js]`, so a device can never instantiate another device and
 Translate mode is adopt-only, permanently. The `remote` chain shipped and is verified
 end to end (m4l-strudel's fx modulation). The `state()` default seed, Push banks and
 `presets/` in the installers all shipped - the measured facts are at the end of this
-document.
+document. **The native audio bridge is closed too** - see the section above for why all
+four of its planned routes turned out to be unnecessary.
 
 **What remains** (detailed in [TODO.md](TODO.md)):
 
-- **Extract the contract pattern** - `defineSamples()`, then `defineDevice()`: declare
-  what the Max side has, generate everything else. `defineSurface()` and `defineWatch()`
-  (shipped) are the first two instances; the codegen generalisation waits for a third.
+- **A file contract** - `defineFiles()`: a device declares that it writes to disk, and
+  the build derives the `download` chain, the folder plumbing and the selectors, instead
+  of three things having to be remembered together.
+- **Hybrid controls** - a pool of native `live.dial`s the Surface declares, that dynamic
+  controls borrow from. Generalises m4l-strudel's hand-rolled `S1..S8`.
+- **Extract the contract pattern** - lift the shared codegen once a third declaration
+  exists, then `defineDevice()`: declare what the Max side has, generate everything else.
+  `defineSurface()` and `defineWatch()` are the first two instances.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
   every DAW instead of only Live. Assessed in
   **[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md)**: most of this architecture is not actually
   about Max, but the LiveAPI wrapper does not port and the headless build is the price.
   Not started.
-- ~~**The native audio bridge** (Phase 8)~~ - **DONE in 0.9.9, and not the way it was
-  planned.** The four-route analysis (a C++ external, a socket bridge, offline render,
-  PCM over messages) was answered by an object that already existed: `[jweb~]` carries
-  the page's Web Audio straight into the signal graph. See the `webaudio` chain above.
 - **Verify below Live 12 / Max 9.** Devices now require `[jweb~]`, which is newer than
   the plain `[jweb]` this library started on. Which Max version first shipped it has not
   been established, so treat older hosts as unverified.

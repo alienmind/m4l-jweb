@@ -547,6 +547,95 @@ function floatLines(spec) {
   ];
 }
 
+/**
+ * The `[jweb~]` a sounding window holds, and the pair of `[outlet]`s its L and R
+ * leave the subpatcher on.
+ *
+ * ------------------------------------------------------------------------------
+ * WHY A SUBPATCHER CAN CARRY A SIGNAL AT ALL
+ *
+ * An `[outlet]` inside a `[p]` is typeless until something is wired to it; wire a
+ * signal to it and the corresponding outlet on the parent `[p]` box IS a signal
+ * outlet. What decides WHICH outlet is which is the x position of the outlet boxes
+ * in the subpatcher - left to right - which is why L sits at x=16, R at x=56 and
+ * the message outlet far right at x=200. The `[p]` box declares the result in
+ * `outlettype` so the saved file already says signal, signal, message.
+ *
+ * The device view's own `[jweb~]` (templates/base.json) has exactly this shape:
+ * three outlets, L, R and the page's messages. A window is the same object in a
+ * subpatcher, so the `webaudio` chain's mix stage applies unchanged.
+ */
+function audioWindowBoxes(id, spec) {
+  const outletY = 96 + spec.height + 48;
+  return [
+    {
+      box: {
+        id: "obj-jweb",
+        maxclass: "jweb~",
+        numinlets: 1,
+        numoutlets: 3,
+        outlettype: ["signal", "signal", ""],
+        rendermode: 1,
+        patching_rect: [16, 96, spec.width, spec.height],
+        presentation: 1,
+        presentation_rect: [0, 0, spec.width, spec.height],
+      },
+    },
+    { box: { id: "obj-out-l", maxclass: "outlet", patching_rect: [16, outletY, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal L" } },
+    { box: { id: "obj-out-r", maxclass: "outlet", patching_rect: [56, outletY, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal R" } },
+  ];
+}
+
+/**
+ * Sum a sounding window into the device's audio path, and make sure its page is
+ * actually LOADED.
+ *
+ * The mix is the `webaudio` chain's stage shape (chains.mjs), claimed here because
+ * `applyWindows` runs before `closeAudio` - the window is just another stage in the
+ * series, and `ctx.audioIn`/`ctx.setAudioOut` are the hand-off.
+ *
+ * The keepalive is the part that is NOT obvious. A `[jweb]` in a subpatcher whose
+ * window has never been opened may never load its page, and a page that never
+ * loaded has no AudioContext and makes no sound - a device that is silent until the
+ * user happens to open a window would be a trap. So `loadbang` pulses the window
+ * open and closes it again a moment later: the page loads, the audio starts, and
+ * the window is out of the way. It is deliberately a PULSE and not a hidden open -
+ * `[pcontrol]`'s `close` is the same message the app sends, so nothing special
+ * needs to be true about the window afterwards.
+ */
+function mixAudioWindow(ctx, id, subpatcherId, pcontrolId) {
+  const { boxes, lines, device } = ctx;
+
+  // openAudio() leaves ctx.audioIn throwing on a MIDI device, but its message talks
+  // about chains. Say what is actually wrong here.
+  if (!ctx.audioTail) {
+    throw new Error(
+      `window "${id}" is declared \`audio: true\`, but device "${device?.name}" is type "${device?.type}". ` +
+        `A sounding window needs the signal path: set \`type: "audio"\` or \`type: "instrument"\` in patcher/devices.mjs.`,
+    );
+  }
+
+  for (const ch of [0, 1]) {
+    const [srcId, srcOut] = ctx.audioIn(ch);
+    const mixId = `obj-window-${id}-mix-${ch === 0 ? "l" : "r"}`;
+    boxes.push(box(mixId, "+~", { numinlets: 2, numoutlets: 1, outlettype: ["signal"] }));
+    lines.push(line(srcId, srcOut, mixId, 0)); // whatever the last stage left
+    lines.push(line(subpatcherId, ch, mixId, 1)); // the window's page
+    ctx.setAudioOut(ch, mixId, 0);
+  }
+
+  const ka = (suffix) => `obj-window-${id}-ka-${suffix}`;
+  boxes.push(box(ka("loadbang"), "loadbang", { numinlets: 1, numoutlets: 1, outlettype: ["bang"] }));
+  boxes.push(box(ka("open"), "open", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+  boxes.push(box(ka("delay"), "delay 1500", { numinlets: 2, numoutlets: 1, outlettype: ["bang"] }));
+  boxes.push(box(ka("close"), "close", { maxclass: "message", numinlets: 2, numoutlets: 1 }));
+  lines.push(line(ka("loadbang"), 0, ka("open"), 0));
+  lines.push(line(ka("loadbang"), 0, ka("delay"), 0));
+  lines.push(line(ka("delay"), 0, ka("close"), 0));
+  lines.push(line(ka("open"), 0, pcontrolId, 0));
+  lines.push(line(ka("close"), 0, pcontrolId, 0));
+}
+
 export function applyWindows(ctx) {
   const { boxes, lines, surface, unmatchedId } = ctx;
   const windowIds = surface?.windows ? Object.keys(surface.windows) : [];
@@ -596,6 +685,11 @@ export function applyWindows(ctx) {
     const pcontrolId = `obj-window-${id}-pcontrol`;
     boxes.push(box(pcontrolId, "pcontrol"));
 
+    // A SOUNDING window: [jweb~] with two signal outlets ahead of the message one.
+    // Everything above this point - the route, the triggers, [pcontrol] - is the
+    // same for both kinds, because opening a window is opening a window.
+    const audio = !!spec.audio;
+
     const subpatcherId = `obj-window-${id}-sub`;
     lines.push(line(pcontrolId, 0, subpatcherId, 0));
     // The window's [jweb] can now TALK BACK. Its output leaves the subpatcher on an
@@ -603,7 +697,10 @@ export function applyWindows(ctx) {
     // device view feeds. It is tagged `window <id>` inside (below), so the wrapper
     // tells the two apart and can answer the right one. Without this the window's
     // page could display but never send a message: the [jweb] outlet went nowhere.
-    lines.push(line(subpatcherId, 0, unmatchedId, 0));
+    //
+    // On a sounding window the messages are the LAST outlet: 0 and 1 are the page's
+    // L and R.
+    lines.push(line(subpatcherId, audio ? 2 : 0, unmatchedId, 0));
     boxes.push({
       box: {
         id: subpatcherId,
@@ -613,8 +710,8 @@ export function applyWindows(ctx) {
         // subpatcher that has no inlets, so [pcontrol] would end up wired to
         // NOTHING - silently, in the saved file. That was attempt 1.
         numinlets: 1,
-        numoutlets: 1,
-        outlettype: [""],
+        numoutlets: audio ? 3 : 1,
+        outlettype: audio ? ["signal", "signal", ""] : [""],
         patching_rect: [16, 620, 120, 22],
         patcher: {
           fileversion: 1,
@@ -637,18 +734,22 @@ export function applyWindows(ctx) {
                 patching_rect: [16, 56, 160, 22],
               },
             },
-            {
-              box: {
-                id: "obj-jweb",
-                maxclass: "jweb",
-                numinlets: 1,
-                numoutlets: 2,
-                outlettype: ["", ""],
-                patching_rect: [16, 96, spec.width, spec.height],
-                presentation: 1,
-                presentation_rect: [0, 0, spec.width, spec.height],
-              },
-            },
+            ...(audio
+              ? audioWindowBoxes(id, spec)
+              : [
+                  {
+                    box: {
+                      id: "obj-jweb",
+                      maxclass: "jweb",
+                      numinlets: 1,
+                      numoutlets: 2,
+                      outlettype: ["", ""],
+                      patching_rect: [16, 96, spec.width, spec.height],
+                      presentation: 1,
+                      presentation_rect: [0, 0, spec.width, spec.height],
+                    },
+                  },
+                ]),
             // TAG the window's messages with which window they are, so the wrapper's
             // `window()` can answer THIS window (its [jweb] has no cord from [js], so
             // a reply goes back by name). The page emits bare selectors; the tag is
@@ -662,22 +763,33 @@ export function applyWindows(ctx) {
                 numinlets: 1,
                 numoutlets: 1,
                 outlettype: [""],
-                patching_rect: [16, 96 + spec.height + 16, 160, 22],
+                // On a sounding window the signal outlets own the left of the row,
+                // and outlet ORDER is x order - so the messages move right.
+                patching_rect: [audio ? 200 : 16, 96 + spec.height + 16, 160, 22],
               },
             },
-            { box: { id: "obj-out", maxclass: "outlet", patching_rect: [16, 96 + spec.height + 48, 30, 30], numinlets: 1, numoutlets: 0 } },
+            { box: { id: "obj-out", maxclass: "outlet", patching_rect: [audio ? 200 : 16, 96 + spec.height + 48, 30, 30], numinlets: 1, numoutlets: 0 } },
             ...floatBoxes(spec),
           ],
           lines: [
             { patchline: { source: ["obj-recv", 0], destination: ["obj-jweb", 0] } },
             // [jweb] outlet 0 is the page's messages; tag them and send them out.
-            { patchline: { source: ["obj-jweb", 0], destination: ["obj-tag", 0] } },
+            // On [jweb~] that is outlet 2 - 0 and 1 carry the sound.
+            { patchline: { source: ["obj-jweb", audio ? 2 : 0], destination: ["obj-tag", 0] } },
             { patchline: { source: ["obj-tag", 0], destination: ["obj-out", 0] } },
+            ...(audio
+              ? [
+                  { patchline: { source: ["obj-jweb", 0], destination: ["obj-out-l", 0] } },
+                  { patchline: { source: ["obj-jweb", 1], destination: ["obj-out-r", 0] } },
+                ]
+              : []),
             ...floatLines(spec),
           ],
         },
       },
     });
+
+    if (audio) mixAudioWindow(ctx, id, subpatcherId, pcontrolId);
   });
 }
 

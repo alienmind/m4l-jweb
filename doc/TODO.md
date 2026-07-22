@@ -6,84 +6,120 @@ effort to biggest. What has shipped is recorded where it belongs: **what the lib
 does** in [README.md](../README.md), **how and why (including everything measured in
 Live)** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-- How a page's audio could reach a track used to be the big open design question here.
-  `[jweb~]` settled it in 0.9.9 - see item 3 below.
-- The two rules everything follows: **`[js]` is a control plane, not a data plane**
-  (bulk data travels via disk, never through Max messages), and **gate every unknown
-  behind a cheap spike that can fail in an afternoon rather than a week.**
+The two rules everything here follows: **`[js]` is a control plane, not a data plane**
+(bulk data travels via disk, never through Max messages), and **gate every unknown
+behind a cheap spike that can fail in an afternoon rather than a week.**
+
+A third rule, learned the expensive way in 0.9.9: **re-verify a premise before designing
+around it.** The biggest item this file ever carried - "a page cannot put audio on a
+track, so we need a C++ external" - was false about the object we were actually using,
+and four routes were analysed and one fully built before anyone checked. That
+postmortem now lives in
+[ARCHITECTURE.md](ARCHITECTURE.md#the-native-audio-bridge-four-routes-and-the-object-that-made-all-four-moot),
+because it is settled history rather than work.
 
 ---
 
-## 1. Extract the contract pattern - `defineSamples()`, then generalise
+## 1. `defineFiles()` - the third declaration, and the one reality asked for
 
-`defineSurface()` is one instance of a rule: *you declare what the Max side has, the
-build derives everything else* - objects, wiring, protocol selectors, a typed React
-hook, a harness mock. `defineWatch()` is now a second (SHIPPED - see README and
-CHANGELOG). Two more instances, then the generalisation:
+**Why this and not `defineSamples()`.** This slot used to read "`defineSamples()` - the
+`buffer~` slots as a declaration". That item is dead: 0.9.9 deleted the `samples`,
+`instrument` and `renderplay` chains and their `buffer_load` / `voice_play` APIs,
+because a `[jweb~]` page decodes and plays its own audio. There are no `buffer~` slots
+left in the library to declare. (One orphan remains to clean up: `deviceBufName` /
+`voiceBufName` in `packages/build/src/chains.mjs` now have zero callers. **Salvage the
+finding before deleting the code**: a leading `---` in a name is Max for Live's
+per-DEVICE-instance substitution, scoped across subpatchers and `[poly~]` voices, and
+`#0` is NOT - it stays literal in an `.amxd`, which is how two copies of one device
+silently shared one buffer. That belongs in [MAX-FACTS.md](MAX-FACTS.md); it is true of
+Max whether or not this library uses it.)
 
-- **`defineSamples()`** - the `buffer~` slots as a declaration, the third instance.
-- **Lift the shared codegen.** Declaration -> boxes -> wiring -> selectors is one
-  pipeline. Leave the user-facing APIs bespoke.
-- **`defineDevice()`** - fold in the manifest. End state: you do not write `[js]`.
+**What replaced it, on evidence.** Writing files turned out to be a real contract with
+three parts that MUST travel together, and m4l-strudel shipped a device missing one of
+them for a day:
+
+- the **`download` chain**, because it owns `[maxurl]`, and phase three of `saveToFile`
+  is a `file://` place through it - even for a device that never downloads anything;
+- the wrapper's **device-folder flag**, which is how the page learns where its files
+  went;
+- the **selectors** - `fetch_to_file`, the `save_*` exchange, `device_folder`.
+
+Get the first one wrong and the failure is *silent*: the bytes are written correctly,
+the place request leaves on an aux outlet with nothing on the other end, no reply ever
+comes, the promise never settles. The UI sits on "Rendering..." forever next to a
+scratch file that looks almost right. Nothing in the build or the tests can see it.
+
+**The shape.** `defineFiles()` in `src/app/<device>/files.ts`, the third sibling of
+`defineSurface()` and `defineWatch()`: the device declares that it writes to disk (and
+optionally into which subfolder), and the build derives the chain entry, the folder
+plumbing and the selectors. A device that declares nothing gets no `[maxurl]`, and a
+device that declares files cannot be built without it.
+
+**Then, and only then, lift the shared codegen.** Declaration -> boxes -> wiring ->
+selectors is one pipeline across Surface, Watch and Files; three instances is enough to
+extract from, two was not. Leave the user-facing APIs bespoke. End state is
+`defineDevice()` - folding in the manifest, so you never write `[js]`.
 
 Do NOT build the generic compiler first and express the Surface in terms of it. An
-abstraction from one example is a guess - which is why the codegen lift waits for
-`defineSamples()` rather than being extracted from Surface + Watch alone.
+abstraction from one example is a guess.
 
 ## 2. Hybrid controls: a native-knob pool the Surface declares
 
 A device has more controls than it can afford native `live.dial`s: a dial is stamped
 into the frozen `.amxd` at build time, so their count and identity are fixed, while a
-device's real controls are dynamic (Strudel's superdough device discovers its
-`slider()`s per pattern). Today superdough hand-rolls the bridge: eight generic dials
-`S1..S8`, an app that maps discovered controls onto them by order, renames them at
-runtime (`knob_label`), and denormalises each dial's 0..1 travel into the control's own
-range. That logic is device business that belongs one level down, in the library.
+device's real controls are dynamic (m4l-strudel's main device discovers its `slider()`s
+per pattern). Today that device hand-rolls the whole bridge: eight generic dials
+`S1..S8`, an app that maps discovered controls onto them by order, a `knob_label`
+message, and a denormalise from each dial's 0..1 travel into the control's own range.
+None of that is device business, and there are now two devices doing it.
 
 Push it into the Surface as a first-class contract, usable by ANY device:
 
 - **Declare a POOL of native controls**, not individual dials - a fixed count of
   build-time `live.dial`s the device reserves (the frozen, macro-mappable, Push-visible
-  slots), same way `defineSurface` already declares params.
-- **Let a control declare whether it wants a native slot.** A device (or its React UI)
-  declares controls dynamically; each says "map me to the native pool" or "web-only". A
-  control that wants native BORROWS a slot from the pool; when it goes away the slot
-  returns. The Surface owns the borrow/return bookkeeping and the by-order mapping.
-- **Fold in the runtime rename and the range denormalise** (the pool slot carries the
-  borrower's semantic name and maps its 0..1 travel to the borrower's min..max) so the
-  device stops reimplementing `knob_label` + normalise/denormalise by hand.
+  slots), the same way `defineSurface()` already declares params.
+- **Let a control declare whether it wants a native slot.** A control that wants one
+  BORROWS from the pool; when it goes away the slot returns. The Surface owns the
+  borrow/return bookkeeping and the by-order mapping.
+- **Fold in the range denormalise**, so a borrower's min..max is the contract's problem
+  and not every device's.
 - **Typed React hook + harness mock**, same as the rest of the contract: a `useControl`
   that is one value whether it landed in the native pool or stayed web-only.
 
-Strudel's superdough device adopts it immediately - it is exactly the hand-rolled
-`S1..S8` logic, generalised. This is the same "declare what Max has, derive the rest"
-rule as item 1, applied to the native/dynamic control split. Gate the unknown Max bits
-(runtime rename, runtime range change on a frozen dial) behind the existing spikes
-before folding them into the contract.
+**What the spike already answered, and it constrains the API.** The original item said
+to gate the unknown Max bits - runtime rename and runtime range change on a frozen dial
+- behind a spike first. That spike has since run in Live, via m4l-strudel's `knob_label`
+implementation, and came back **negative on both**: the dials keep their build-time
+`S1`, `S2` names in the device panel, and they do not take a new range either. So this
+contract can deliver borrowing, by-order mapping and denormalisation, but **it cannot
+promise that a native dial shows the borrower's semantic name**. Design the API so the
+name is a nice-to-have the web UI always renders and the dial may not - not a guarantee
+in the type signature. Re-running the rename spike against a newer Max is cheap and
+worth doing before the API is frozen; if it ever passes, the name folds in without a
+breaking change.
 
-## 3. The native audio bridge (JS -> Max MSP) - SOLVED, 0.9.9
+## 3. A folder-path helper, because revealing a folder is impossible
 
-**Closed. The premise was false.** This item read: "`[jweb]` has no `~` outlets;
-bridging realtime audio over the JSON message bridge is impossible (latency, jitter,
-CPU). It needs a native C++ external or a local socket bridge." The first clause is
-true only of `[jweb]`. **`[jweb~]` (Max 8/9) has two signal outlets**, so the page's
-Web Audio output goes straight into Max's `~` graph - no external, no socket, no PCM
-over the message bridge.
+Every device that writes files hits the same wall: the user asks "where did it go", and
+neither the page nor Max can open a file manager. `; max launchbrowser <folder>` is the
+only door Max offers and it does not work - measured in Live on Windows 11 across three
+rounds, in both forms. A percent-encoded `file:///C:/...` URL DOES reach the shell (a
+wrong path raised a real "cannot find the file" dialog naming it) but a correct one
+opened nothing and reported nothing; a native backslash path behaved identically.
+`[js]` has no shell call, and there is no second Max object that reveals a path.
 
-What shipped instead of a C++ external:
-- `base.json` emits `[jweb~]` (outlets: signal L, signal R, messages on **2**), and
-  `claimAppMessages()` reads the message stream from outlet 2.
-- The `webaudio` chain sums those signal outlets into the device's path with `[+~]`,
-  so an audio effect stays a pass-through and an instrument originates sound.
-- The `renderplay`, `samples` and `instrument` chains - all workarounds for the missing
-  outlets - were deleted, along with their bridge APIs.
+The workaround - put the path on the clipboard for the user to paste - is currently
+duplicated in m4l-strudel, and it is nastier than it sounds:
+`document.execCommand("copy")` **returns `true` in a jweb page and copies nothing**, and
+the page cannot detect it, because `navigator.clipboard.readText()` needs the secure
+context a `file://` page does not have. A copy can be claimed but never confirmed. The
+shipping answer shows a focused, pre-selected field and waits for the browser's own
+`copy` event, which fires only when a copy really happens.
 
-The old four-route analysis (a C++ external, a socket bridge, offline render, PCM over
-the message bridge) is superseded and its design doc deleted: none of the four was
-needed, because none of them considered `[jweb~]` - we did not know it existed. Route B
-(offline render + `saveToFile` + `[buffer~]`) was built, shipped in 0.9.x, and is now
-retired - see [m4l-strudel's drawer](../../m4l-strudel/doc/DRAWER_OF_FAILED_IDEAS.md)
-for what it cost and what it taught.
+That is library business by the same logic as item 2: three devices needed it, the
+failure mode is a lie in the UI, and no device should have to rediscover it. Ship it as
+a small bridge/surface helper with the honest three-way result (copied / user copied /
+not copied) rather than a boolean.
 
 ## 4. (for next generation) A VST3 backend, so a device runs outside Live
 
