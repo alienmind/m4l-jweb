@@ -128,6 +128,23 @@ function ui_ready(): void {
   if (typeof onUiReady === "function") onUiReady();
 }
 
+/**
+ * One page hands a message to another page's window.
+ *
+ * The two pages of a device are separate Chromium contexts and share nothing -
+ * no globals, no memory, no events. State slots already cross that gap, but a
+ * slot SAVES WITH THE SET, so it is the wrong home for anything continuous: a
+ * knob being turned would write the Live set sixty times a second.
+ *
+ * This is the other half - a message that crosses and is not remembered. The
+ * device view sends `window_send <winId> <selector> <value>` and the page in that
+ * window receives `<selector> <value>` on the inlet it bound, exactly as if the
+ * wrapper had sent it. One selector and one value, for the reason reply() gives.
+ */
+function window_send(winId: string, selector: string, value: unknown): void {
+  messnamed("window-read-" + winId, selector, value);
+}
+
 /* ------------------------------------------------------------------ *
  * State persistence
  *
