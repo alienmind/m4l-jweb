@@ -51,6 +51,7 @@ function bang(): void {
   setupTempoObserver(); // liveapi.ts
   startTickPoll(); // liveapi.ts
   setupWatches(); // watch.ts - the device's declared defineWatch() observers
+  followWindowSizes(); // a resized window resizes its page
   // A device's own wrapper/device.ts hooks in here: this is the ONLY safe place
   // to create LiveAPI objects (see the loadbang trap above).
   if (typeof onDeviceReady === "function") onDeviceReady();
@@ -495,6 +496,75 @@ function sendWindowUrl(winId: string, target: string): void {
 
 /** What each window was last pointed at, so a second load does not re-fetch it. */
 var sentWindowUrls: { [id: string]: string } = {};
+
+/* ------------------------------------------------------------------ *
+ * A window's page follows the window's size - SPIKE
+ *
+ * A floating window can be dragged bigger, and its [jweb] does not care: the box
+ * has the size the build gave it, so the page keeps its original width and the
+ * rest of the window is empty grey. For a reference card that is tolerable; for a
+ * window you WORK in (an editor, a whole REPL) it makes resizing pointless.
+ *
+ * Max has no resize NOTIFICATION - `window getsize` is a query, and [thispatcher]
+ * reports only what it is asked. So this polls, cheaply, and only while the window
+ * is actually open.
+ *
+ * WHY IT MAY NOT WORK, and what to watch. This repo has already measured that
+ * setting `presentation_rect` at runtime is accepted but NOT redrawn in a frozen
+ * M4L device (see setNativeHidden). That was the device view, which is Live's
+ * presentation; a floating subpatcher window is an ordinary patcher window, so the
+ * same call may well take here. It logs the first size it applies per window, so
+ * the Max console says whether it did.
+ * ------------------------------------------------------------------ */
+
+var resizeTask: Task | null = null;
+/** The last size applied per window, so the log is one line and not one per poll. */
+var appliedSize: { [id: string]: string } = {};
+
+function followWindowSizes(): void {
+  var ids = listWindowIds();
+  if (!ids.length) return;
+  if (resizeTask) resizeTask.cancel();
+  resizeTask = new Task(function () {
+    for (var i = 0; i < ids.length; i++) fitWindowPage(ids[i]);
+  }, this);
+  resizeTask.interval = 500;
+  resizeTask.repeat();
+}
+
+function fitWindowPage(winId: string): void {
+  try {
+    var box = this.patcher.getnamed("window-" + winId);
+    if (!box) return;
+    var sub = box.subpatcher();
+    if (!sub) return;
+    var wind = sub.wind;
+    // A closed window has nothing to fit, and reading a hidden one every half
+    // second for no reason is the kind of cost that only shows up in someone's CPU
+    // meter.
+    if (!wind || !wind.visible) return;
+
+    // Max reports [width, height] here, but be liberal: a 4-number rect would
+    // otherwise be applied as a nonsense size.
+    var size = wind.size;
+    if (!size || size.length < 2) return;
+    var w = size.length >= 4 ? size[2] - size[0] : size[0];
+    var h = size.length >= 4 ? size[3] - size[1] : size[1];
+    if (!(w > 0 && h > 0)) return;
+
+    var key = w + "x" + h;
+    if (appliedSize[winId] === key) return;
+    appliedSize[winId] = key;
+
+    var page = sub.getnamed("obj-jweb");
+    if (!page) return;
+    page.rect = [0, 0, w, h];
+    page.presentation_rect = [0, 0, w, h];
+    post("m4l-jweb: window " + winId + " page fitted to " + key + "\n");
+  } catch (e) {
+    post("m4l-jweb: window " + winId + " resize error: " + (e as Error).message + "\n");
+  }
+}
 
 /** Is this window's content a sidecar folder rather than an extracted payload? */
 function isSiteWindow(winId: string): boolean {

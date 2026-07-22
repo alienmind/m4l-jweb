@@ -579,6 +579,7 @@ function audioWindowBoxes(id, spec) {
         patching_rect: [16, 96, spec.width, spec.height],
         presentation: 1,
         presentation_rect: [0, 0, spec.width, spec.height],
+        varname: "obj-jweb",
       },
     },
     { box: { id: "obj-out-l", maxclass: "outlet", patching_rect: [16, outletY, 30, 30], numinlets: 1, numoutlets: 0, comment: "signal L" } },
@@ -712,6 +713,10 @@ export function applyWindows(ctx) {
         numinlets: 1,
         numoutlets: audio ? 3 : 1,
         outlettype: audio ? ["signal", "signal", ""] : [""],
+        // A scripting name, so [js] can reach INTO this subpatcher at runtime
+        // (getnamed -> subpatcher()). That is how the window's page is resized to
+        // follow the window - see followWindowSizes() in the wrapper.
+        varname: `window-${id}`,
         patching_rect: [16, 620, 120, 22],
         patcher: {
           fileversion: 1,
@@ -747,6 +752,7 @@ export function applyWindows(ctx) {
                       patching_rect: [16, 96, spec.width, spec.height],
                       presentation: 1,
                       presentation_rect: [0, 0, spec.width, spec.height],
+                      varname: "obj-jweb",
                     },
                   },
                 ]),
