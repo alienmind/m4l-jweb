@@ -165,6 +165,30 @@ export interface WindowSpec {
    */
   audio?: boolean;
   /**
+   * Output latency of the sounding window's `[jweb~]`, in milliseconds - the ring
+   * buffer between Chromium's audio thread and MSP. Max 9 documents 0 as the
+   * minimum (~23 ms at 44.1kHz, ~21 ms at 48kHz), warns that the minimum "may
+   * result in occasional drop-outs or distortion", and caps the maximum at three
+   * times the minimum. Unset leaves the object's own default.
+   *
+   * Only meaningful with `audio: true`; ignored otherwise.
+   */
+  latency?: number;
+  /**
+   * The `rendermode` attribute stamped on the window's jweb object:
+   * 0 = onscreen, 1 = offscreen. The Max reference notes offscreen "is slower".
+   * Default is 1, which is what every generated window has shipped with so far.
+   */
+  rendermode?: 0 | 1;
+  /**
+   * Report interval of the window's level tap (`[peakamp~ N]`), in milliseconds.
+   * Default 10, which is 100 float messages per second per channel into the
+   * wrapper's [js]. Raise it to trade meter smoothness for message traffic.
+   *
+   * Only meaningful with `audio: true`; ignored otherwise.
+   */
+  levelInterval?: number;
+  /**
    * Window content from a PREBUILT static directory rather than a component of
    * ours - a whole site, built by something else (its own Astro/vite build), and
    * delivered as a folder next to the `.amxd` instead of base64 inside it.
