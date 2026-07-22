@@ -1,5 +1,5 @@
 /**
- * neutrality.test.mjs - the NEUTRALITY CONTRACT (doc/TODO.md item 2A).
+ * neutrality.test.mjs - the NEUTRALITY CONTRACT (doc/ARCHITECTURE.md, audio chains).
  *
  * The DSP graph is written at BUILD time and every stage is ALWAYS in the signal
  * path, whether or not a device's line names it. That is only honest if each stage

@@ -23,11 +23,11 @@
  * @m4l-jweb/build). Declaring a parameter here makes a dial appear in Live, and
  * `patcher/devices.mjs` has no `parameters` field any more.
  *
- * The APP side is not generated yet - `useParam()` / `useSurface()` and the
- * generated protocol selectors are Stages 2.2 and 2.3 of doc/TODO.md - so a
- * device still names its parameters in its own `protocol.ts` and sends `set_<id>`
- * through the bridge itself. Push banks are deferred (3.3); until then Live falls
- * back to declaration order, and Push shows every parameter.
+ * The APP side is generated too now: `useParam()` / `useSurface()` read a declared
+ * parameter in React (@m4l-jweb/surface/react) and the selectors come from the
+ * declaration, so a device does not retype `set_<id>` in its own `protocol.ts`. Push
+ * banks ship as well - a surface that declares none falls back to declaration order,
+ * and Push shows every parameter.
  */
 
 /* ------------------------------------------------------------------ *
@@ -141,7 +141,38 @@ export interface WindowSpec {
   title: string;
   width: number;
   height: number;
-  entry: string;
+  /**
+   * The component to bundle, from the device's own folder. Mutually exclusive
+   * with `site`: a window's content is either one of our components or a
+   * prebuilt directory, never both.
+   */
+  entry?: string;
+  /**
+   * The window's page is a SOUND SOURCE.
+   *
+   * It compiles to `[jweb~]` instead of `[jweb]`, and the page's L/R signal
+   * outlets leave the subpatcher on a pair of `[outlet]`s and are summed into the
+   * device's audio path at the same `[+~]` stage shape the `webaudio` chain uses.
+   * The device must therefore be an `audio` or `instrument` device; a MIDI device
+   * has no signal path and the build says so.
+   *
+   * A window that makes sound cannot wait to be opened before it loads: the page
+   * is pulsed open-then-closed once at device load (`loadbang`), so its
+   * AudioContext exists whether or not anyone ever looks at the window.
+   *
+   * The plain `[jweb]` window is untouched by this - `audio` ADDS a second
+   * primitive rather than changing the first.
+   */
+  audio?: boolean;
+  /**
+   * Window content from a PREBUILT static directory rather than a component of
+   * ours - a whole site, built by something else (its own Astro/vite build), and
+   * delivered as a folder next to the `.amxd` instead of base64 inside it.
+   *
+   * The path is relative to the device repo root and must contain `index.html`.
+   * Mutually exclusive with `entry`.
+   */
+  site?: string;
   /**
    * Keep the window in FRONT of Live, instead of behind it the moment Live is clicked.
    *
@@ -346,6 +377,19 @@ export function defineSurface<
     for (const id of bank.params) {
       if (seen.has(id)) throw new Error(`surface: "${id}" appears in more than one bank`);
       seen.add(id);
+    }
+  }
+
+  // A window holds EITHER a component of ours or a prebuilt site. Both is
+  // ambiguous (which one loads?) and neither is an empty window - and both would
+  // otherwise fail deep in the build, as a vite entry that does not resolve or a
+  // page that never gets a url.
+  for (const [id, w] of Object.entries(def.windows ?? {})) {
+    if (w.entry && w.site) {
+      throw new Error(`surface: window "${id}" declares both entry "${w.entry}" and site "${w.site}" - a window holds one or the other`);
+    }
+    if (!w.entry && !w.site) {
+      throw new Error(`surface: window "${id}" declares neither entry nor site - it would open empty`);
     }
   }
 

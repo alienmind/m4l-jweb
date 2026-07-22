@@ -58,7 +58,7 @@ declare class Task {
  * something has to build that dict, and [js] is the only thing in the patcher
  * that can.
  *
- * VERIFIED in Live (doc/TODO.md - what the spikes found, 1.3): [js] built a maxurl request dict
+ * VERIFIED in Live (doc/MAX-FACTS.md): [js] built a maxurl request dict
  * and read the response dict back. `constructor`, `set`, `clear` and `stringify`
  * all behave as declared. `get`, `parse` and `freepeer` were not exercised.
  */
@@ -101,7 +101,7 @@ declare class File {
  * ASYNCHRONOUS: framecount() right after it still reads the old size. Come back
  * on a Task.
  *
- * VERIFIED in Live (doc/TODO.md - what the spikes found, 1.2): an empty buffer~ went to 124439
+ * VERIFIED in Live (doc/MAX-FACTS.md): an empty buffer~ went to 124439
  * frames, 1 channel, midsample -0.0319 after `send("replace", "jongly.aif")`.
  * `send`, `framecount`, `channelcount` and `peek` are all real and behave as
  * declared. `poke` is the one member here still taken on faith from the docs.

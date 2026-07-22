@@ -126,8 +126,8 @@ export const AUDIO_OUT = "obj-plugout";
  * buffer takes its name from its creation argument and there is no documented runtime
  * rename), so the scoping has to be a load-time substitution Max itself performs.
  *
- * `#0` WAS TRIED AND DOES NOT WORK (spike, doc/TODO.md item 0, run 2026-07-17 in
- * Live). `#0` is documented for abstractions, and an .amxd device patcher turned out
+ * `#0` WAS TRIED AND DOES NOT WORK (spike run 2026-07-17 in Live; see
+ * doc/MAX-FACTS.md). `#0` is documented for abstractions, and an .amxd device patcher turned out
  * not to count as one: the token stayed literal in every instance, so writer and
  * reader still agreed on one global name and the collision survived, silently.
  *
@@ -645,8 +645,8 @@ function crushChain(ctx) {
  * drives - the app resolves that (our own filter, or an Auto Filter the user placed by
  * hand) and says so. That is what makes this bigger than an LFO on our own DSP: a slot
  * can point at any parameter in the set. **LOM ids are not stable across set reloads**,
- * so the app must re-bind on load and must never persist a raw id - see the diff rules
- * in doc/TODO.md item 1.
+ * so the app must re-bind on load and must never persist a raw id - see bindRemote() in
+ * @m4l-jweb/bridge for the rule.
  *
  * NOT IN THE SIGNAL PATH. It touches no audio: `ctx.audioIn`/`setAudioOut` are never
  * called, so `remote` composes with any chain list without taking a stage. It has no

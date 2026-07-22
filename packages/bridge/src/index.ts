@@ -470,7 +470,8 @@ export function saveToFile(destPath: string, bytes: ArrayBuffer): Promise<{ byte
  * running set, not names: they are not stable across a set reload, so an id saved
  * yesterday points at whatever occupies that slot today - or at nothing. Persist how
  * you FOUND the parameter (the device's position, the parameter's name) and resolve it
- * again; that is the same rule Translate mode's reconciler follows (doc/TODO.md item 1).
+ * again. (Translate mode's reconciler followed the same rule; that mode was settled as
+ * adopt-only, permanently - Live's Browser is unreachable from [js].)
  */
 export function bindRemote(slot: number, lomId: number | string): void {
   outlet(CHAIN_OUT.remote_bind, slot, lomId);
