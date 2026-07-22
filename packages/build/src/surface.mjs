@@ -202,8 +202,44 @@ const PITCH_Y = 56;
 export function computeNativeSlots(surface) {
   const native = surface?.layout?.native;
   if (!native || native.params.length === 0) return { slots: new Map(), width: 0 };
-  const rows = native.rows ?? 3;
   const slots = new Map();
+
+  // ROW SIZES, given explicitly: `rows: [1, 4, 4]` is one control on the first row
+  // and four on each of the next two. Column-major filling cannot express that -
+  // a transport button above two banks of dials came out interleaved with them -
+  // and it is what a panel actually wants to say.
+  if (Array.isArray(native.rows)) {
+    let i = 0;
+    let y = MARGIN;
+    let width = 0;
+    for (let r = 0; r < native.rows.length; r++) {
+      let x = MARGIN;
+      let rowH = 0;
+      for (let c = 0; c < native.rows[r] && i < native.params.length; c++, i++) {
+        const id = native.params[i];
+        const [w, h] = NATIVE_SIZE[surface.params[id].kind];
+        slots.set(id, [x, y, w, h]);
+        x += w + MARGIN;
+        rowH = Math.max(rowH, h);
+      }
+      width = Math.max(width, x);
+      y += Math.max(rowH, PITCH_Y - MARGIN) + MARGIN;
+    }
+    // Anything the rows did not account for still needs a rect, or it would have no
+    // presentation and simply not appear. Put it on one more row rather than
+    // silently dropping it.
+    let x = MARGIN;
+    for (; i < native.params.length; i++) {
+      const id = native.params[i];
+      const [w, h] = NATIVE_SIZE[surface.params[id].kind];
+      slots.set(id, [x, y, w, h]);
+      x += w + MARGIN;
+      width = Math.max(width, x);
+    }
+    return { slots, width };
+  }
+
+  const rows = native.rows ?? 3;
   let row = 0;
   let colW = 0;
   let x = MARGIN;
@@ -651,8 +687,11 @@ function mixAudioWindow(ctx, id, subpatcherId, pcontrolId) {
   // the last report, which is what a meter wants and costs a float per channel per
   // interval rather than a stream of samples.
   const tap = (suffix) => `obj-window-${id}-peak-${suffix}`;
-  boxes.push(box(tap("l"), "peakamp~ 40", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
-  boxes.push(box(tap("r"), "peakamp~ 40", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  // 10 ms - fast enough that the trace reads as the shape of the sound rather than a
+  // meter twitching. It is still an ENVELOPE and not a waveform: what crosses is one
+  // float per channel per report, not samples, because no page can be handed audio.
+  boxes.push(box(tap("l"), "peakamp~ 10", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
+  boxes.push(box(tap("r"), "peakamp~ 10", { numinlets: 1, numoutlets: 1, outlettype: ["float"] }));
   // `pak` and not `pack`: both inlets hot, so a change on either channel reports
   // rather than waiting for the left one to move.
   boxes.push(box(tap("pak"), "pak f f", { numinlets: 2, numoutlets: 1, outlettype: [""] }));

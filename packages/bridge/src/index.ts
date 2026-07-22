@@ -234,13 +234,68 @@ export const STATE_OUT = {
 export const PARAM_OUT = {
   /** UI -> wrapper: `get_param_id <id>` - what is this parameter's LOM id? Reply on `param_id`. */
   get_param_id: "get_param_id",
+  /** UI -> wrapper: `param_label <id> <name>` - rename the dial on the device panel. */
+  param_label: "param_label",
+  /** UI -> wrapper: `param_unit <id> <unit>` - how Live PRINTS the value. */
+  param_unit: "param_unit",
+  /** UI -> wrapper: `param_range <id> <lo> <hi>` - the dial's travel. Answered. */
+  param_range: "param_range",
 } as const;
 
 /** ...and the reply. */
 export const PARAM_IN = {
   /** wrapper -> UI: `param_id <id> <lomId>` - 0 means no parameter of that name resolved. */
   param_id: "param_id",
+  /** wrapper -> UI: `param_range_ok <id>` - Live took the range; the parameter now carries it. */
+  param_range_ok: "param_range_ok",
+  /** wrapper -> UI: `param_range_failed <id>` - it did not; the parameter is still as declared. */
+  param_range_failed: "param_range_failed",
+  /** wrapper -> device view: `param_desc <id> <name>` - what some page called this parameter. */
+  param_desc: "param_desc",
+  /** wrapper -> device view: `param_desc_range <id> <lo> <hi> <took>` - and its travel. */
+  param_desc_range: "param_desc_range",
 } as const;
+
+/**
+ * Say what a parameter IS, at runtime: its name, how Live should print it, and the
+ * travel it should have.
+ *
+ * A surface declares all three at BUILD time, which is right when the device knows
+ * what its controls do. It does not when the control is whatever the user's code
+ * just asked for - a pattern's `slider()`, a modulation slot pointed at something
+ * new - and then the dial reads `S1`, travels 0..1 and says nothing about the sound
+ * it is moving.
+ *
+ * ------------------------------------------------------------------------------
+ * WHAT TAKES, AND WHAT DOES NOT - measured in Live, not assumed.
+ *
+ * `name`  reaches the DEVICE PANEL. It does NOT reach Live's parameter registry or
+ *         the Rack macro picker, which keep the declared short name: a frozen
+ *         device cannot rename a parameter there.
+ * `unit`  takes. It is the unit STYLE, so the readout says "600 Hz" and not "600";
+ *         anything outside Max's list becomes a custom unit and still prints.
+ * `range` takes, AND CHANGES THE DOMAIN THE PARAMETER REPORTS. That is the trap:
+ *         a page that goes on normalizing 0..1 will scale a value that is already
+ *         scaled, and the control sticks at its minimum. So the wrapper ANSWERS -
+ *         `param_range_ok` or `param_range_failed` - and the caller must stop
+ *         normalizing when it took. `onParamRange()` below is that answer.
+ */
+export function describeParam(id: string, desc: { name?: string; unit?: string; range?: [number, number] }): void {
+  if (desc.name) outlet(PARAM_OUT.param_label, id, desc.name);
+  if (desc.unit) outlet(PARAM_OUT.param_unit, id, desc.unit);
+  if (desc.range && desc.range[1] > desc.range[0]) outlet(PARAM_OUT.param_range, id, desc.range[0], desc.range[1]);
+}
+
+/**
+ * Hear whether a `describeParam` range took, per parameter.
+ *
+ * Until this says yes, the parameter is still in its declared domain and the page
+ * owns the scaling. Exactly one scaling, wherever it ends up living.
+ */
+export function onParamRange(fn: (id: string, took: boolean) => void): void {
+  bindInlet(PARAM_IN.param_range_ok, (id) => fn(String(id), true));
+  bindInlet(PARAM_IN.param_range_failed, (id) => fn(String(id), false));
+}
 
 /**
  * Selectors the WRAPPER handles for reading and writing the CLIP on this device's
