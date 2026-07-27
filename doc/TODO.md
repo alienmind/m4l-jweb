@@ -26,13 +26,8 @@ because it is settled history rather than work.
 `buffer~` slots as a declaration". That item is dead: 0.9.9 deleted the `samples`,
 `instrument` and `renderplay` chains and their `buffer_load` / `voice_play` APIs,
 because a `[jweb~]` page decodes and plays its own audio. There are no `buffer~` slots
-left in the library to declare. (One orphan remains to clean up: `deviceBufName` /
-`voiceBufName` in `packages/build/src/chains.mjs` now have zero callers. **Salvage the
-finding before deleting the code**: a leading `---` in a name is Max for Live's
-per-DEVICE-instance substitution, scoped across subpatchers and `[poly~]` voices, and
-`#0` is NOT - it stays literal in an `.amxd`, which is how two copies of one device
-silently shared one buffer. That belongs in [MAX-FACTS.md](MAX-FACTS.md); it is true of
-Max whether or not this library uses it.)
+left in the library to declare, and the two orphaned name helpers that outlived them
+(`deviceBufName` / `voiceBufName`) are gone as of 1.2.1.
 
 **What replaced it, on evidence.** Writing files turned out to be a real contract with
 three parts that MUST travel together, and m4l-strudel shipped a device missing one of
@@ -63,30 +58,7 @@ extract from, two was not. Leave the user-facing APIs bespoke. End state is
 Do NOT build the generic compiler first and express the Surface in terms of it. An
 abstraction from one example is a guess.
 
-## 2. A folder-path helper, because revealing a folder is impossible
-
-Every device that writes files hits the same wall: the user asks "where did it go", and
-neither the page nor Max can open a file manager. `; max launchbrowser <folder>` is the
-only door Max offers and it does not work - measured in Live on Windows 11 across three
-rounds, in both forms. A percent-encoded `file:///C:/...` URL DOES reach the shell (a
-wrong path raised a real "cannot find the file" dialog naming it) but a correct one
-opened nothing and reported nothing; a native backslash path behaved identically.
-`[js]` has no shell call, and there is no second Max object that reveals a path.
-
-The workaround - put the path on the clipboard for the user to paste - is currently
-duplicated in m4l-strudel, and it is nastier than it sounds:
-`document.execCommand("copy")` **returns `true` in a jweb page and copies nothing**, and
-the page cannot detect it, because `navigator.clipboard.readText()` needs the secure
-context a `file://` page does not have. A copy can be claimed but never confirmed. The
-shipping answer shows a focused, pre-selected field and waits for the browser's own
-`copy` event, which fires only when a copy really happens.
-
-That is library business by the same logic as item 2: three devices needed it, the
-failure mode is a lie in the UI, and no device should have to rediscover it. Ship it as
-a small bridge/surface helper with the honest three-way result (copied / user copied /
-not copied) rather than a boolean.
-
-## 3. (for next generation) A VST3 backend, so a device runs outside Live
+## 2. (for next generation) A VST3 backend, so a device runs outside Live
 
 Assessed in [FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md): the app, the bridge, the surface
 and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the

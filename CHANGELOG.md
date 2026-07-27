@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.1 - telling the user where a file went
+
+**`copyPath()` in the bridge.** A device that writes files has to answer "where did it
+go", and nothing in Max can open a file manager: `; max launchbrowser <folder>` is the
+only door on offer and it does not open one. The clipboard is the remaining answer, and
+inside `[jweb~]` the clipboard lies - `document.execCommand("copy")` returns true while
+copying nothing, and the page cannot tell, because `navigator.clipboard.readText()`
+needs a secure context a `file://` page does not have. So the helper attempts the copy,
+then shows a focused, pre-selected field and waits for the browser's own `copy` event,
+and reports `copied` / `manual` / `cancelled` rather than a boolean that might be
+lying. Three devices had rediscovered this separately; the measurements are in
+doc/MAX-FACTS.md.
+
+**`deviceBufName` / `voiceBufName` removed.** 0.9.9 deleted the `samples`,
+`instrument` and `renderplay` chains, because a `[jweb~]` page decodes and plays its
+own audio, and these two outlived them with no callers. The finding they carried - a
+leading `---` is Max for Live's per-DEVICE-instance substitution, scoped across
+subpatchers and `[poly~]` voices, while `#0` stays literal in an `.amxd` - stays in
+doc/MAX-FACTS.md, because it is true of Max rather than of this library.
+
 ## 1.1.0 - windows that make sound, and controls that say what they are
 
 **A window can BE the instrument.** `window({ audio: true })` compiles to `[jweb~]`
