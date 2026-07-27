@@ -149,6 +149,31 @@ normalizes only while the answer is no. Exactly one scaling, wherever it lives. 
 `describeParam()` / `onParamRange()` in @m4l-jweb/bridge and `useControls()` in
 @m4l-jweb/surface/react.
 
+## ...and a re-ranged dial LOSES its automation lane and its macro (2026-07-27)
+
+Measured in Live, on the device the section above was written for. A widened dial
+stops following **its own automation lane in Arrangement** and **any Rack macro mapped
+to it**. Moving the automation breakpoint by hand is still audible, but the dial does
+not move under a playing transport, and a macro turns with nothing happening at the
+other end.
+
+What isolates it to the widening rather than to the renaming that travels with it: in
+the same device, at the same moment, `s1` had been renamed AND widened to 200..2000 and
+was dead, while `s2` had been renamed and left at 0..1 and worked normally. Rename is
+not the differentiator; range is.
+
+The reading that fits: Live's automation and macro layers bind against the parameter as
+the FROZEN DEVICE declares it, and `_parameter_range` moves the domain underneath them.
+A macro at 0.5 goes on writing 0.5 into a parameter now spanning 200..2000, which is its
+minimum - so the dial sits at the bottom and never visibly moves. No error, nothing in
+the console, and the attribute write itself still reports success.
+
+**So the range is not worth its price**, and `describeParam` no longer widens unless
+asked (`widenRange: true`). A dial left at 0..1 automates, MIDI-maps and reaches Push;
+the page does the scaling and renders the real value itself. What is lost is the dial's
+own readout - `0.44` instead of `600 Hz` - which is a label, against a control the
+musician cannot automate.
+
 ## `[jweb~]` has audio OUT and no audio IN (Max 9 reference, 2026-07-22)
 
 `[jweb~]` is "Web browser with audio output": ONE control inlet, and outlets L, R and

@@ -184,6 +184,19 @@ export function composePatcher(base, d, surface) {
   const mode = d.mode ?? d.type;
   boxes.find((b) => b.box.id === "obj-js").box.text = `js wrapper.js ${mode}`;
 
+  /**
+   * The ring buffer between Chromium's audio thread and MSP, for the DEVICE PAGE's
+   * own `[jweb~]`.
+   *
+   * `window({ audio: true, latency })` has taken this since 1.1.0, and the device
+   * page could not - so a device that put its buffer at the documented maximum for
+   * its sounding WINDOW left its own page at the object default (~21 ms at 48 kHz)
+   * and went on dropping out. Two pages, one setting, and only one of them had it.
+   *
+   * Unset keeps the object's default. jweb~ clamps to 3x the minimum.
+   */
+  if (d.latency != null) boxes.find((b) => b.box.id === "obj-jweb").box.latency = d.latency;
+
   const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
 
   /**
