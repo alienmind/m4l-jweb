@@ -265,13 +265,39 @@ export const dial = (spec: Omit<DialSpec, "kind">): DialSpec => ({
  * currently IS (name, unit, range - see describeParam in @m4l-jweb/bridge), and
  * keeps the scaling straight.
  */
-export const knobPool = <N extends number>(count: N, prefix = "s"): Record<string, DialSpec> => {
+/** 0 .. N-1 as a union. The recursion is bounded by the count the caller wrote. */
+type UpTo<N extends number, Acc extends number[] = []> = Acc["length"] extends N ? Acc[number] : UpTo<N, [...Acc, Acc["length"]]>;
+
+/**
+ * The dials are numbered from 1, and TypeScript cannot add. A lookup tuple is the
+ * whole trick: index 0 holds 1, index 7 holds 8. It stops at 32, which is four Push
+ * banks - past that `knobPool` still WORKS, its keys just widen back to `string` and
+ * `useParam(surface, "s33")` stops being checked.
+ */
+type OneBased = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+  17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+];
+
+/** `PoolIds<8>` is `"s1" | ... | "s8"`. */
+export type PoolIds<N extends number, P extends string = "s"> = `${P}${OneBased[UpTo<N>] & number}`;
+
+/**
+ * The KEYS are the point, not just the values. `params: { ...knobPool(8) }` has to
+ * leave `keyof P` carrying `s1`..`s8`, or the spread widens the surface to an index
+ * signature and every downstream `useParam(surface, "s3")` and `layout.native.params`
+ * entry stops type-checking against the declaration it came from.
+ */
+export const knobPool = <N extends number, P extends string = "s">(
+  count: N,
+  prefix: P = "s" as P,
+): Record<PoolIds<N, P>, DialSpec> => {
   const out: Record<string, DialSpec> = {};
   for (let i = 1; i <= count; i++) {
     // The short name is what Push prints when nothing has borrowed the slot yet.
     out[`${prefix}${i}`] = dial({ range: [0, 1], default: 0, short: `${prefix.toUpperCase()}${i}` });
   }
-  return out;
+  return out as Record<PoolIds<N, P>, DialSpec>;
 };
 export const toggle = (spec: Omit<ToggleSpec, "kind">): ToggleSpec => ({
   kind: "toggle",
