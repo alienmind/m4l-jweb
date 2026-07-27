@@ -113,42 +113,6 @@ export const AUDIO_IN = "obj-plugin";
 export const AUDIO_OUT = "obj-plugout";
 
 /**
- * A [buffer~] name that is unique PER DEVICE INSTANCE.
- *
- * THE BUG THIS EXISTS TO KILL. Buffer names are GLOBAL to Max, and they used to be
- * generated from the device name alone (`buf-<device>-<slot>`) and frozen into the
- * patcher at BUILD time. So two copies of one device - a drum rack on two tracks, which
- * is the normal case, not an exotic one - named their buffers identically, and Max gave
- * both to whichever loaded last. One rack's samples silently became the other's. No
- * error, no console line: just the wrong sound.
- *
- * A name minted by the wrapper after load cannot reach a box frozen at build time (a
- * buffer takes its name from its creation argument and there is no documented runtime
- * rename), so the scoping has to be a load-time substitution Max itself performs.
- *
- * `#0` WAS TRIED AND DOES NOT WORK (spike run 2026-07-17 in Live; see
- * doc/MAX-FACTS.md). `#0` is documented for abstractions, and an .amxd device patcher turned out
- * not to count as one: the token stayed literal in every instance, so writer and
- * reader still agreed on one global name and the collision survived, silently.
- *
- * `---` IS THE MECHANISM BUILT FOR THIS. Max for Live replaces a leading `---` in a
- * name with an id unique to the DEVICE instance - and the scope is the whole device,
- * subpatchers and [poly~] voices included, not one patcher. That kills the `#0`/`#1`
- * hand-off the first attempt needed: the voice spells the SAME name the device does,
- * and no id has to travel through [poly~]'s arguments.
- *
- * OUTSIDE LIVE `---` stays literal (it is a Live-only substitution). Both writer and
- * reader keep agreeing, so a patcher opened in standalone Max degrades to the old
- * shared-name behavior instead of breaking - acceptable, since the devices only
- * meaningfully run in Live.
- */
-export const deviceBufName = (device, slot) => `---buf-${device?.name}-${slot}`;
-
-/** The same buffer, as a [poly~] voice spells it: identical - `---` scopes per DEVICE,
- * not per patcher, so the voice shares the expansion with the patcher that loaded it. */
-export const voiceBufName = (device, slot) => deviceBufName(device, slot);
-
-/**
  * How long a `remote` slot takes to slide to each new value, in ms.
  *
  * It is a RAMP TIME, not a rate: the app sends values on the transport tick, and each
