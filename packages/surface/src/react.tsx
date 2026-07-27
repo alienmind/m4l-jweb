@@ -212,6 +212,21 @@ export interface PooledControl extends BorrowedControl {
  *    minimum - the bug that got an earlier attempt at this reverted. The wrapper
  *    answers whether each range took, and this hook scales exactly once either way.
  *
+ * `widenRange` IS OFF BY DEFAULT, and that is a measured decision rather than
+ * caution. A dial whose range was widened at runtime stops following its automation
+ * lane and any Rack macro mapped to it: both keep driving the parameter in the
+ * BUILD-TIME domain the frozen device gave them, so the value lands at the bottom of
+ * the new range and the dial never moves, silently. Left alone, the dials stay 0..1,
+ * this hook does the scaling, and automation, macros and Push all keep working - at
+ * the cost of the dial's own readout showing 0.44 rather than 600 Hz. Turn it on
+ * only where that readout is worth more than the automation.
+ *
+ * `describe: false` borrows and scales as usual but says NOTHING to Live. A device
+ * with two pages - a device view and a window - has two React trees against one
+ * pool, and both calling this means the last render wins: the dial ends up named
+ * after whichever page rendered most recently, flickering between them. Exactly one
+ * page should describe. The other still gets its `PooledControl[]` to draw.
+ *
  * KNOWN LIMIT, measured in Live: the name reaches the DEVICE PANEL, not Live's
  * parameter registry or a Rack macro picker, which keep the pool's own `S1..S8`.
  * A frozen device cannot rename a parameter there. So render the name in your own
@@ -221,6 +236,7 @@ export function useControls<P extends Record<string, ParamSpec>>(
   surface: Surface<P>,
   controls: readonly BorrowedControl[],
   poolIds: readonly Extract<keyof P, string>[],
+  options: { widenRange?: boolean; describe?: boolean } = {},
 ): PooledControl[] {
   /* eslint-disable react-hooks/rules-of-hooks */
   // A pool is dials, so its values are numbers - but `P` is the whole surface and
@@ -228,6 +244,8 @@ export function useControls<P extends Record<string, ParamSpec>>(
   // rather than at every write below.
   const params = poolIds.map((id) => useParam(surface, id)) as unknown as [number, (v: number) => void][];
   /* eslint-enable react-hooks/rules-of-hooks */
+
+  const { widenRange = false, describe = true } = options;
 
   /** Which dials Live actually widened. Until it says so, the dial is 0..1. */
   const [real, setReal] = useState<boolean[]>([]);
@@ -250,6 +268,7 @@ export function useControls<P extends Record<string, ParamSpec>>(
   // parameter attributes, and a device re-rendering is not news.
   const described = useRef<string[]>([]);
   useEffect(() => {
+    if (!describe) return;
     for (let i = 0; i < poolIds.length; i++) {
       const c = controls[i];
       const key = c ? `${c.name} ${c.min} ${c.max} ${c.unit ?? ""}` : "";
@@ -257,10 +276,10 @@ export function useControls<P extends Record<string, ParamSpec>>(
       described.current[i] = key;
       // A slot nobody is borrowing goes back to its declared identity, or it would
       // keep the name of a control that is no longer there.
-      if (c) describeParam(poolIds[i], { name: c.name, unit: c.unit, range: [c.min, c.max] });
-      else describeParam(poolIds[i], { name: String(poolIds[i]).toUpperCase(), range: [0, 1] });
+      if (c) describeParam(poolIds[i], { name: c.name, unit: c.unit, range: [c.min, c.max], widenRange });
+      else describeParam(poolIds[i], { name: String(poolIds[i]).toUpperCase(), range: [0, 1], widenRange });
     }
-  }, [controls, poolIds]);
+  }, [controls, poolIds, widenRange, describe]);
 
   // Seed a slot the first time a given control takes it, so an untouched dial reads
   // what the control says rather than 0.

@@ -274,16 +274,35 @@ export const PARAM_IN = {
  *         device cannot rename a parameter there.
  * `unit`  takes. It is the unit STYLE, so the readout says "600 Hz" and not "600";
  *         anything outside Max's list becomes a custom unit and still prints.
- * `range` takes, AND CHANGES THE DOMAIN THE PARAMETER REPORTS. That is the trap:
- *         a page that goes on normalizing 0..1 will scale a value that is already
- *         scaled, and the control sticks at its minimum. So the wrapper ANSWERS -
- *         `param_range_ok` or `param_range_failed` - and the caller must stop
- *         normalizing when it took. `onParamRange()` below is that answer.
+ * `range` takes, AND CHANGES THE DOMAIN THE PARAMETER REPORTS. That is the first
+ *         trap: a page that goes on normalizing 0..1 will scale a value that is
+ *         already scaled, and the control sticks at its minimum. So the wrapper
+ *         ANSWERS - `param_range_ok` or `param_range_failed` - and the caller must
+ *         stop normalizing when it took. `onParamRange()` below is that answer.
+ *
+ *         AND IT IS NOW OFF BY DEFAULT, because of a second trap that is worse.
+ *         Measured in Live: a dial whose range was widened at runtime STOPS
+ *         FOLLOWING ITS AUTOMATION LANE AND ANY RACK MACRO MAPPED TO IT. Both go on
+ *         driving the parameter in its BUILD-TIME domain - the frozen device is what
+ *         Live bound them against - so a macro at 0.5 writes 0.5 into a parameter
+ *         now spanning 200..2000, and the dial sits at the bottom, unmoving, with no
+ *         error anywhere. A sibling dial left at 0..1 in the same device responds
+ *         normally, which is what isolates it to the widening.
+ *
+ *         So `range` alone is DESCRIPTIVE: the page keeps the scaling and the
+ *         parameter stays automatable. `widenRange: true` asks for the old
+ *         behaviour, and is worth it only where a unit readout on the dial beats
+ *         automation and macros on it.
  */
-export function describeParam(id: string, desc: { name?: string; unit?: string; range?: [number, number] }): void {
+export function describeParam(
+  id: string,
+  desc: { name?: string; unit?: string; range?: [number, number]; widenRange?: boolean },
+): void {
   if (desc.name) outlet(PARAM_OUT.param_label, id, desc.name);
   if (desc.unit) outlet(PARAM_OUT.param_unit, id, desc.unit);
-  if (desc.range && desc.range[1] > desc.range[0]) outlet(PARAM_OUT.param_range, id, desc.range[0], desc.range[1]);
+  if (desc.widenRange && desc.range && desc.range[1] > desc.range[0]) {
+    outlet(PARAM_OUT.param_range, id, desc.range[0], desc.range[1]);
+  }
 }
 
 /**

@@ -1,6 +1,26 @@
 # Changelog
 
-## 1.2.1 - telling the user where a file went
+## 1.2.1 - telling the user where a file went, and two dials that were not what they seemed
+
+**A runtime range costs a dial its automation.** `describeParam(id, { range })` no
+longer widens `_parameter_range` unless `widenRange: true` is passed, and
+`useControls()` defaults to leaving the dials at 0..1. Measured in Live: a widened dial
+stops following its automation lane and any Rack macro mapped to it - both keep driving
+the parameter in the build-time domain the frozen device gave them - while a sibling
+dial left at 0..1 in the same device responds normally. The page scales instead, which
+is what it did before 1.1.0. The cost is the dial's readout showing `0.44` rather than
+`600 Hz`; the gain is a control the musician can actually automate. doc/MAX-FACTS.md.
+
+**`useControls({ describe: false })`.** A device with two pages against one pool - a
+device view and a window - had both of them naming the dials, so the name depended on
+which page rendered last. One page describes; the other still gets its controls to
+draw.
+
+**The device page's `[jweb~]` can carry a `latency`.** `window({ audio: true, latency })`
+took one from 1.1.0 and the device's own page could not, so a device that sounded from
+both had one clean page and one that dropped out at the object default (~21 ms at
+48 kHz). A manifest `latency` now reaches `obj-jweb`.
+
 
 **`copyPath()` in the bridge.** A device that writes files has to answer "where did it
 go", and nothing in Max can open a file manager: `; max launchbrowser <folder>` is the
