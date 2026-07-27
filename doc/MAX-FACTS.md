@@ -174,6 +174,17 @@ the page does the scaling and renders the real value itself. What is lost is the
 own readout - `0.44` instead of `600 Hz` - which is a label, against a control the
 musician cannot automate.
 
+Confirmed in both directions on the same device: widened, the macro and the automation
+lane were dead; rebuilt with the dial left at 0..1, both work.
+
+**And then check what READS the value.** Removing the widening broke the consumer that
+had quietly come to depend on it: m4l-strudel's REPL shim wrote the dial's value
+straight into the pattern's slider widget, which was only ever correct while the dial
+carried real units. With the dial back at 0..1 an lpf received 0.22 - i.e. 0.22 Hz - so
+the sound cut out in one step and no dial position brought it back, the whole travel
+being inaudible. Widening and scaling are one decision with two ends, and moving one
+end silently moves the other.
+
 ## `[jweb~]` has audio OUT and no audio IN (Max 9 reference, 2026-07-22)
 
 `[jweb~]` is "Web browser with audio output": ONE control inlet, and outlets L, R and
