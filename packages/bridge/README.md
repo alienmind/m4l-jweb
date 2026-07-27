@@ -36,6 +36,7 @@ outlet("my_selector", 1, "two");
 - **Audio does not go through here.** Under `[jweb~]` the page's Web Audio output is carried on the object's signal outlets, straight into the track. The bridge is a control plane; sound never crosses it as messages.
 - `fetchToFile()` and `saveToFile()` move bytes between the page and disk via Max's `[maxurl]`, so large files never travel through the message bridge either.
 - `tapMessages()` observes every message in both directions - the whole contract of a device, live.
+- `copyPath()` answers "where did my file go". Nothing in Max can open a file manager, and inside `[jweb~]` a clipboard write can be claimed but never confirmed - so the result is `copied` / `manual` / `cancelled`, never a boolean that might be lying.
 
 ## Requirements
 

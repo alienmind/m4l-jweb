@@ -360,8 +360,14 @@ to the DEVICE instance, and the scope is the whole device including subpatchers 
 `[poly~]` voices - so device and voice spell the SAME name and nothing travels
 through `poly~`'s arguments. Verified with two sampler copies on two tracks, each
 keeping its own sound. Outside Live `---` stays literal, degrading to the old
-shared-name behavior instead of breaking. `deviceBufName`/`voiceBufName` in
-`chains.mjs` emit it.
+shared-name behavior instead of breaking.
+
+The library no longer emits such a name: 0.9.9 deleted the `samples`, `instrument` and
+`renderplay` chains, because a `[jweb~]` page decodes and plays its own audio, and the
+helpers that built the name (`deviceBufName` / `voiceBufName`) went with them in 1.2.1.
+The fact is kept because it is true of Max, not of this library - any device that ever
+puts a `[buffer~]`, a `[coll]` or any other globally named object in an `.amxd` needs
+the `---` prefix and cannot use `#0`.
 
 ## Live names a DeviceParameter after its SHORTNAME, and nothing overrides it
 
@@ -412,3 +418,26 @@ into the window's subpatcher, and the message must name `grow close title` along
 `float`: `window flags` replaces the whole list rather than adding to it, so `float`
 alone produces a window with no close box - a reference card the user cannot get rid
 of. Pinned by a test.
+
+## `; max launchbrowser` does not reveal a folder (Windows 11, three rounds)
+
+There is no way to show the user where a device wrote a file. `[js]` has no shell
+call, and `launchbrowser` is the only door Max offers - it does not open. Measured in
+Live in both forms:
+
+- a percent-encoded `file:///C:/...` URL with a WRONG path DOES reach the shell: it
+  raised a real "cannot find the file" dialog naming the path, so the message is
+  travelling and being handled;
+- the same URL with a CORRECT path opened nothing and reported nothing;
+- a native backslash path behaved identically.
+
+So the mechanism works and the intent does not, which is why no amount of quoting or
+encoding fixes it. Nor is there a second object that reveals a path.
+
+The consequence is the clipboard, and the clipboard inside `[jweb~]` lies:
+`document.execCommand("copy")` RETURNS TRUE while copying nothing, and the page cannot
+detect it, because `navigator.clipboard.readText()` needs a secure context a `file://`
+page does not have. A copy can be claimed and never confirmed. `copyPath()` in
+`@m4l-jweb/bridge` therefore attempts the copy, then shows a focused, pre-selected
+field and waits for the browser's own `copy` event - the only honest confirmation
+available - and reports `copied` / `manual` / `cancelled` rather than a boolean.

@@ -733,6 +733,18 @@ export function decodeBase64(s: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+/* ------------------------------------------------------------------ *
+ * Telling the user where a file went
+ * ------------------------------------------------------------------ */
+
+/**
+ * A device that writes files needs to answer "where did it go", and neither the page
+ * nor Max can open a file manager. Re-exported here so `@m4l-jweb/bridge` stays the one
+ * import; the reasoning and the failure modes are in ./clipboard.
+ */
+export { copyPath, promptCopy, copyMessage } from "./clipboard";
+export type { CopyResult } from "./clipboard";
+
 /**
  * Dev shim. Outside Max there is no window.max, so route messages straight into
  * the bound handlers and let the developer drive the device from the console:
