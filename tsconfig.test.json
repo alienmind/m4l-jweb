@@ -1,0 +1,29 @@
+{
+	// The TESTS, which nothing typechecked before.
+	//
+	// `tsconfig.app.json` covers `src`, `tsconfig.node.json` covers the scripts and the
+	// patcher - and `tests/` fell between them. That is fine for the `.mjs` suites, but
+	// a `.ts` one carrying `expectTypeOf` assertions was checking nothing at all: the
+	// assertion is a TYPE error or it is nothing, so an unchecked type test passes for
+	// the same reason a deleted one does. Referenced from the root solution, so a plain
+	// `tsc -b` (which the build runs first) fails on it.
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"skipLibCheck": true,
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"allowJs": true,
+		"isolatedModules": true,
+		"moduleDetection": "force",
+		"noEmit": true,
+		"strict": true
+	},
+	// `vitest.config.ts` is listed alongside the tests, and not only to check it: a
+	// project whose include matches nothing at all is a tsc ERROR (TS18003), and a
+	// freshly scaffolded repo has no tests yet. One file that always exists keeps the
+	// project valid from the first minute.
+	"include": ["tests/**/*.ts", "vitest.config.ts"]
+}

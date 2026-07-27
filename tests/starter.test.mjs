@@ -38,6 +38,7 @@ const SHARED = [
   "vitest.config.ts",
   "tsconfig.json",
   "tsconfig.node.json",
+  "tsconfig.test.json",
   ".prettierrc",
   "index.html",
   "src/main.tsx",
