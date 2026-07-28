@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
 import { applySurface, applyWindows, applyPersistence, loadSurface, parameterRegistry, surfaceContext } from "./surface.mjs";
+import { effectiveChains, filesSpecBanner, loadFiles } from "./files.mjs";
 import { loadWatch, watchSpecsBanner } from "./watch.mjs";
 
 const require = createRequire(import.meta.url);
@@ -157,7 +158,8 @@ async function loadDeviceChains(root) {
  *
  *   openAudio      the device's plugin~/plugout~, created ONCE, before any chain -
  *                  so a chain is a stage in the signal path, not the owner of it.
- *   the chains     in declaration order, each taking what the last one left.
+ *   the chains     in declaration order, each taking what the last one left, plus
+ *                  the `download` chain a files.ts declaration derives (files.mjs).
  *   applySurface   LAST of the message-stream claimants: it routes every `set_<id>`
  *                  off the app's stream and passes on what nobody claimed
  *                  (ui_ready, ...) to the wrapper. Doing it last means no chain has
@@ -166,7 +168,7 @@ async function loadDeviceChains(root) {
  *   assertUnique   two boxes with one id is a malformed patcher, and Max resolves
  *                  it however it likes. Nothing else would report it.
  */
-export function composePatcher(base, d, surface) {
+export function composePatcher(base, d, surface, files = null) {
   const amxdtype = AMXD_TYPES[d.type];
   if (!amxdtype) throw new Error(`unknown type "${d.type}" for device "${d.name}" (midi | audio | instrument)`);
 
@@ -220,7 +222,7 @@ export function composePatcher(base, d, surface) {
 
   openAudio(ctx);
 
-  for (const name of d.chains ?? []) {
+  for (const name of effectiveChains(d.chains, files)) {
     const chain = CHAINS[name];
     if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
     chain(ctx);
@@ -266,7 +268,8 @@ export async function generatePatchers(root) {
     }
 
     const surface = await loadSurface(root, d.ui ?? d.name);
-    const p = composePatcher(base, d, surface);
+    const files = await loadFiles(root, d.ui ?? d.name);
+    const p = composePatcher(base, d, surface, files);
 
     // A chain's frozen dependencies (e.g. a [poly~] voice patch) are written beside
     // the device patcher and their names recorded in a sidecar, so packageDevices -
@@ -279,7 +282,11 @@ export async function generatePatchers(root) {
 
     writeFileSync(path.join(outDir, `${d.name}.json`), JSON.stringify(p, null, "\t"));
     const params = surface ? surface.ids.join(", ") : "none";
-    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${(d.chains ?? []).join(", ") || "none"}, params: ${params || "none"})`);
+    // The chains it was BUILT with, not the ones the manifest listed - a derived
+    // `download` that never appeared in the log would be the same invisible wiring
+    // this feature exists to end.
+    const chains = effectiveChains(d.chains, files).join(", ") || "none";
+    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${chains}, params: ${params || "none"})`);
   }
   return devices;
 }
@@ -383,7 +390,11 @@ export async function packageDevices(root) {
     // The device's declared watches ride in as a data banner, like the build stamp:
     // WATCH_SPECS is what the packaged wrapper's setupWatches() attaches observers from.
     const watch = await loadWatch(root, d.ui ?? d.name);
-    let wrapperData = banner + watchSpecsBanner(watch) + siteWindowsBanner(root, outDir, d, await loadSurface(root, d.ui ?? d.name)) + wrapperJs;
+    // ...and so do its declared files: FILES_SPEC is what tells the packaged wrapper
+    // this device writes to disk, and therefore to hand the page its device folder.
+    const files = await loadFiles(root, d.ui ?? d.name);
+    let wrapperData =
+      banner + watchSpecsBanner(watch) + filesSpecBanner(files) + siteWindowsBanner(root, outDir, d, await loadSurface(root, d.ui ?? d.name)) + wrapperJs;
     const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
 
     // Main UI payload

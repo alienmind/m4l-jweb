@@ -593,6 +593,81 @@ export function defineWatch<const W extends Record<string, WatchSpec>>(def: Watc
   return { ...def, keys };
 }
 
+/* ------------------------------------------------------------------ *
+ * defineFiles - declare that a device touches DISK, once, as code.
+ *
+ * The third sibling of defineSurface and defineWatch, and the one reality asked
+ * for. Writing a file is not one feature, it is three that must travel together:
+ *
+ *   the `download` chain   it owns [maxurl], and phase three of saveToFile is a
+ *                          `file://` place through it - even for a device that
+ *                          downloads nothing and only writes bytes it already has;
+ *   the device folder      where the files went, which the page cannot know and
+ *                          the wrapper has to tell it (`device_folder`);
+ *   the selectors          `fetch_to_file`, the `save_*` exchange.
+ *
+ * Get the first one wrong and the failure is SILENT: the bytes are written
+ * correctly, the place request leaves on an aux outlet with nothing on the other
+ * end, no reply ever comes, and the promise never settles. The UI sits on
+ * "Rendering..." next to a scratch file that looks almost right. Nothing in the
+ * build or the tests could see it, because nothing knew the device meant to write.
+ *
+ * Now it does. A device that declares files gets [maxurl] whether or not its
+ * manifest remembered to ask, and gets told its own folder; a device that declares
+ * none gets neither.
+ *
+ * NO SUBFOLDER OPTION, deliberately. A save's destination must be a FLAT name in
+ * the device folder: Max's [js] File and maxurl (libcurl) resolve a subdirectory
+ * differently, so `sub/x.wav` writes the .part where File agrees and the place
+ * cannot reach it (see saveToFile in @m4l-jweb/wrapper). An option for a path that
+ * does not work is worse than no option.
+ * ------------------------------------------------------------------ */
+
+export interface FilesDef {
+  /**
+   * The page holds the bytes and writes them next to the .amxd - a rendered WAV,
+   * an export, a bounce. `saveToFile()` in @m4l-jweb/bridge.
+   */
+  saves?: boolean;
+  /**
+   * The page hands Max a URL and Max streams it to disk on its own thread, with
+   * nothing crossing the message bridge. `fetchToFile()` in @m4l-jweb/bridge.
+   */
+  fetches?: boolean;
+  /**
+   * Tell the page where its files land, at ui_ready (`device_folder <path>`).
+   * On by default: a file the user cannot find is a file that was not written, and
+   * the page has no other way to learn its own device's folder. Turn it off for a
+   * device whose files are its own business - a cache it fills and reads back.
+   */
+  tellPage?: boolean;
+}
+
+export interface Files extends FilesDef {
+  readonly saves: boolean;
+  readonly fetches: boolean;
+  readonly tellPage: boolean;
+}
+
+/**
+ * Declare what this device does with disk.
+ *
+ * Like defineSurface and defineWatch, the checks run HERE, at call time, and
+ * throw - the build imports this module to derive the chain and the banner, so a
+ * bad declaration fails `pnpm build` and CI.
+ */
+export function defineFiles(def: FilesDef): Files {
+  const saves = def.saves ?? false;
+  const fetches = def.fetches ?? false;
+  // A declaration that claims neither would still pull in [maxurl] and still tell
+  // the page a folder, for a device that touches no disk at all. That is not a
+  // harmless default, it is a device carrying a chain nobody can explain.
+  if (!saves && !fetches) {
+    throw new Error(`files: declare at least one of saves / fetches - a device that does neither should not declare files at all`);
+  }
+  return { saves, fetches, tellPage: def.tellPage ?? true };
+}
+
 /** How a value is displayed - the parameter's own `format`, or a sane default. */
 export function formatValue(spec: ParamSpec, value: unknown): string {
   if (spec.kind === "toggle" || spec.kind === "button") return value ? "on" : "off";

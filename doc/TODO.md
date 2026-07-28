@@ -20,43 +20,23 @@ because it is settled history rather than work.
 
 ---
 
-## 1. `defineFiles()` - the third declaration, and the one reality asked for
+## 1. Lift the shared codegen, now that there are three declarations
 
-**Why this and not `defineSamples()`.** This slot used to read "`defineSamples()` - the
-`buffer~` slots as a declaration". That item is dead: 0.9.9 deleted the `samples`,
-`instrument` and `renderplay` chains and their `buffer_load` / `voice_play` APIs,
-because a `[jweb~]` page decodes and plays its own audio. There are no `buffer~` slots
-left in the library to declare, and the two orphaned name helpers that outlived them
-(`deviceBufName` / `voiceBufName`) are gone as of 1.2.1.
-
-**What replaced it, on evidence.** Writing files turned out to be a real contract with
-three parts that MUST travel together, and m4l-strudel shipped a device missing one of
-them for a day:
-
-- the **`download` chain**, because it owns `[maxurl]`, and phase three of `saveToFile`
-  is a `file://` place through it - even for a device that never downloads anything;
-- the wrapper's **device-folder flag**, which is how the page learns where its files
-  went;
-- the **selectors** - `fetch_to_file`, the `save_*` exchange, `device_folder`.
-
-Get the first one wrong and the failure is *silent*: the bytes are written correctly,
-the place request leaves on an aux outlet with nothing on the other end, no reply ever
-comes, the promise never settles. The UI sits on "Rendering..." forever next to a
-scratch file that looks almost right. Nothing in the build or the tests can see it.
-
-**The shape.** `defineFiles()` in `src/app/<device>/files.ts`, the third sibling of
-`defineSurface()` and `defineWatch()`: the device declares that it writes to disk (and
-optionally into which subfolder), and the build derives the chain entry, the folder
-plumbing and the selectors. A device that declares nothing gets no `[maxurl]`, and a
-device that declares files cannot be built without it.
-
-**Then, and only then, lift the shared codegen.** Declaration -> boxes -> wiring ->
-selectors is one pipeline across Surface, Watch and Files; three instances is enough to
-extract from, two was not. Leave the user-facing APIs bespoke. End state is
-`defineDevice()` - folding in the manifest, so you never write `[js]`.
+`defineFiles()` shipped in 1.3.0, so the precondition is met: declaration -> boxes ->
+wiring -> selectors is one pipeline across Surface, Watch and Files, and three
+instances is enough to extract from where two was not. Leave the user-facing APIs
+bespoke. End state is `defineDevice()` - folding in the manifest, so you never write
+`[js]`.
 
 Do NOT build the generic compiler first and express the Surface in terms of it. An
 abstraction from one example is a guess.
+
+**What the three have in common, as the starting point:** each loads a TypeScript
+declaration through esbuild (`loadSurface` / `loadWatch` / `loadFiles` are the same
+function three times), and each emits some mix of a data banner and patcher boxes.
+The loader is the obvious extraction; the emitters are the part worth being careful
+with, because `defineFiles()` is the only one that derives a CHAIN and the shape of
+that is not yet proven twice.
 
 ## 2. (for next generation) A VST3 backend, so a device runs outside Live
 

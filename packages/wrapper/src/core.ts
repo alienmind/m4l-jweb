@@ -124,6 +124,7 @@ function ui_ready(): void {
   reply("build", buildStamp());
   sendCurrentTempo(); // liveapi.ts
   resendWatches(); // watch.ts - the current value of every declared watch, for a late page
+  sendDeviceFolder(); // where this device's files land, for a device that declares any
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
@@ -759,6 +760,27 @@ function resolveUiUrl(): string | null {
 function deviceFolder(): string | null {
   var fp: string = this.patcher.filepath;
   return fp && fp.length ? fp.replace(/\/[^\/]*$/, "") : null;
+}
+
+/**
+ * Tell the page where its files land - the folder half of defineFiles().
+ *
+ * A page cannot know its own device's folder: it is a `file://` document extracted
+ * from the .amxd, and nothing in it names the .amxd. So the wrapper says, at
+ * ui_ready, and it is the SAME resolution the save used - which is what makes the
+ * path the page shows the real one rather than a plausible one.
+ *
+ * It goes out as ONE symbol. A real install has spaces in this path ("Ableton
+ * Library"), and a path travelling as message text would split there into atoms.
+ *
+ * No folder means an UNSAVED patcher, and that is worth a console line rather than
+ * silence: every relative path the device writes then resolves against nowhere.
+ */
+function sendDeviceFolder(): void {
+  if (typeof FILES_SPEC === "undefined" || !FILES_SPEC.tellPage) return;
+  var folder = deviceFolder();
+  if (folder) reply("device_folder", folder);
+  else post("m4l-jweb: patcher is not saved - no device folder, and every relative path resolves against nowhere\n");
 }
 
 /**
