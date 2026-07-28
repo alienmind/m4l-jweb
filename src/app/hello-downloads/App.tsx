@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { fetchToFile, outlet } from "@m4l-jweb/bridge";
+import { useEffect, useState } from "react";
+import { copyMessage, copyPath, fetchToFile, onDeviceFolder, outlet } from "@m4l-jweb/bridge";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 import { OUT } from "./protocol";
@@ -13,11 +13,16 @@ import { OUT } from "./protocol";
  * a data plane - and it is what makes fetching a 40 MB sample pack sane.
  *
  * A relative path lands next to the .amxd, in the device's own folder, which is
- * the one place a device can always write on both platforms.
+ * the one place a device can always write on both platforms. WHERE that is comes
+ * from the wrapper (`onDeviceFolder`), because this device declares `files.ts` -
+ * a page cannot work it out, and a file the user cannot find was not written.
  */
 export default function HelloDownloads() {
   const device = useDevice();
   const [status, setStatus] = useState("Idle");
+  const [folder, setFolder] = useState<string | null>(null);
+
+  useEffect(() => onDeviceFolder(setFolder), []);
 
   async function testDownload() {
     setStatus("Downloading...");
@@ -43,6 +48,18 @@ export default function HelloDownloads() {
       </dd>
       <dt>Status</dt>
       <dd>{status}</dd>
+      {/* Max cannot open a file manager, so the path itself is the deliverable: show
+          it, and let the user paste it into Explorer or Finder. */}
+      <dt>Folder</dt>
+      <dd>
+        {folder ? (
+          <button onClick={async () => setStatus(copyMessage(await copyPath(folder), folder))} style={{ padding: "4px 8px" }}>
+            Copy device folder path
+          </button>
+        ) : (
+          "unknown - the patcher is not saved"
+        )}
+      </dd>
       {/* The conformance check (wrapper/device.ts). Its results go to the Max console,
           not here: it is asserting things about MAX, for whoever upgraded Live - it is
           not telling a user anything. Run it after a Live or Max update. */}

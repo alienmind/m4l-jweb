@@ -230,6 +230,18 @@ export const STATE_OUT = {
   sync_state: "sync_state",
 } as const;
 
+/**
+ * Selectors the WRAPPER sends to a device that declares `defineFiles()`.
+ *
+ * Wrapper-owned, like DEVICE_IN - no chain is involved, so it needs
+ * `unmatchedTo: "js"` like every other bare wrapper selector. `onDeviceFolder()`
+ * below binds it, and the app never types the name.
+ */
+export const FILES_IN = {
+  /** wrapper -> UI: `device_folder <path>` - the absolute folder this device's files land in. */
+  device_folder: "device_folder",
+} as const;
+
 /** Selectors the WRAPPER answers about this device's own Live parameters. */
 export const PARAM_OUT = {
   /** UI -> wrapper: `get_param_id <id>` - what is this parameter's LOM id? Reply on `param_id`. */
@@ -506,7 +518,8 @@ let saveBound = false;
  * over base64 in slices and the wrapper writes them to a `.part` file, then atomically
  * places it at `destPath` via [maxurl] (the same move fetchToFile phase 2 uses). The
  * bytes travel base64 because Max splits messages on spaces/commas and base64 has
- * neither. Requires the `download` chain in the device manifest.
+ * neither. Requires `defineFiles({ saves: true })` in the device's `files.ts`, which
+ * is what puts [maxurl] in the patcher for the place.
  *
  * @param destPath Absolute path (or device-relative, resolved wrapper-side) to write.
  * @param bytes The payload. A per-cycle WAV is ~350 KB => ~60 messages.
@@ -541,6 +554,42 @@ export function saveToFile(destPath: string, bytes: ArrayBuffer): Promise<{ byte
     }
     outlet(CHAIN_OUT.save_end, requestId);
   });
+}
+
+const folderHandlers = new Set<(folder: string) => void>();
+let folderBound = false;
+/** The last folder the wrapper reported, for a subscriber that arrives after it. */
+let knownFolder: string | null = null;
+
+/**
+ * Where this device's files land, as an absolute path.
+ *
+ * The wrapper sends it once at ui_ready for a device that declares `defineFiles()`.
+ * It is the only way a page learns its own device's folder - and the only answer to
+ * "where did my export go", because Max cannot open a file manager (`launchbrowser`
+ * on a `file://` path reaches the shell and does nothing; see doc/MAX-FACTS.md). Pair
+ * it with `copyPath()` and the user can paste the folder into Explorer or Finder.
+ *
+ * A late subscriber gets the folder immediately: ui_ready fires once, and a component
+ * that mounts after it would otherwise wait forever for a message already sent.
+ *
+ * @returns An unsubscribe, so it drops straight into `useEffect`.
+ */
+export function onDeviceFolder(fn: (folder: string) => void): () => void {
+  folderHandlers.add(fn);
+  if (!folderBound) {
+    folderBound = true;
+    // One binding, many subscribers - `bindInlet` keeps a single handler per
+    // selector, so a second bind on this name would silently replace the first.
+    bindInlet(FILES_IN.device_folder, (path) => {
+      knownFolder = String(path);
+      for (const h of folderHandlers) h(knownFolder);
+    });
+  }
+  if (knownFolder !== null) fn(knownFolder);
+  return () => {
+    folderHandlers.delete(fn);
+  };
 }
 
 

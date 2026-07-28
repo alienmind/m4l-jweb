@@ -483,6 +483,29 @@ device's `bang()` - the one moment a LiveAPI object is not born dead. You never 
 the observer, so you cannot write it in the one place (`loadbang`) that silently makes
 it watch nothing forever.
 
+To *write files* - an export, a bounce, a downloaded sample - declare them in
+`src/app/<device>/files.ts`:
+
+```ts
+import { defineFiles } from "@m4l-jweb/surface";
+
+export default defineFiles({ saves: true, fetches: true });
+```
+
+```tsx
+import { onDeviceFolder, saveToFile } from "@m4l-jweb/bridge";
+
+useEffect(() => onDeviceFolder(setFolder), []); // where the files land
+await saveToFile("export.wav", bytes);
+```
+
+That one declaration derives all three things a write needs: the `download` chain
+(which owns `[maxurl]`, and a save's last step is a `file://` place through it, even
+for a device that downloads nothing), the device folder the page is told at
+`ui_ready`, and the selectors. They used to be remembered separately, and forgetting
+the chain failed *silently* - the bytes were written, the place request left on an
+outlet with nothing on the other end, and the promise never settled.
+
 ### 6. Declare Floating Windows and State Persistence
 
 If your UI gets too big to fit inside the standard device view, you can offload sections to **floating windows**. You can also declare arbitrary JSON **state** that is automatically saved into the Live Set (so the user doesn't lose their settings when they reopen the project).

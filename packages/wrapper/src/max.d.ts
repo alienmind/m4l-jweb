@@ -204,6 +204,14 @@ declare const EXTRA_PAYLOAD_B64: string[][] | undefined;
 declare const WATCH_SPECS: { key: string; path: string; property: string }[] | undefined;
 
 /**
+ * Injected by @m4l-jweb/build from the device's `defineFiles()`: what this device
+ * does with disk. Undefined for a device that declares none - which is also a
+ * device with no [maxurl], because the declaration is what derives the `download`
+ * chain (files.mjs).
+ */
+declare const FILES_SPEC: { saves: boolean; fetches: boolean; tellPage: boolean } | undefined;
+
+/**
  * Injected by @m4l-jweb/build for every window declared with `site:` - window id
  * -> the path of its index.html RELATIVE to the device folder.
  *

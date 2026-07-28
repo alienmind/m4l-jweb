@@ -139,11 +139,15 @@ export default [
     /**
      * hello-downloads
      * Tests the fetch-to-disk capability, which bypasses the lack of disk access in [jweb].
-     * Demonstrates using the `download` chain that interfaces with `[maxurl]`.
+     *
+     * NO `download` CHAIN HERE, and that is the point: it declares what it does with
+     * disk in `src/app/hello-downloads/files.ts`, and the build derives [maxurl] and
+     * the device-folder message from that one declaration. A device that writes files
+     * and forgets the chain used to build, load and fail silently at the last step.
      */
     name: "hello-downloads",
     type: "audio",
-    chains: ["passthrough", "download"],
+    chains: ["passthrough"],
     unmatchedTo: "js",
   },
   {

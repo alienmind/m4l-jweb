@@ -1007,9 +1007,25 @@ a page that loaded after the last change still gets it (the watch twin of
 `useWatch()` binds it, typed from the declaration. The observer is generated, so it
 cannot be written in `loadbang`; the rule is now structural, not a comment.
 
-That leaves `defineSamples()` as the second instance still to lift, and the codegen
-generalisation (Stage 1.1) after it - two working declarations were the precondition,
-and now there are three.
+`defineFiles()` is the third, and the only one that produces BOTH kinds of output.
+A device declares what it does with disk in `src/app/<device>/files.ts`
+(`defineFiles({ saves: true })`), and the build derives a patcher CHAIN from it -
+`download`, appended last so it cannot displace an audio stage, and deduped so a
+manifest that still lists it does not emit `[maxurl]`'s box ids twice - plus a
+`FILES_SPEC` data banner, which is what tells the packaged wrapper to hand the page
+its own folder (`device_folder`, one symbol, because a real install has spaces in
+that path). The three things that had to be remembered together are one declaration:
+`effectiveChains()` and `filesSpecBanner()` in `packages/build/src/files.mjs`, pinned
+by `tests/files-codegen.test.mjs` at all three seams.
+
+There is deliberately **no subfolder option**. A save's destination must be a flat
+name in the device folder - `[js]`'s `File` and `maxurl` (libcurl) resolve a
+subdirectory differently, so `sub/x.wav` writes the `.part` where `File` agrees and
+the place cannot reach it, and returns `-1`. An option for a path that does not work
+is worse than no option.
+
+That leaves the codegen generalisation (Stage 1.1) - two working declarations were
+the precondition, and now there are three.
 
 **The warning that goes with it:** do not build the generic contract compiler first
 and then express the Surface in terms of it. An abstraction extracted from one
@@ -1063,12 +1079,10 @@ four of its planned routes turned out to be unnecessary.
 
 **What remains** (detailed in [TODO.md](TODO.md)):
 
-- **A file contract** - `defineFiles()`: a device declares that it writes to disk, and
-  the build derives the `download` chain, the folder plumbing and the selectors, instead
-  of three things having to be remembered together.
-- **Extract the contract pattern** - lift the shared codegen once a third declaration
-  exists, then `defineDevice()`: declare what the Max side has, generate everything else.
-  `defineSurface()` and `defineWatch()` are the first two instances.
+- **Extract the contract pattern** - lift the shared codegen now that a third
+  declaration exists, then `defineDevice()`: declare what the Max side has, generate
+  everything else. `defineSurface()`, `defineWatch()` and `defineFiles()` are the three
+  instances.
 - **A VST3 backend** - the same `App.tsx`, `protocol.ts` and `surface.ts`, running in
   every DAW instead of only Live. Assessed in
   **[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md)**: most of this architecture is not actually
