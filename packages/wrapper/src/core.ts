@@ -1104,75 +1104,57 @@ function placeFetch(fetched: ActiveFetch): void {
 
 var SAVE_PLACE_RESPONSE_DICT = "m4ljweb_save_place_response";
 
-/* ------------------------------------------------------------------ *
- * TEMPORARY - the save's place fails while an identical place succeeds
- *
- * [maxurl] answers `Couldn't read a file:// file` for the .part that save_chunk
- * wrote, and in the same session places a [js]-written .part of its own without
- * complaint - including one written across message turns. Folder, spaces, encoding,
- * extension, timing and the held handle are all ruled out by the conformance check.
- *
- * So this writes a file RIGHT HERE, in the turn that is about to fail, and places it
- * too. If the probe lands and the save does not, the fault is in the file the save
- * wrote, not in anything around it. Delete this once it has answered.
- * ------------------------------------------------------------------ */
-var SAVE_PROBE_RESPONSE_DICT = "m4ljweb_save_probe_response";
-var probeDest = "";
-
-function probePlace(destPath: string): void {
-  var cut = destPath.lastIndexOf("/");
-  var dir = cut < 0 ? "" : destPath.slice(0, cut + 1);
-  var src = dir + "m4l-jweb-probe.part";
-  probeDest = dir + "m4l-jweb-probe-dest.bin";
-
-  var f = new File(src, "write");
-  if (!f.isopen) f.open();
-  f.eof = 0;
-  var slice: number[] = [];
-  for (var i = 0; i < 4096; i++) slice.push(i % 256);
-  f.writebytes(slice);
-  f.close();
-  post("m4l-jweb: probe wrote " + fileSize(src) + " bytes to " + src + "\n");
-
-  var d = new Dict();
-  d.set("url", placeUrl(src));
-  d.set("http_method", "get");
-  d.set("filename_out", probeDest);
-  d.set("overwrite_output_file", 1);
-  d.set("response_dict", SAVE_PROBE_RESPONSE_DICT);
-  outlet(1, "maxurl", "dictionary", d.name);
-}
-
-function finishProbe(): void {
-  var reply = new Dict(SAVE_PROBE_RESPONSE_DICT);
-  post("m4l-jweb: probe place -> " + fileSize(probeDest) + " bytes, error " + String(reply.get("error")) + "\n");
-}
-
 interface ActiveSave {
   requestId: string;
   /** Absolute, resolved destination. */
   destPath: string;
   /** Bytes the app promised in save_begin - the size the .part must match. */
   expect: number;
-  /** Bytes actually written so far, for the verify. */
+  /** Bytes actually written, once save_end has written them. */
   written: number;
-  /** The open .part file, held across the chunk messages. */
-  file: File | null;
+  /** The base64 slices as they arrive, held until save_end writes the file. */
+  chunks: string[];
 }
 
 var activeSave: ActiveSave | null = null;
 
-/** The app: `save_begin <requestId> <destPath> <byteCount>` - open the .part file. */
+/**
+ * The app: `save_begin <requestId> <destPath> <byteCount>` - start collecting.
+ *
+ * NOTHING IS OPENED HERE, and that is the point. A `.part` whose File was opened in
+ * one Max message turn and written across the following ones is one [maxurl] refuses
+ * to read afterwards - `Couldn't read a file:// file` - while an identical file
+ * written inside a SINGLE turn places without complaint, from the same folder, in the
+ * same turn, through the same request dict. That comparison is the conformance check's
+ * last four assertions, and it is why the bytes are buffered instead of streamed.
+ *
+ * The cost is real and is the reason the streaming version existed: the whole payload
+ * sits in [js] as base64 until save_end, about 1.33x the file. A fetch still streams -
+ * maxurl writes that one itself and never has the problem.
+ */
 function save_begin(requestId: string, destPath: string, byteCount: number): void {
-  // A save already in flight is abandoned - its .part is left for the next place/overwrite.
-  // Same rule as save_end: release the handle, do not just close it.
-  if (activeSave) {
-    if (activeSave.file && activeSave.file.isopen) activeSave.file.close();
-    activeSave.file = null;
-  }
-
   var resolved = resolveFetchPath(destPath);
-  var target = savePartPath(resolved);
+  // Every step of a save posts what it MEASURED, not what it attempted. A save that
+  // fails at the place step looks identical to one that never wrote a byte, and the
+  // console was the only place that could tell them apart - it could not.
+  post("m4l-jweb: save begin " + savePartPath(resolved) + " (expect " + Number(byteCount) + " bytes)\n");
+  activeSave = { requestId: requestId, destPath: resolved, expect: Number(byteCount), written: 0, chunks: [] };
+}
+
+/** The app: `save_chunk <requestId> <base64>` - hold one slice for save_end. */
+function save_chunk(requestId: string, b64: string): void {
+  if (!activeSave || activeSave.requestId !== requestId) return;
+  activeSave.chunks.push(b64);
+}
+
+/** The app: `save_end <requestId>` - write the whole .part, verify, place atomically. */
+function save_end(requestId: string): void {
+  if (!activeSave || activeSave.requestId !== requestId) return;
+  var save = activeSave;
+  var target = savePartPath(save.destPath);
+
+  // The entire life of this File - open, write, close - happens inside this one call.
+  // See save_begin for what happens when it does not.
   var f: File | null = null;
   try {
     f = new File(target, "write");
@@ -1186,35 +1168,16 @@ function save_begin(requestId: string, destPath: string, byteCount: number): voi
     return;
   }
   f.eof = 0;
-  // Every step of a save posts what it MEASURED, not what it attempted. A save that
-  // fails at the place step looks identical to one that never wrote a byte, and the
-  // console was the only place that could tell them apart - it could not.
-  post("m4l-jweb: save begin " + target + " (expect " + Number(byteCount) + " bytes)\n");
-  activeSave = { requestId: requestId, destPath: resolved, expect: Number(byteCount), written: 0, file: f };
-}
-
-/** The app: `save_chunk <requestId> <base64>` - write one slice. */
-function save_chunk(requestId: string, b64: string): void {
-  if (!activeSave || activeSave.requestId !== requestId || !activeSave.file) return;
-  var bytes = b64decode(b64);
   var SLICE = 4096; // File.writebytes truncates large calls (~16 KB cap) - same as extractPayload
-  for (var off = 0; off < bytes.length; off += SLICE) {
-    activeSave.file.writebytes(bytes.slice(off, off + SLICE));
+  for (var c = 0; c < save.chunks.length; c++) {
+    var bytes = b64decode(save.chunks[c]);
+    for (var off = 0; off < bytes.length; off += SLICE) {
+      f.writebytes(bytes.slice(off, off + SLICE));
+    }
+    save.written += bytes.length;
   }
-  activeSave.written += bytes.length;
-}
-
-/** The app: `save_end <requestId>` - close, verify size, place atomically. */
-function save_end(requestId: string): void {
-  if (!activeSave || activeSave.requestId !== requestId) return;
-  var save = activeSave;
-  // Close it AND drop the reference. Closing alone was not enough: [maxurl] answered
-  // `Couldn't read a file:// file` on a .part that [js] could read back at full size
-  // in the same breath, while the conformance check placed an identical file from the
-  // same folder without complaint. The difference was that this one was still held -
-  // `activeSave.file` kept the closed File object reachable, and the handle with it.
-  if (save.file && save.file.isopen) save.file.close();
-  save.file = null;
+  f.close();
+  save.chunks = []; // the payload is on disk now - do not hold a second copy of it
 
   var onDisk = fileSize(savePartPath(save.destPath));
   post("m4l-jweb: save wrote " + save.written + " bytes, " + onDisk + " on disk, expected " + save.expect + "\n");
@@ -1227,7 +1190,6 @@ function save_end(requestId: string): void {
   // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
   // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
   // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
-  probePlace(save.destPath);
   var source = placeUrl(savePartPath(save.destPath));
   post("m4l-jweb: save place " + source + " -> " + save.destPath + "\n");
   var reqDict = new Dict();
@@ -1287,7 +1249,6 @@ function maxurl_done(msgType: string, dictName: string): void {
   // dropped in silence - which looks exactly like maxurl never answering.
   if (typeof onMaxurlReply === "function" && onMaxurlReply(dictName)) return;
   // A save's place copy comes back on its own dict, and has no `currentFetch` behind it.
-  if (dictName === SAVE_PROBE_RESPONSE_DICT) return finishProbe();
   if (dictName === SAVE_PLACE_RESPONSE_DICT) return finishSavePlace();
   if (!currentFetch) return;
   var fetched = currentFetch;

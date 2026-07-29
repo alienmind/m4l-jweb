@@ -334,39 +334,49 @@ through `[js]` would put the payload back where it must never be.
 `filename_out` set to the destination is a native streaming copy, on maxurl's own
 thread, with nothing crossing the message bridge. **Measured in Live: 1 MB in 6 ms.**
 
-### ...and a spaced device folder defeats the place, both ways. OPEN.
+### ...and it will not read a file [js] wrote across several message turns
 
-**Not solved. Both encodings of the source URL fail** on a real install, where the
-device folder is under "Ableton Library". Measured in Live, on the same file, in the
-same folder:
+A `.part` opened in one Max message turn and written by the turns that follow comes
+back from the place as
 
-| The source URL | What `[maxurl]` answered |
+```
+maxurl: Couldn't open file C:/.../m4l-jweb-save.part
+error Couldn't read a file:// file          (CURLE_FILE_COULDNT_READ_FILE)
+```
+
+while `[js]` reads the very same path back at full size in the same breath. Closing the
+File does not help. Nor does dropping the reference to it.
+
+**What it is not**, each ruled out by measurement rather than argument, and each of
+them a day's plausible theory:
+
+| Suspected | Ruled out by |
 |---|---|
-| `file:///C:/.../Ableton%20Library/.../m4l-jweb-save.part` | `Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part` |
-| `file:///C:/.../Ableton Library/.../m4l-jweb-save.part` | `error URL using bad/illegal format or missing URL` (CURLE_URL_MALFORMAT) |
+| a subdirectory in the destination | the destination was flat throughout |
+| spaces in the device folder | the conformance check places from `.../Ableton Library/...` |
+| percent-encoding the source URL | encoded passes there too; RAW is worse - `URL using bad/illegal format` |
+| the closed File still being referenced | nulling it changed nothing |
+| the `.part` extension | a `[js]`-written `.part` places fine |
+| writing across message turns as such | one written across 8 `Task` turns places fine |
+| `[maxurl]` being unwell at that moment | a 4 KB file written in the FAILING TURN placed, `error null` |
 
-Raw is not a URL, so libcurl refuses to parse it. Encoded parses, and then cannot open
-what it parsed. The `.part` is present and correct throughout - `save wrote 132346
-bytes, 132346 on disk`, and `part now 132346 bytes` after the failure - so this is the
-place step alone.
+That last one is the whole finding: in one turn, one folder, one request dict shape,
+the file written there and then was readable and the one the save had accumulated was
+not. So the rule is about **who wrote the file and when**, and the safe configuration
+is the one every passing case shares - the File's whole life, open to close, inside a
+single turn.
 
-**What contradicts it:** `checkMaxurlCopy()` in `wrapper/device.ts` does exactly the
-same encoded `file://` GET, in a device folder that also contains "Ableton Library",
-and has been reported passing. Both cannot be true as stated, and the conformance run
-predates the measurements above. Re-run it before believing either.
+`saveToFile()` therefore buffers: `save_chunk` holds the base64 slices and `save_end`
+writes the file in one go. It costs about 1.33x the payload in [js] memory until the
+save completes, which is the price of the feature working. A FETCH still streams -
+maxurl writes that file itself and never has the problem.
 
-`filename_out` is the half that is NOT in doubt: it takes a raw path with spaces and
-writes to it. Only the URL side is fragile - which is what makes staging the `.part`
-somewhere space-free the obvious thing to try next.
-
-`[jweb]` decodes properly and needs `encodeURI` (see `sendUrl`). Whether `[maxurl]`
-does is exactly what is unresolved here.
-
-**The test suite cannot settle any of this**, and it is worth knowing why: the fake
-maxurl calls `decodeURI` on the source, which models the optimistic reading rather than
-a measurement. The harness at least boots into a temp dir named `m4l wrapper XXXX` now,
-space and all, instead of `m4l-wrapper-XXXX` where an encoding bug is invisible. A
-simulator is only as true as its least examined line.
+**The test suite cannot see any of this.** The fake maxurl reads whatever the real
+filesystem has, so it has no notion of a handle Max has not really let go of. The four
+`.bin`/`.part`/turns/probe assertions in `wrapper/device.ts` are the only thing that
+can tell, and they run in Live. The harness at least boots into a temp dir named
+`m4l wrapper XXXX` now, space and all, instead of `m4l-wrapper-XXXX` where an encoding
+bug would have been invisible.
 
 Two things about the place reply are traps, and both look like success:
 
