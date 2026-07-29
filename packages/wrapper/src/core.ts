@@ -1121,7 +1121,11 @@ var activeSave: ActiveSave | null = null;
 /** The app: `save_begin <requestId> <destPath> <byteCount>` - open the .part file. */
 function save_begin(requestId: string, destPath: string, byteCount: number): void {
   // A save already in flight is abandoned - its .part is left for the next place/overwrite.
-  if (activeSave && activeSave.file && activeSave.file.isopen) activeSave.file.close();
+  // Same rule as save_end: release the handle, do not just close it.
+  if (activeSave) {
+    if (activeSave.file && activeSave.file.isopen) activeSave.file.close();
+    activeSave.file = null;
+  }
 
   var resolved = resolveFetchPath(destPath);
   var target = savePartPath(resolved);
@@ -1160,7 +1164,13 @@ function save_chunk(requestId: string, b64: string): void {
 function save_end(requestId: string): void {
   if (!activeSave || activeSave.requestId !== requestId) return;
   var save = activeSave;
+  // Close it AND drop the reference. Closing alone was not enough: [maxurl] answered
+  // `Couldn't read a file:// file` on a .part that [js] could read back at full size
+  // in the same breath, while the conformance check placed an identical file from the
+  // same folder without complaint. The difference was that this one was still held -
+  // `activeSave.file` kept the closed File object reachable, and the handle with it.
   if (save.file && save.file.isopen) save.file.close();
+  save.file = null;
 
   var onDisk = fileSize(savePartPath(save.destPath));
   post("m4l-jweb: save wrote " + save.written + " bytes, " + onDisk + " on disk, expected " + save.expect + "\n");
