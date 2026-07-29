@@ -1141,6 +1141,10 @@ function save_begin(requestId: string, destPath: string, byteCount: number): voi
     return;
   }
   f.eof = 0;
+  // Every step of a save posts what it MEASURED, not what it attempted. A save that
+  // fails at the place step looks identical to one that never wrote a byte, and the
+  // console was the only place that could tell them apart - it could not.
+  post("m4l-jweb: save begin " + target + " (expect " + Number(byteCount) + " bytes)\n");
   activeSave = { requestId: requestId, destPath: resolved, expect: Number(byteCount), written: 0, file: f };
 }
 
@@ -1162,6 +1166,7 @@ function save_end(requestId: string): void {
   if (save.file && save.file.isopen) save.file.close();
 
   var onDisk = fileSize(savePartPath(save.destPath));
+  post("m4l-jweb: save wrote " + save.written + " bytes, " + onDisk + " on disk, expected " + save.expect + "\n");
   if (onDisk !== save.expect) {
     outlet(0, "save_error", requestId, "size mismatch: wrote " + onDisk + " bytes, expected " + save.expect);
     activeSave = null;
@@ -1186,6 +1191,19 @@ function save_end(requestId: string): void {
 function finishSavePlace(): void {
   if (!activeSave) return;
   var save = activeSave;
+  // What maxurl SAID, before what the disk shows. The place was validated on bytes
+  // alone, so a reply carrying an explicit error was thrown away and the failure
+  // arrived as a bare `-1 bytes at destination` with no cause attached.
+  var reply = new Dict(SAVE_PLACE_RESPONSE_DICT);
+  post(
+    "m4l-jweb: save place reply status " +
+      String(reply.get("status")) +
+      ", error " +
+      String(reply.get("error")) +
+      ", part now " +
+      fileSize(savePartPath(save.destPath)) +
+      " bytes\n",
+  );
   var placed = fileSize(save.destPath);
   if (placed !== save.expect) {
     outlet(0, "save_error", save.requestId, "could not place save: " + placed + " bytes at destination, expected " + save.expect);
