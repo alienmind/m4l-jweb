@@ -81,7 +81,30 @@ rendered at a known cps knows the loop length exactly, so it can warp the clip
 correctly instead of leaving Live to guess - which is the difference between a bounce
 that plays in time and one that needs hand-warping.
 
-## 2. Lift the shared codegen, now that there are three declarations
+## 2. A WINDOW page cannot write a file, and the reply routing is why
+
+`saveToFile()` and `fetchToFile()` work from the device view only. A window's page is an
+ordinary bridge client - its messages arrive tagged `window <id> <selector> ...` - but
+`window()` in the wrapper passes through a whitelist (`ui_ready`, `get_state`,
+`sync_state`, `param_*`) and hands everything else to `onWindowMessage`. Widening that
+list is the small half.
+
+**The real obstacle is that `replyWindow` is a DISPATCH-SCOPED variable.** It is set for
+the duration of one inbound message and restored in `finally`, while a save's last phase
+is asynchronous: `[maxurl]` places the verified `.part` and answers later, by which time
+`replyWindow` is null again and `save_ok` goes to the DEVICE view - a window would sit
+waiting on a promise that has already been resolved somewhere else.
+
+So the fix is to record the origin on the PENDING REQUEST (`activeSave`, and the fetch
+table) rather than lean on the transient, and have the reply path address whoever asked.
+`fetchToFile()` has the same shape and the same bug; fix both at once, since a window
+that can save but not fetch is a distinction nobody can remember.
+
+**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 3) - it will be able to
+render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
+cannot travel back to the device view through Max messages to be saved there.
+
+## 3. Lift the shared codegen, now that there are three declarations
 
 `defineFiles()` shipped in 1.3.0, so the precondition is met: declaration -> boxes ->
 wiring -> selectors is one pipeline across Surface, Watch and Files, and three
@@ -99,7 +122,7 @@ The loader is the obvious extraction; the emitters are the part worth being care
 with, because `defineFiles()` is the only one that derives a CHAIN and the shape of
 that is not yet proven twice.
 
-## 3. (for next generation) A VST3 backend, so a device runs outside Live
+## 4. (for next generation) A VST3 backend, so a device runs outside Live
 
 Assessed in [FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md): the app, the bridge, the surface
 and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the
