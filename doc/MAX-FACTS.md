@@ -333,7 +333,34 @@ through `[js]` would put the payload back where it must never be.
 **So libcurl does it.** `[maxurl]` speaks `file://`, so a GET of `file:///<part>` with
 `filename_out` set to the destination is a native streaming copy, on maxurl's own
 thread, with nothing crossing the message bridge. **Measured in Live: 1 MB in 6 ms.**
-Two things about that reply are traps, and both look like success:
+
+### ...but do NOT percent-encode that `file://` source
+
+`[maxurl]` strips the scheme and opens the rest **as a literal path**. It does not
+decode `%20`. Measured in Live, and it names the file it went looking for:
+
+```
+js: m4l-jweb: save place file:///C:/.../Ableton%20Library/.../m4l-jweb-save.part -> ...
+maxurl: Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part
+```
+
+Every real install is under **"Ableton Library"**, so `encodeURI` on that URL meant no
+save and no download ever reached its destination on a normal machine - while the
+`.part` was written and size-verified first, which is why it read as a save that nearly
+worked and got blamed on subdirectories for months. The value rides inside a **Dict**,
+where a space cannot split into atoms the way it would in a Max message: the encoding
+protected against nothing.
+
+`[jweb]` is the exact opposite - it takes a real URL and DOES decode it, so `sendUrl`
+still encodes. Same-looking path, two consumers, two rules.
+
+**The test suite could not see any of it**, for two compounding reasons, and both are
+worth more than the fix: the fake maxurl called `decodeURI` on the source, modelling a
+decode Max does not do, and the harness booted into a temp dir named `m4l-wrapper-XXXX`,
+where encoding is a no-op anyway. A simulator is only as true as its least examined
+line. It boots into `m4l wrapper XXXX` now, space and all.
+
+Two things about the place reply are traps, and both look like success:
 
 - **It has no HTTP status** - it comes back `status 0`, because no HTTP happened. The
   2xx check that guards the *download* would reject a perfectly good *copy*. The place
