@@ -1205,10 +1205,10 @@ function save_end(requestId: string): void {
     activeSave = null;
     return;
   }
-  // PHASE 3: place the verified .part over the destination via [maxurl]. NOTE the
-  // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
-  // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
-  // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
+  // PHASE 3: place the verified .part over the destination via [maxurl]. Keep destPath
+  // a FLAT name in the device folder - not because a subdirectory is known to fail (that
+  // was measured against the stray-file bug and never held up), but because flat is the
+  // only shape measured working. See doc/ARCHITECTURE.md before adding an option.
   var source = placeUrl(savePartPath(save.destPath));
   post("m4l-jweb: save place " + source + " -> " + save.destPath + "\n");
   var reqDict = new Dict();
