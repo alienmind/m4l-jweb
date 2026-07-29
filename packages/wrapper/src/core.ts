@@ -1104,6 +1104,50 @@ function placeFetch(fetched: ActiveFetch): void {
 
 var SAVE_PLACE_RESPONSE_DICT = "m4ljweb_save_place_response";
 
+/* ------------------------------------------------------------------ *
+ * TEMPORARY - the save's place fails while an identical place succeeds
+ *
+ * [maxurl] answers `Couldn't read a file:// file` for the .part that save_chunk
+ * wrote, and in the same session places a [js]-written .part of its own without
+ * complaint - including one written across message turns. Folder, spaces, encoding,
+ * extension, timing and the held handle are all ruled out by the conformance check.
+ *
+ * So this writes a file RIGHT HERE, in the turn that is about to fail, and places it
+ * too. If the probe lands and the save does not, the fault is in the file the save
+ * wrote, not in anything around it. Delete this once it has answered.
+ * ------------------------------------------------------------------ */
+var SAVE_PROBE_RESPONSE_DICT = "m4ljweb_save_probe_response";
+var probeDest = "";
+
+function probePlace(destPath: string): void {
+  var cut = destPath.lastIndexOf("/");
+  var dir = cut < 0 ? "" : destPath.slice(0, cut + 1);
+  var src = dir + "m4l-jweb-probe.part";
+  probeDest = dir + "m4l-jweb-probe-dest.bin";
+
+  var f = new File(src, "write");
+  if (!f.isopen) f.open();
+  f.eof = 0;
+  var slice: number[] = [];
+  for (var i = 0; i < 4096; i++) slice.push(i % 256);
+  f.writebytes(slice);
+  f.close();
+  post("m4l-jweb: probe wrote " + fileSize(src) + " bytes to " + src + "\n");
+
+  var d = new Dict();
+  d.set("url", placeUrl(src));
+  d.set("http_method", "get");
+  d.set("filename_out", probeDest);
+  d.set("overwrite_output_file", 1);
+  d.set("response_dict", SAVE_PROBE_RESPONSE_DICT);
+  outlet(1, "maxurl", "dictionary", d.name);
+}
+
+function finishProbe(): void {
+  var reply = new Dict(SAVE_PROBE_RESPONSE_DICT);
+  post("m4l-jweb: probe place -> " + fileSize(probeDest) + " bytes, error " + String(reply.get("error")) + "\n");
+}
+
 interface ActiveSave {
   requestId: string;
   /** Absolute, resolved destination. */
@@ -1183,6 +1227,7 @@ function save_end(requestId: string): void {
   // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
   // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
   // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
+  probePlace(save.destPath);
   var source = placeUrl(savePartPath(save.destPath));
   post("m4l-jweb: save place " + source + " -> " + save.destPath + "\n");
   var reqDict = new Dict();
@@ -1242,6 +1287,7 @@ function maxurl_done(msgType: string, dictName: string): void {
   // dropped in silence - which looks exactly like maxurl never answering.
   if (typeof onMaxurlReply === "function" && onMaxurlReply(dictName)) return;
   // A save's place copy comes back on its own dict, and has no `currentFetch` behind it.
+  if (dictName === SAVE_PROBE_RESPONSE_DICT) return finishProbe();
   if (dictName === SAVE_PLACE_RESPONSE_DICT) return finishSavePlace();
   if (!currentFetch) return;
   var fetched = currentFetch;
