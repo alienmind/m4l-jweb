@@ -991,22 +991,19 @@ function partPath(destPath: string): string {
 /**
  * The `file://` SOURCE of an atomic place, for [maxurl]'s request dict.
  *
- * NOT percent-encoded, and that is the whole point. [maxurl] strips the scheme and
- * opens the remainder as a literal path - it does not decode `%20` - so an encoded
- * URL makes it look for a file whose name really does contain `%`, `2`, `0`:
+ * PERCENT-ENCODED, and it has to be: libcurl parses this as a URL, and a raw space
+ * is not a URL. Handing it the plain path comes back as
  *
- *   maxurl: Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part
+ *   error URL using bad/illegal format or missing URL
  *
- * Every real install has a space in that path ("Ableton Library"), so encoding it
- * meant no save and no download ever reached its destination on a normal machine.
- * The value travels inside a Dict, so a space cannot split it into atoms the way it
- * would in a Max message - the encoding bought nothing and cost the feature.
- *
- * `[jweb]` is the opposite and still needs `encodeURI` (see `sendUrl`): it takes a
- * real URL and decodes it. Same-looking path, two different consumers.
+ * which is CURLE_URL_MALFORMAT, measured in Live. Whether maxurl then DECODES what
+ * it parsed is a separate question and an open one - a spaced device folder has also
+ * been seen failing with `Couldn't open file <the encoded path>`, and the conformance
+ * check in `wrapper/device.ts` does the same thing and passes. Do not change the
+ * encoding again without measuring both.
  */
 function placeUrl(path: string): string {
-  return "file:///" + path;
+  return encodeURI("file:///" + path);
 }
 
 /**
