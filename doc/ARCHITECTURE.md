@@ -1029,11 +1029,14 @@ the cached folder is replayed to whoever arrives late. The ordering is not somet
 a device can get wrong, which is the only form the rule can take: the same trap is
 waiting for any future `ui_ready` reply, so bind it in the bridge, not in the page.
 
-There is deliberately **no subfolder option**. A save's destination must be a flat
-name in the device folder - `[js]`'s `File` and `maxurl` (libcurl) resolve a
-subdirectory differently, so `sub/x.wav` writes the `.part` where `File` agrees and
-the place cannot reach it, and returns `-1`. An option for a path that does not work
-is worse than no option.
+There is **no subfolder option**, and the reason on the label turned out to be the
+wrong one. It was believed that `[js]`'s `File` and `maxurl` resolve a subdirectory
+differently; what actually failed every save, nested or flat, was a stray `.part` on
+Max's search path (doc/MAX-FACTS.md). That was measured under the poisoned condition,
+so the subdirectory claim is UNPROVEN rather than established - it may well work. Flat
+stays the contract until somebody measures it on a clean machine, because a flat name
+is known to work and the option can be added later; but do not repeat the old reason
+as if it were a finding.
 
 That leaves the codegen generalisation (Stage 1.1) - two working declarations were
 the precondition, and now there are three.
