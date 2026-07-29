@@ -222,12 +222,12 @@ function maxurl(h, { status = 200, body = "payload", error = null } = {}) {
     // A local copy. libcurl streams the source file to filename_out, and there is no
     // HTTP status to report.
     //
-    // The scheme is stripped and the rest is used AS A LITERAL PATH - no percent
-    // decoding. This simulator used to call decodeURI here, and that one line is what
-    // let a percent-encoded source URL pass every test while failing on every real
-    // install: a device folder contains "Ableton Library", and maxurl went looking for
-    // a file called "Ableton%20Library". Do not decode. Max does not.
-    const src = String(req.url).replace("file:///", "");
+    // libcurl parses this as a URL, so it arrives percent-encoded - a raw path comes
+    // back as CURLE_URL_MALFORMAT, measured in Live. Whether Max decodes it as
+    // thoroughly as decodeURI does is NOT settled: a spaced device folder has been
+    // seen failing the place anyway. This models the optimistic reading, so a test
+    // passing here is not evidence that a spaced path works in Live.
+    const src = decodeURI(String(req.url).replace("file:///", ""));
     if (out && existsSync(src)) writeFileSync(out, readFileSync(src));
     // Answer the dict the REQUEST asked for. Fetch and save place through the same cord
     // and are told apart only by this name, so hardcoding the fetch one made a save look

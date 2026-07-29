@@ -334,31 +334,39 @@ through `[js]` would put the payload back where it must never be.
 `filename_out` set to the destination is a native streaming copy, on maxurl's own
 thread, with nothing crossing the message bridge. **Measured in Live: 1 MB in 6 ms.**
 
-### ...but do NOT percent-encode that `file://` source
+### ...and a spaced device folder defeats the place, both ways. OPEN.
 
-`[maxurl]` strips the scheme and opens the rest **as a literal path**. It does not
-decode `%20`. Measured in Live, and it names the file it went looking for:
+**Not solved. Both encodings of the source URL fail** on a real install, where the
+device folder is under "Ableton Library". Measured in Live, on the same file, in the
+same folder:
 
-```
-js: m4l-jweb: save place file:///C:/.../Ableton%20Library/.../m4l-jweb-save.part -> ...
-maxurl: Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part
-```
+| The source URL | What `[maxurl]` answered |
+|---|---|
+| `file:///C:/.../Ableton%20Library/.../m4l-jweb-save.part` | `Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part` |
+| `file:///C:/.../Ableton Library/.../m4l-jweb-save.part` | `error URL using bad/illegal format or missing URL` (CURLE_URL_MALFORMAT) |
 
-Every real install is under **"Ableton Library"**, so `encodeURI` on that URL meant no
-save and no download ever reached its destination on a normal machine - while the
-`.part` was written and size-verified first, which is why it read as a save that nearly
-worked and got blamed on subdirectories for months. The value rides inside a **Dict**,
-where a space cannot split into atoms the way it would in a Max message: the encoding
-protected against nothing.
+Raw is not a URL, so libcurl refuses to parse it. Encoded parses, and then cannot open
+what it parsed. The `.part` is present and correct throughout - `save wrote 132346
+bytes, 132346 on disk`, and `part now 132346 bytes` after the failure - so this is the
+place step alone.
 
-`[jweb]` is the exact opposite - it takes a real URL and DOES decode it, so `sendUrl`
-still encodes. Same-looking path, two consumers, two rules.
+**What contradicts it:** `checkMaxurlCopy()` in `wrapper/device.ts` does exactly the
+same encoded `file://` GET, in a device folder that also contains "Ableton Library",
+and has been reported passing. Both cannot be true as stated, and the conformance run
+predates the measurements above. Re-run it before believing either.
 
-**The test suite could not see any of it**, for two compounding reasons, and both are
-worth more than the fix: the fake maxurl called `decodeURI` on the source, modelling a
-decode Max does not do, and the harness booted into a temp dir named `m4l-wrapper-XXXX`,
-where encoding is a no-op anyway. A simulator is only as true as its least examined
-line. It boots into `m4l wrapper XXXX` now, space and all.
+`filename_out` is the half that is NOT in doubt: it takes a raw path with spaces and
+writes to it. Only the URL side is fragile - which is what makes staging the `.part`
+somewhere space-free the obvious thing to try next.
+
+`[jweb]` decodes properly and needs `encodeURI` (see `sendUrl`). Whether `[maxurl]`
+does is exactly what is unresolved here.
+
+**The test suite cannot settle any of this**, and it is worth knowing why: the fake
+maxurl calls `decodeURI` on the source, which models the optimistic reading rather than
+a measurement. The harness at least boots into a temp dir named `m4l wrapper XXXX` now,
+space and all, instead of `m4l-wrapper-XXXX` where an encoding bug is invisible. A
+simulator is only as true as its least examined line.
 
 Two things about the place reply are traps, and both look like success:
 
