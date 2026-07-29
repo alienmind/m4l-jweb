@@ -1047,12 +1047,23 @@ var currentFetch: ActiveFetch | null = null;
  * A relative path is resolved against the DEVICE's folder - the one place a
  * device can always write, and the same folder the UI payload is extracted into.
  * An absolute path (POSIX `/...`, or Windows `C:/...`) is passed through.
+ *
+ * NULL when it cannot be resolved, and the caller must then refuse to write. A bare
+ * relative name handed to `[js]`'s `File` is not created in the current directory -
+ * it is created in MAX'S OWN FOLDER, and from that moment the name exists on Max's
+ * search path, so every later `new File(<absolute path>, "write")` for that name
+ * resolves to the stray and writes THERE instead. The file the wrapper then verifies
+ * is the stray (`File` in read mode searches the same path and finds it at the right
+ * size), while `[maxurl]`, which takes the literal path, correctly reports nothing
+ * there. One save from an unsaved patcher poisons that filename permanently, for
+ * every device on the machine. This is the whole of doc/MAX-FACTS.md's stray-file
+ * entry, and it cost weeks.
  */
-function resolveFetchPath(destPath: string): string {
+function resolveFetchPath(destPath: string): string | null {
   var isAbsolute = destPath.indexOf("/") === 0 || destPath.indexOf(":") === 1;
   if (isAbsolute) return destPath;
   var folder = deviceFolder();
-  return folder ? folder + "/" + destPath : destPath;
+  return folder ? folder + "/" + destPath : null;
 }
 
 /** PHASE 1: download the URL to `<dest>.part`. Nothing touches `<dest>` yet. */
@@ -1061,7 +1072,11 @@ function processNextFetch(): void {
   var next = fetchQueue.shift();
   if (!next) return;
   currentFetch = next;
-  next.destPath = resolveFetchPath(next.destPath);
+  var fetchDest = resolveFetchPath(next.destPath);
+  if (fetchDest === null) {
+    return failFetch(next, "the patcher is not saved, so there is no folder to fetch into - save the Live set first");
+  }
+  next.destPath = fetchDest;
 
   var reqDict = new Dict();
   reqDict.set("url", next.url);
@@ -1121,19 +1136,23 @@ var activeSave: ActiveSave | null = null;
 /**
  * The app: `save_begin <requestId> <destPath> <byteCount>` - start collecting.
  *
- * NOTHING IS OPENED HERE, and that is the point. A `.part` whose File was opened in
- * one Max message turn and written across the following ones is one [maxurl] refuses
- * to read afterwards - `Couldn't read a file:// file` - while an identical file
- * written inside a SINGLE turn places without complaint, from the same folder, in the
- * same turn, through the same request dict. That comparison is the conformance check's
- * last four assertions, and it is why the bytes are buffered instead of streamed.
+ * The bytes are held and written in one go by `save_end`, so the `.part` File is
+ * opened and closed inside a single call. That is a simplification, not a fix: the
+ * bug it was written for turned out to be a stray file on Max's search path (see
+ * `resolveFetchPath`), and streaming across the chunk messages would work too. It
+ * costs about 1.33x the payload in [js] memory until the save completes, which is
+ * worth revisiting for large exports - doc/TODO.md carries it.
  *
- * The cost is real and is the reason the streaming version existed: the whole payload
- * sits in [js] as base64 until save_end, about 1.33x the file. A fetch still streams -
- * maxurl writes that one itself and never has the problem.
+ * A save with no resolvable folder is REFUSED here rather than written relative,
+ * because writing relative is what creates the stray in the first place.
  */
 function save_begin(requestId: string, destPath: string, byteCount: number): void {
   var resolved = resolveFetchPath(destPath);
+  if (resolved === null) {
+    outlet(0, "save_error", requestId, "the patcher is not saved, so there is no folder to save into - save the Live set first");
+    activeSave = null;
+    return;
+  }
   // Every step of a save posts what it MEASURED, not what it attempted. A save that
   // fails at the place step looks identical to one that never wrote a byte, and the
   // console was the only place that could tell them apart - it could not.
@@ -1220,6 +1239,11 @@ function finishSavePlace(): void {
   );
   var placed = fileSize(save.destPath);
   if (placed !== save.expect) {
+    // `Couldn't read a file:// file` here means the .part is not where this says it
+    // is: [js] wrote it to a STRAY of the same name earlier on Max's search path, and
+    // fileSize() found that stray rather than nothing. Naming it costs one line and
+    // saves the week it took to find the first time.
+    post("m4l-jweb: the .part is not at that path. Look for a stray m4l-jweb-save.part in Max's own folder and remove it.\n");
     outlet(0, "save_error", save.requestId, "could not place save: " + placed + " bytes at destination, expected " + save.expect);
     activeSave = null;
     return;
