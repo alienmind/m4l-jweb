@@ -124,6 +124,11 @@ export function simulate(name: string, ...args: unknown[]): void {
  * binding, and treat the reply as the source of truth.
  */
 export function uiReady(): void {
+  // Every ui_ready reply is a ONE-SHOT: the wrapper sends it once and never
+  // repeats it. A selector bound after this line therefore misses its only
+  // message. device_folder is bound here rather than by the component that wants
+  // it, so no page can lose it by subscribing in a later effect.
+  bindDeviceFolder();
   outlet("ui_ready");
 }
 
@@ -575,17 +580,20 @@ let knownFolder: string | null = null;
  *
  * @returns An unsubscribe, so it drops straight into `useEffect`.
  */
+function bindDeviceFolder(): void {
+  if (folderBound) return;
+  folderBound = true;
+  // One binding, many subscribers - `bindInlet` keeps a single handler per
+  // selector, so a second bind on this name would silently replace the first.
+  bindInlet(FILES_IN.device_folder, (path) => {
+    knownFolder = String(path);
+    for (const h of folderHandlers) h(knownFolder);
+  });
+}
+
 export function onDeviceFolder(fn: (folder: string) => void): () => void {
   folderHandlers.add(fn);
-  if (!folderBound) {
-    folderBound = true;
-    // One binding, many subscribers - `bindInlet` keeps a single handler per
-    // selector, so a second bind on this name would silently replace the first.
-    bindInlet(FILES_IN.device_folder, (path) => {
-      knownFolder = String(path);
-      for (const h of folderHandlers) h(knownFolder);
-    });
-  }
+  bindDeviceFolder();
   if (knownFolder !== null) fn(knownFolder);
   return () => {
     folderHandlers.delete(fn);
