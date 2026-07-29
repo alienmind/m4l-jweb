@@ -20,6 +20,9 @@
 
 var CONFORMANCE_SRC = "";
 var CONFORMANCE_DST = "";
+/** The same source, named the way a SAVE names its staging file. */
+var CONFORMANCE_PART = "";
+var CONFORMANCE_PART_DST = "";
 var conformancePass = 0;
 var conformanceFail = 0;
 
@@ -46,6 +49,8 @@ function max_conformance(): void {
   }
   CONFORMANCE_SRC = folder + "/conformance_source.bin";
   CONFORMANCE_DST = folder + "/conformance_dest.bin";
+  CONFORMANCE_PART = folder + "/conformance_source.part";
+  CONFORMANCE_PART_DST = folder + "/conformance_part_dest.bin";
   conformancePass = 0;
   conformanceFail = 0;
 
@@ -119,13 +124,44 @@ function checkFileWrite(): void {
  * ever stops working, a 404 goes back to destroying good cached files.
  */
 function checkMaxurlCopy(): void {
+  placeCopy(CONFORMANCE_SRC, CONFORMANCE_DST, "m4ljweb_conformance_response");
+}
+
+/** One place request. The two checks differ in the SOURCE FILENAME and nothing else. */
+function placeCopy(src: string, dst: string, responseDict: string): void {
   var d = new Dict();
-  d.set("url", encodeURI("file:///" + CONFORMANCE_SRC));
+  d.set("url", encodeURI("file:///" + src));
   d.set("http_method", "get");
-  d.set("filename_out", CONFORMANCE_DST); // NOT "downloadfilename" - an unknown key is ignored
+  d.set("filename_out", dst); // NOT "downloadfilename" - an unknown key is ignored
   d.set("overwrite_output_file", 1); // ...defaults to 0: it would copy exactly once
-  d.set("response_dict", "m4ljweb_conformance_response");
+  d.set("response_dict", responseDict);
   outlet(1, "maxurl", "dictionary", d.name);
+}
+
+/**
+ * The same place, from a source whose only difference is the EXTENSION.
+ *
+ * `saveToFile()` stages into `m4l-jweb-save.part` and its place fails with
+ * `Couldn't read a file:// file`, while this check's `.bin` in the same folder, written
+ * by the same `File` recipe, places fine. A download's `<dest>.part` also places fine -
+ * but maxurl wrote that one. So `.part` written by [js] is the untested corner, and
+ * this is the one property varied on its own.
+ */
+function checkMaxurlCopyPart(): void {
+  var f = new File(CONFORMANCE_PART, "write");
+  if (!f.isopen) f.open();
+  f.eof = 0;
+  var slice: number[] = [];
+  for (var i = 0; i < 4096; i++) slice.push(i % 256);
+  for (var w = 0; w < CONFORMANCE_BYTES / 4096; w++) f.writebytes(slice);
+  f.close();
+
+  var v = new File(CONFORMANCE_PART);
+  var n = v.isopen ? v.eof : -1;
+  if (v.isopen) v.close();
+  check("a .part source is on disk before the place", n === CONFORMANCE_BYTES, n + " bytes at " + CONFORMANCE_PART);
+
+  placeCopy(CONFORMANCE_PART, CONFORMANCE_PART_DST, "m4ljweb_conformance_part_response");
 }
 
 /**
@@ -133,6 +169,20 @@ function checkMaxurlCopy(): void {
  * Return true when it was ours.
  */
 function onMaxurlReply(dictName: string): boolean {
+  if (dictName === "m4ljweb_conformance_part_response") {
+    var pd = new Dict(dictName);
+    var perr = pd.get("error");
+    var pplaced = new File(CONFORMANCE_PART_DST);
+    var pn = pplaced.isopen ? pplaced.eof : -1;
+    if (pplaced.isopen) pplaced.close();
+    check(
+      "...and copies one whose source is named .part",
+      pn === CONFORMANCE_BYTES,
+      pn + " bytes at the destination" + (perr ? ", error: " + String(perr) : ""),
+    );
+    finishConformance();
+    return true;
+  }
   if (dictName !== "m4ljweb_conformance_response") return false;
 
   var d = new Dict(dictName);
@@ -149,6 +199,12 @@ function onMaxurlReply(dictName: string): boolean {
   // the copy is broken and the two-phase download has lost its mover.
   check("...and reports no error doing it", !err, err ? "error: " + String(err) : "no error key (status " + status + ")");
 
+  // The verdict waits for the .part variant - it is the same copy, one property apart.
+  checkMaxurlCopyPart();
+  return true;
+}
+
+function finishConformance(): void {
   post("===== " + conformancePass + " passed, " + conformanceFail + " failed =====\n");
   if (conformanceFail > 0) {
     post("A FAILURE HERE MEANS MAX CHANGED. The unit tests cannot see it: they run\n");
@@ -157,5 +213,4 @@ function onMaxurlReply(dictName: string): boolean {
     post("tests/wrapper-max.test.mjs, in that order.\n");
   }
   post("\n");
-  return true;
 }
