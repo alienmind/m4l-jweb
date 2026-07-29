@@ -100,7 +100,7 @@ table) rather than lean on the transient, and have the reply path address whoeve
 `fetchToFile()` has the same shape and the same bug; fix both at once, since a window
 that can save but not fetch is a distinction nobody can remember.
 
-**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 3) - it will be able to
+**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 2) - it will be able to
 render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
 cannot travel back to the device view through Max messages to be saved there.
 
