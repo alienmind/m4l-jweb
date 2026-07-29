@@ -23,6 +23,9 @@ var CONFORMANCE_DST = "";
 /** The same source, named the way a SAVE names its staging file. */
 var CONFORMANCE_PART = "";
 var CONFORMANCE_PART_DST = "";
+/** ...and the same again, written ACROSS MESSAGE TURNS, the way a save writes. */
+var CONFORMANCE_TURNS = "";
+var CONFORMANCE_TURNS_DST = "";
 var conformancePass = 0;
 var conformanceFail = 0;
 
@@ -51,6 +54,8 @@ function max_conformance(): void {
   CONFORMANCE_DST = folder + "/conformance_dest.bin";
   CONFORMANCE_PART = folder + "/conformance_source.part";
   CONFORMANCE_PART_DST = folder + "/conformance_part_dest.bin";
+  CONFORMANCE_TURNS = folder + "/conformance_turns.part";
+  CONFORMANCE_TURNS_DST = folder + "/conformance_turns_dest.bin";
   conformancePass = 0;
   conformanceFail = 0;
 
@@ -164,6 +169,51 @@ function checkMaxurlCopyPart(): void {
   placeCopy(CONFORMANCE_PART, CONFORMANCE_PART_DST, "m4ljweb_conformance_part_response");
 }
 
+var turnsFile: File | null = null;
+var turnsWritten = 0;
+var turnsTask: Task | null = null;
+var TURNS = 8;
+
+/**
+ * The last property that separates a save from a copy that works: TIME.
+ *
+ * Every passing place writes its source inside a single message turn. A save does not
+ * - `save_begin` opens the file, N `save_chunk` messages write it, and `save_end`
+ * closes it, each a separate turn of the Max scheduler, with the File object held open
+ * across all of them. If a handle opened in one turn is not truly free in a later one,
+ * this check fails while the one above it passes, and everything else is identical.
+ */
+function checkMaxurlCopyTurns(): void {
+  turnsFile = new File(CONFORMANCE_TURNS, "write");
+  if (!turnsFile.isopen) turnsFile.open();
+  turnsFile.eof = 0;
+  turnsWritten = 0;
+  turnsTask = new Task(writeOneTurn, this);
+  turnsTask.interval = 10;
+  turnsTask.repeat(TURNS);
+}
+
+/** One turn's worth of the source. 32 slices of 4 KB, because writebytes truncates. */
+function writeOneTurn(): void {
+  if (!turnsFile) return;
+  var slice: number[] = [];
+  for (var i = 0; i < 4096; i++) slice.push(i % 256);
+  var per = CONFORMANCE_BYTES / 4096 / TURNS;
+  for (var w = 0; w < per; w++) turnsFile.writebytes(slice);
+  turnsWritten++;
+  if (turnsWritten < TURNS) return;
+
+  if (turnsFile.isopen) turnsFile.close();
+  turnsFile = null;
+
+  var v = new File(CONFORMANCE_TURNS);
+  var n = v.isopen ? v.eof : -1;
+  if (v.isopen) v.close();
+  check("a .part written across message turns is on disk", n === CONFORMANCE_BYTES, n + " bytes, expected " + CONFORMANCE_BYTES);
+
+  placeCopy(CONFORMANCE_TURNS, CONFORMANCE_TURNS_DST, "m4ljweb_conformance_turns_response");
+}
+
 /**
  * The wrapper offers us [maxurl]'s reply before it assumes the reply is its own.
  * Return true when it was ours.
@@ -179,6 +229,20 @@ function onMaxurlReply(dictName: string): boolean {
       "...and copies one whose source is named .part",
       pn === CONFORMANCE_BYTES,
       pn + " bytes at the destination" + (perr ? ", error: " + String(perr) : ""),
+    );
+    checkMaxurlCopyTurns();
+    return true;
+  }
+  if (dictName === "m4ljweb_conformance_turns_response") {
+    var td = new Dict(dictName);
+    var terr = td.get("error");
+    var tplaced = new File(CONFORMANCE_TURNS_DST);
+    var tn = tplaced.isopen ? tplaced.eof : -1;
+    if (tplaced.isopen) tplaced.close();
+    check(
+      "...and copies one written across message turns",
+      tn === CONFORMANCE_BYTES,
+      tn + " bytes at the destination" + (terr ? ", error: " + String(terr) : ""),
     );
     finishConformance();
     return true;
