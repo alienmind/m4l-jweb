@@ -44,7 +44,9 @@ if [ ! -d "$user_lib" ]; then
 fi
 
 dest="$user_lib/Max For Live/$device_name"
-rm -rf "$dest"
+# The folder is NOT wiped first. It is the same folder the devices SAVE INTO - exports,
+# downloaded samples, anything a user dragged out of it - so clearing it to get a clean
+# install threw away their work. Overwrite what this build produces; leave the rest.
 mkdir -p "$dest"
 
 # Each .amxd is self-contained: the UI rides inside it as a payload in wrapper.js.
@@ -67,6 +69,9 @@ done
 # empty, and the wrapper says so in the Max console.
 for d in "$src"/*-site; do
 	[ -d "$d" ] || continue
+	# This one IS replaced wholesale: it is entirely build output, and a file dropped
+	# from the site between builds would otherwise linger and be served.
+	rm -rf "$dest/$(basename "$d")"
 	cp -R "$d" "$dest/"
 	echo "  installed $(basename "$d")/ (site sidecar)"
 done

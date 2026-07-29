@@ -49,13 +49,20 @@ if (-not (Test-Path $userLib)) {
 }
 
 $dest = Join-Path $userLib "Max For Live\$deviceName"
-if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+# The folder is NOT wiped first. It is the same folder the devices SAVE INTO - exports,
+# downloaded samples, anything a user dragged out of it - so clearing it to get a clean
+# install threw away their work, and failed outright the moment Live held one of those
+# files open. Overwrite what this build produces; leave everything else alone.
 New-Item -ItemType Directory -Force $dest | Out-Null
 
 # Each .amxd is self-contained: the UI rides inside it as a payload in wrapper.js.
 foreach ($f in $devices) {
-    Copy-Item $f.FullName $dest -Force
-    Write-Host "  installed $($f.Name)"
+    try {
+        Copy-Item $f.FullName $dest -Force -ErrorAction Stop
+        Write-Host "  installed $($f.Name)"
+    } catch {
+        Write-Error "Could not replace $($f.Name) - it is open in Live. Close the set (or remove the device from the track) and run this again."
+    }
 }
 
 # Presets (hand-saved Live racks, packaged next to the devices by the build) go in
@@ -70,6 +77,10 @@ foreach ($f in @(Get-ChildItem (Join-Path $src "*.adg") -ErrorAction SilentlyCon
 # installed with it. Without the folder the device still plays; that window opens
 # empty, and the wrapper says so in the Max console.
 foreach ($d in @(Get-ChildItem (Join-Path $src "*-site") -Directory -ErrorAction SilentlyContinue)) {
+    # This one IS replaced wholesale: it is entirely build output, and a file dropped
+    # from the site between builds would otherwise linger and be served.
+    $siteTarget = Join-Path $dest $d.Name
+    if (Test-Path $siteTarget) { Remove-Item $siteTarget -Recurse -Force }
     Copy-Item $d.FullName $dest -Recurse -Force
     Write-Host "  installed $($d.Name)/ (site sidecar)"
 }
