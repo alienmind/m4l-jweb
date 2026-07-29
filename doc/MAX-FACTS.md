@@ -334,49 +334,66 @@ through `[js]` would put the payload back where it must never be.
 `filename_out` set to the destination is a native streaming copy, on maxurl's own
 thread, with nothing crossing the message bridge. **Measured in Live: 1 MB in 6 ms.**
 
-### ...and it will not read a file [js] wrote across several message turns
+### A RELATIVE path handed to `File` lands in MAX's folder - and poisons that name forever
 
-A `.part` opened in one Max message turn and written by the turns that follow comes
-back from the place as
+The single worst trap found in this repo, and it hid for months behind a plausible
+wrong answer.
+
+`new File("name.part", "write")` does not create the file in the device folder, or in
+any current directory. It creates it in **Max's own folder** (`.../Ableton/Resources/Max`
+on Windows). That alone would be a small bug. What makes it permanent is the second
+half: **`File` in write mode resolves a NAME that already exists on Max's search path to
+that existing file**, so from then on
+
+```js
+new File("C:/.../Max For Live/m4l-jweb/m4l-jweb-save.part", "write")
+```
+
+writes to the stray in Max's folder and ignores the absolute path it was given. And
+`File` in READ mode searches the same path, so the wrapper's own verify finds the stray
+at exactly the right size and passes. Every layer agrees the file is fine. Only
+`[maxurl]`, which takes the literal path, tells the truth:
 
 ```
-maxurl: Couldn't open file C:/.../m4l-jweb-save.part
-error Couldn't read a file:// file          (CURLE_FILE_COULDNT_READ_FILE)
+js:     save wrote 65536 bytes, 65536 on disk, expected 65536
+js:     save place file:///C:/.../m4l-jweb/m4l-jweb-save.part -> .../test_save.bin
+maxurl: Couldn't open file C:/.../m4l-jweb/m4l-jweb-save.part
+js:     error Couldn't read a file:// file        (CURLE_FILE_COULDNT_READ_FILE)
 ```
 
-while `[js]` reads the very same path back at full size in the same breath. Closing the
-File does not help. Nor does dropping the reference to it.
+**One save from an unsaved patcher poisons that filename for every device on the
+machine, forever** - `[js]` cannot delete, so the stray cannot be removed from inside
+Max. The proof was a directory listing: no `.part` beside the .amxd, and
+`m4l-jweb-save.part` (65536 bytes) plus `rndA.wav.part` and `rndB.wav.part` (176444
+each, weeks old - real Strudel exports) sitting in `Ableton/Resources/Max`. Moving those
+three aside made the next save succeed with **no code change at all**.
 
-**What it is not**, each ruled out by measurement rather than argument, and each of
-them a day's plausible theory:
+So: `resolveFetchPath()` returns null rather than a relative path, and both the save and
+the fetch refuse to write when the patcher is unsaved. A relative path is never handed
+to `File`.
+
+**What it was not** - each ruled out by measurement, and each a plausible day's work:
 
 | Suspected | Ruled out by |
 |---|---|
 | a subdirectory in the destination | the destination was flat throughout |
 | spaces in the device folder | the conformance check places from `.../Ableton Library/...` |
-| percent-encoding the source URL | encoded passes there too; RAW is worse - `URL using bad/illegal format` |
+| percent-encoding the source URL | encoded passes; RAW is worse - `URL using bad/illegal format` |
 | the closed File still being referenced | nulling it changed nothing |
 | the `.part` extension | a `[js]`-written `.part` places fine |
-| writing across message turns as such | one written across 8 `Task` turns places fine |
+| writing across message turns | one written across 8 `Task` turns places fine |
 | `[maxurl]` being unwell at that moment | a 4 KB file written in the FAILING TURN placed, `error null` |
 
-That last one is the whole finding: in one turn, one folder, one request dict shape,
-the file written there and then was readable and the one the save had accumulated was
-not. So the rule is about **who wrote the file and when**, and the safe configuration
-is the one every passing case shares - the File's whole life, open to close, inside a
-single turn.
+Every one of those was a real experiment that narrowed the space, and every one of them
+was also a wrong answer confidently reasoned to. The thing that actually solved it was
+**listing the directory** - the one step that asks the filesystem instead of the
+program. The `.bin`/`.part`/turns assertions those experiments left behind live in
+`wrapper/device.ts` and still earn their place; what they were missing was never a
+cleverer hypothesis, it was `ls`.
 
-`saveToFile()` therefore buffers: `save_chunk` holds the base64 slices and `save_end`
-writes the file in one go. It costs about 1.33x the payload in [js] memory until the
-save completes, which is the price of the feature working. A FETCH still streams -
-maxurl writes that file itself and never has the problem.
-
-**The test suite cannot see any of this.** The fake maxurl reads whatever the real
-filesystem has, so it has no notion of a handle Max has not really let go of. The four
-`.bin`/`.part`/turns/probe assertions in `wrapper/device.ts` are the only thing that
-can tell, and they run in Live. The harness at least boots into a temp dir named
-`m4l wrapper XXXX` now, space and all, instead of `m4l-wrapper-XXXX` where an encoding
-bug would have been invisible.
+**No unit test can see this.** The fake maxurl reads the real filesystem, which has no
+Max search path, so a mis-located file is exactly as readable as a correct one. It is
+in-Live-only, by construction.
 
 Two things about the place reply are traps, and both look like success:
 
