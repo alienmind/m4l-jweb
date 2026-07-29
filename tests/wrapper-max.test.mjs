@@ -133,7 +133,10 @@ function makeFileClass() {
  * Boot the wrapper in a fake Max, and hand back the seams a test drives it through.
  */
 function bootWrapper() {
-  const dir = mkdtempSync(path.join(tmpdir(), "m4l-wrapper-"));
+  // The SPACE is deliberate. Every real install sits under "Ableton Library", and a
+  // temp dir named `m4l-wrapper-XXXX` made percent-encoding a no-op - so the suite
+  // could not tell an encoded path from a raw one, and passed while nothing saved.
+  const dir = mkdtempSync(path.join(tmpdir(), "m4l wrapper "));
   const dicts = new Map();
   const posts = [];
   /** Everything the wrapper sent out, per outlet: [outletIndex, selector, ...args]. */
@@ -218,7 +221,13 @@ function maxurl(h, { status = 200, body = "payload", error = null } = {}) {
   if (isFileScheme) {
     // A local copy. libcurl streams the source file to filename_out, and there is no
     // HTTP status to report.
-    const src = decodeURI(String(req.url).replace("file:///", ""));
+    //
+    // The scheme is stripped and the rest is used AS A LITERAL PATH - no percent
+    // decoding. This simulator used to call decodeURI here, and that one line is what
+    // let a percent-encoded source URL pass every test while failing on every real
+    // install: a device folder contains "Ableton Library", and maxurl went looking for
+    // a file called "Ableton%20Library". Do not decode. Max does not.
+    const src = String(req.url).replace("file:///", "");
     if (out && existsSync(src)) writeFileSync(out, readFileSync(src));
     // Answer the dict the REQUEST asked for. Fetch and save place through the same cord
     // and are told apart only by this name, so hardcoding the fetch one made a save look

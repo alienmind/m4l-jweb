@@ -989,6 +989,27 @@ function partPath(destPath: string): string {
 }
 
 /**
+ * The `file://` SOURCE of an atomic place, for [maxurl]'s request dict.
+ *
+ * NOT percent-encoded, and that is the whole point. [maxurl] strips the scheme and
+ * opens the remainder as a literal path - it does not decode `%20` - so an encoded
+ * URL makes it look for a file whose name really does contain `%`, `2`, `0`:
+ *
+ *   maxurl: Couldn't open file C:/.../Ableton%20Library/.../m4l-jweb-save.part
+ *
+ * Every real install has a space in that path ("Ableton Library"), so encoding it
+ * meant no save and no download ever reached its destination on a normal machine.
+ * The value travels inside a Dict, so a space cannot split it into atoms the way it
+ * would in a Max message - the encoding bought nothing and cost the feature.
+ *
+ * `[jweb]` is the opposite and still needs `encodeURI` (see `sendUrl`): it takes a
+ * real URL and decodes it. Same-looking path, two different consumers.
+ */
+function placeUrl(path: string): string {
+  return "file:///" + path;
+}
+
+/**
  * Where a SAVE lands before it has earned its destination - and deliberately NOT
  * `<dest>.part`.
  *
@@ -1065,7 +1086,7 @@ function processNextFetch(): void {
  */
 function placeFetch(fetched: ActiveFetch): void {
   var reqDict = new Dict();
-  reqDict.set("url", encodeURI("file:///" + partPath(fetched.destPath)));
+  reqDict.set("url", placeUrl(partPath(fetched.destPath)));
   reqDict.set("http_method", "get");
   reqDict.set("filename_out", fetched.destPath);
   reqDict.set("overwrite_output_file", 1);
@@ -1150,10 +1171,10 @@ function save_end(requestId: string): void {
   // destPath must be a FLAT filename in the device folder - maxurl (libcurl) and Max's
   // [js] File resolve a subdirectory differently, so `sub/x.wav` writes the .part where
   // File agrees but maxurl cannot reach it, and the place returns -1. Keep saves flat.
-  var placeUrl = encodeURI("file:///" + savePartPath(save.destPath));
-  post("m4l-jweb: save place " + placeUrl + " -> " + save.destPath + "\n");
+  var source = placeUrl(savePartPath(save.destPath));
+  post("m4l-jweb: save place " + source + " -> " + save.destPath + "\n");
   var reqDict = new Dict();
-  reqDict.set("url", placeUrl);
+  reqDict.set("url", source);
   reqDict.set("http_method", "get");
   reqDict.set("filename_out", save.destPath);
   reqDict.set("overwrite_output_file", 1);
