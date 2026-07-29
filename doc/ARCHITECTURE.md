@@ -1018,6 +1018,17 @@ that path). The three things that had to be remembered together are one declarat
 `effectiveChains()` and `filesSpecBanner()` in `packages/build/src/files.mjs`, pinned
 by `tests/files-codegen.test.mjs` at all three seams.
 
+Every `ui_ready` reply is a ONE-SHOT, and that is what decides where the binding
+lives. The wrapper answers `mode`, `build`, the tempo, the watches and
+`device_folder` once, on the announcement, and never repeats them; a selector bound
+in a LATER effect than the one that called `uiReady()` therefore misses its only
+message, silently, with the wrapper's half of the console looking correct. So
+`uiReady()` in the bridge binds `device_folder` itself before the announcement goes
+out, and `onDeviceFolder()` is a subscriber to a value the bridge already holds -
+the cached folder is replayed to whoever arrives late. The ordering is not something
+a device can get wrong, which is the only form the rule can take: the same trap is
+waiting for any future `ui_ready` reply, so bind it in the bridge, not in the page.
+
 There is deliberately **no subfolder option**. A save's destination must be a flat
 name in the device folder - `[js]`'s `File` and `maxurl` (libcurl) resolve a
 subdirectory differently, so `sub/x.wav` writes the `.part` where `File` agrees and
