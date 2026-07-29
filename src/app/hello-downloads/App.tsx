@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { copyMessage, copyPath, fetchToFile, onDeviceFolder, outlet } from "@m4l-jweb/bridge";
+import { copyMessage, copyPath, fetchToFile, onDeviceFolder, outlet, saveToFile } from "@m4l-jweb/bridge";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 import { OUT } from "./protocol";
@@ -38,12 +38,40 @@ export default function HelloDownloads() {
     }
   }
 
+  /**
+   * The other direction: the APP has the bytes and Max writes them.
+   *
+   * `saveToFile()` chunks them across the bridge into a `.part`, then places that
+   * over the destination with the same [maxurl] copy the download uses. Same chain,
+   * same place step, opposite source - and until this button existed the save half
+   * had never run in Live outside a consumer repo.
+   */
+  async function testSave() {
+    setStatus("Saving...");
+    // 64 KB of known bytes: several save_chunk messages, so the chunking is exercised
+    // rather than a single write that happens to fit.
+    const bytes = new Uint8Array(65536);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 256;
+    try {
+      const { bytes: written } = await saveToFile("test_save.bin", bytes.buffer);
+      setStatus(`Saved ${written} bytes to test_save.bin, next to the device.`);
+    } catch (err) {
+      setStatus(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   return (
     <Frame title="HELLO DOWNLOADS" device={device}>
       <dt>Action</dt>
       <dd>
         <button onClick={testDownload} style={{ padding: "4px 8px" }}>
           Download JSON to device folder
+        </button>
+      </dd>
+      <dt>Save</dt>
+      <dd>
+        <button onClick={testSave} style={{ padding: "4px 8px" }}>
+          Save 64 KB to device folder
         </button>
       </dd>
       <dt>Status</dt>
