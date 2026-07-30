@@ -247,6 +247,54 @@ export const FILES_IN = {
   device_folder: "device_folder",
 } as const;
 
+/**
+ * What the wrapper says about the TRACK this device is on.
+ *
+ * A device cannot see its own container from the page, and several things depend on it:
+ * an audio clip can only be created on an audio track, a MIDI clip only on a MIDI one,
+ * and a device shipped in both flavours (one manifest entry per container) otherwise has
+ * to be told which it is at build time - two builds that differ in a fact Live already
+ * knows. Sent once at ui_ready, like `device_folder`.
+ */
+export const TRACK_IN = {
+  /** wrapper -> UI: `track_kind <audio|midi|none>`. `none` means no reachable track. */
+  track_kind: "track_kind",
+} as const;
+
+/** Which container this device is in, as Live reports it. */
+export type TrackKind = "audio" | "midi" | "none";
+
+const trackKindHandlers = new Set<(kind: TrackKind) => void>();
+let trackKindBound = false;
+/** The last kind reported, for a subscriber that mounts after ui_ready. */
+let knownTrackKind: TrackKind | null = null;
+
+/**
+ * What kind of track is this device on?
+ *
+ * `audio` takes audio clips, `midi` takes MIDI clips, and `none` means the device is not
+ * on a reachable track at all (inside something odd, or mid-load). A late subscriber gets
+ * the answer immediately - ui_ready fires once, and a component mounting after it would
+ * otherwise wait forever for a message already sent.
+ *
+ * @returns An unsubscribe, so it drops straight into `useEffect`.
+ */
+export function onTrackKind(fn: (kind: TrackKind) => void): () => void {
+  trackKindHandlers.add(fn);
+  if (!trackKindBound) {
+    trackKindBound = true;
+    // One binding, many subscribers: `bindInlet` keeps a single handler per selector.
+    bindInlet(TRACK_IN.track_kind, (kind) => {
+      knownTrackKind = String(kind) as TrackKind;
+      for (const h of trackKindHandlers) h(knownTrackKind);
+    });
+  }
+  if (knownTrackKind !== null) fn(knownTrackKind);
+  return () => {
+    trackKindHandlers.delete(fn);
+  };
+}
+
 /** Selectors the WRAPPER answers about this device's own Live parameters. */
 export const PARAM_OUT = {
   /** UI -> wrapper: `get_param_id <id>` - what is this parameter's LOM id? Reply on `param_id`. */

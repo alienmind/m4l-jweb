@@ -9,7 +9,7 @@
  * hello-clip device; here we prove our half.
  */
 import { expect, test } from "vitest";
-import { AudioClipError, createAudioClip, decodeBase64, readClip, readSelectedClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
+import { AudioClipError, createAudioClip, decodeBase64, onTrackKind, readClip, readSelectedClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
 
 /** Capture the outbound messages a function produces. */
 function captureOut(fn) {
@@ -153,4 +153,38 @@ test("clip_error rejects with the REASON machine-readable and the message readab
 test("a reply for an unknown request is ignored, not thrown", () => {
   expect(() => simulate("clip_created", "nobody")).not.toThrow();
   expect(() => simulate("clip_error", "nobody", "failed", "x")).not.toThrow();
+});
+
+/* ------------------------------------------------------------------ *
+ * onTrackKind - which container the device is in
+ * ------------------------------------------------------------------ */
+
+test("onTrackKind delivers the wrapper's answer, and replays it to a late subscriber", () => {
+  const seen = [];
+  const off = onTrackKind((k) => seen.push(k));
+  simulate("track_kind", "midi");
+  expect(seen).toEqual(["midi"]);
+
+  // ui_ready fires ONCE, so a component that mounts afterwards must not wait forever
+  // for a message that has already been sent.
+  const late = [];
+  const offLate = onTrackKind((k) => late.push(k));
+  expect(late).toEqual(["midi"]);
+
+  off();
+  offLate();
+});
+
+test("a second subscriber does not replace the first (one bindInlet, many listeners)", () => {
+  const a = [];
+  const b = [];
+  const offA = onTrackKind((k) => a.push(k));
+  const offB = onTrackKind((k) => b.push(k));
+  a.length = 0;
+  b.length = 0;
+  simulate("track_kind", "audio");
+  expect(a).toEqual(["audio"]);
+  expect(b).toEqual(["audio"]);
+  offA();
+  offB();
 });
