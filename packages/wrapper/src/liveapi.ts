@@ -322,6 +322,247 @@ function pickClip(): LiveAPI | null {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * A file on disk INTO an audio clip
+ *
+ * `create_audio_clip <requestId> <base64 spec>`; `clip_created <requestId>` or
+ * `clip_error <requestId> <reason> <msg...>` back. `createAudioClip()` in the bridge is
+ * the shaped API, and the spec is base64 JSON because a path and a clip name BOTH
+ * contain spaces in practice - two variadic fields cannot be recovered from one flat
+ * Max message.
+ *
+ * WHY THIS IS GATED ON A VERSION READ AND NOT ON A TRY/CATCH. `create_audio_clip` is
+ * documented well before Live 12.0.5 and does nothing there - so the failure to design
+ * around is a call that raises nothing and leaves the slot empty, which is
+ * indistinguishable from a slot that was already empty. Ask Live what it is.
+ *
+ * WHAT THE TARGET MUST BE: an audio track, not frozen, not being recorded into. An
+ * instrument device can never satisfy that from its own view - it sits on a MIDI track,
+ * and the highlighted slot is always one of its own, because a device's UI is only on
+ * screen while its track is selected. Hence `target: "new"`, and hence the audio-effect
+ * flavour of a device that wants to bounce into the track it is already on.
+ * ------------------------------------------------------------------ */
+
+/** Live's version, read once. null when neither spelling of the getter answered. */
+var liveVersionCache: number[] | null = null;
+var liveVersionAsked = false;
+
+/**
+ * [major, minor, bugfix], or null.
+ *
+ * TWO SPELLINGS ARE TRIED, and that is not hedging: the LOM's Application functions are
+ * `get_major_version` in Live's own documentation, and this repo has been wrong about a
+ * name it never looked up more than once (see MAX-FACTS on names Max does not validate).
+ * Whichever answers is posted, so the console says which one this Live has.
+ */
+function liveVersion(): number[] | null {
+  if (liveVersionAsked) return liveVersionCache;
+  liveVersionAsked = true;
+  var spellings = [
+    ["get_major_version", "get_minor_version", "get_bugfix_version"],
+    ["get_version_major", "get_version_minor", "get_version_bugfix"],
+  ];
+  try {
+    var app = new LiveAPI("live_app");
+    for (var i = 0; i < spellings.length; i++) {
+      try {
+        var major = Number(app.call(spellings[i][0]));
+        var minor = Number(app.call(spellings[i][1]));
+        var bugfix = Number(app.call(spellings[i][2]));
+        if (major > 0) {
+          liveVersionCache = [major, minor, bugfix];
+          post("m4l-jweb: Live " + major + "." + minor + "." + bugfix + " (via " + spellings[i][0] + ")\n");
+          return liveVersionCache;
+        }
+      } catch (inner) {
+        /* the other spelling gets its turn */
+      }
+    }
+    post("m4l-jweb: could not read Live's version - neither get_major_version nor get_version_major answered\n");
+  } catch (e) {
+    post("m4l-jweb: live_app unavailable - " + (e as Error).message + "\n");
+  }
+  return null;
+}
+
+/** Is this Live new enough for create_audio_clip to DO anything? Unknown counts as yes. */
+function hasAudioClipApi(): boolean {
+  var v = liveVersion();
+  if (!v) return true; // cannot tell: attempt, and report what the slot says afterwards
+  if (v[0] > 12) return true;
+  if (v[0] < 12) return false;
+  if (v[1] > 0) return true;
+  return v[2] >= 5;
+}
+
+/** base64 -> string, UTF-8 aware. b64decode (core.ts) gives bytes; this reads them. */
+function b64ToString(b64: string): string {
+  var bytes = b64decode(b64);
+  var out = "";
+  for (var i = 0; i < bytes.length; i++) {
+    var c = bytes[i];
+    if (c < 0x80) out += String.fromCharCode(c);
+    else if (c < 0xe0) out += String.fromCharCode(((c & 0x1f) << 6) | (bytes[++i] & 0x3f));
+    else if (c < 0xf0) out += String.fromCharCode(((c & 0x0f) << 12) | ((bytes[++i] & 0x3f) << 6) | (bytes[++i] & 0x3f));
+    else {
+      // Outside the BMP: rebuild the surrogate pair, or a name with an emoji in it
+      // silently becomes garbage rather than the character the user typed.
+      var cp = ((c & 0x07) << 18) | ((bytes[++i] & 0x3f) << 12) | ((bytes[++i] & 0x3f) << 6) | (bytes[++i] & 0x3f);
+      cp -= 0x10000;
+      out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+    }
+  }
+  return out;
+}
+
+interface AudioClipSpec {
+  path: string;
+  target: string;
+  track?: number;
+  slot?: number;
+  name?: string;
+  warp?: boolean;
+  warpMode?: number;
+  loopEnd?: number;
+}
+
+function clipError(requestId: string, reason: string, message: string): void {
+  post("m4l-jweb: create_audio_clip " + reason + " - " + message + "\n");
+  // Fixed arity, never outlet.apply - see emitClipNotes. The reason is its own atom so
+  // the app can branch on it without parsing the human sentence beside it.
+  outlet(0, "clip_error", requestId, reason, message);
+}
+
+function create_audio_clip(requestId: string, b64: string): void {
+  var spec: AudioClipSpec;
+  try {
+    spec = JSON.parse(b64ToString(String(b64)));
+  } catch (e) {
+    return clipError(String(requestId), "failed", "could not read the request: " + (e as Error).message);
+  }
+
+  if (!hasAudioClipApi()) {
+    var v = liveVersion();
+    return clipError(
+      String(requestId),
+      "needs_live_1205",
+      "this Live is " + (v ? v.join(".") : "older than 12.0.5") + "; ClipSlot.create_audio_clip does nothing before 12.0.5",
+    );
+  }
+
+  // The same resolution a save uses, so a device passes back exactly the name it wrote.
+  var path = resolveFetchPath(String(spec.path));
+  if (path === null) {
+    return clipError(String(requestId), "no_file", "the patcher is not saved, so a relative path resolves against nowhere");
+  }
+  // Ask the filesystem before asking Live. A missing file makes create_audio_clip fail in
+  // a way that reads exactly like a wrong target, and this is one line.
+  if (fileSize(path) <= 0) {
+    return clipError(String(requestId), "no_file", "nothing on disk at " + path);
+  }
+
+  var slot = resolveClipSlot(spec);
+  if (!slot || !slot.id) {
+    return clipError(String(requestId), "no_slot", spec.target === "selected" ? "no clip slot is highlighted in Live" : "no clip slot at that index");
+  }
+
+  var track = new LiveAPI(slot.unquotedpath + " canonical_parent");
+  if (Number(track.get("has_audio_input")) !== 1) {
+    return clipError(
+      String(requestId),
+      "not_audio_track",
+      "the target is not an audio track - an audio clip can only be created on one",
+    );
+  }
+  if (Number(track.get("is_frozen")) === 1) {
+    return clipError(String(requestId), "track_busy", "that track is frozen");
+  }
+  try {
+    if (Number(slot.get("is_recording")) === 1) {
+      return clipError(String(requestId), "track_busy", "that slot is being recorded into");
+    }
+  } catch (eRec) {
+    /* an older ClipSlot may not carry is_recording; the call below still refuses */
+  }
+
+  post("m4l-jweb: create_audio_clip -> " + slot.unquotedpath + " <- " + path + "\n");
+  try {
+    slot.call("create_audio_clip", path);
+  } catch (eCall) {
+    return clipError(String(requestId), "failed", (eCall as Error).message);
+  }
+
+  // The slot is the evidence, not the call. A LOM method that declines prints to the Max
+  // window and returns nothing, so "it did not throw" is not "there is a clip".
+  if (Number(slot.get("has_clip")) !== 1) {
+    return clipError(String(requestId), "failed", "the call ran and the slot is still empty - see the Max window for Live's own error");
+  }
+
+  setupAudioClip(new LiveAPI(slot.unquotedpath + " clip"), spec);
+  post("m4l-jweb: created an audio clip in " + slot.unquotedpath + "\n");
+  outlet(0, "clip_created", requestId);
+}
+
+/** The slot a spec names, creating a track for `target: "new"`. */
+function resolveClipSlot(spec: AudioClipSpec): LiveAPI | null {
+  try {
+    if (spec.target === "new") {
+      var song = new LiveAPI("live_set");
+      // -1 appends. The new track is therefore the last one, and asking for the count
+      // AFTER the call is what identifies it - there is no return value to trust.
+      song.call("create_audio_track", -1);
+      var last = song.getcount("tracks") - 1;
+      if (last < 0) return null;
+      // Select it, so the bounce is where the user is looking rather than somewhere
+      // off the right edge of a wide set.
+      try {
+        new LiveAPI("live_set view").set("selected_track", "id " + new LiveAPI("live_set tracks " + last).id);
+      } catch (eSel) {
+        /* cosmetic */
+      }
+      return new LiveAPI("live_set tracks " + last + " clip_slots 0");
+    }
+    if (spec.target === "track") {
+      return new LiveAPI("live_set tracks " + Number(spec.track) + " clip_slots " + Number(spec.slot));
+    }
+    return new LiveAPI("live_set view highlighted_clip_slot");
+  } catch (e) {
+    post("m4l-jweb: create_audio_clip target error - " + (e as Error).message + "\n");
+    return null;
+  }
+}
+
+/**
+ * Name it, warp it, and give it the loop the render actually has.
+ *
+ * Every write is individually guarded and NONE of them fails the request: the clip is
+ * already in the slot by the time this runs, and a bounce that landed under the wrong
+ * name is not a bounce that failed. What did not take is posted.
+ *
+ * ORDER MATTERS. `warping` comes first - loop points on an unwarped clip are in seconds
+ * of sample time, not beats - and the END markers are widened before the loop is set,
+ * because Live clamps a loop to the markers it currently has.
+ */
+function setupAudioClip(clip: LiveAPI, spec: AudioClipSpec): void {
+  if (!clip || !clip.id) return;
+  var writes: unknown[][] = [];
+  if (spec.warp !== false) writes.push(["warping", 1]);
+  if (spec.warpMode !== undefined) writes.push(["warp_mode", Number(spec.warpMode)]);
+  if (spec.loopEnd !== undefined && Number(spec.loopEnd) > 0) {
+    writes.push(["end_marker", Number(spec.loopEnd)], ["loop_end", Number(spec.loopEnd)], ["start_marker", 0], ["loop_start", 0], ["looping", 1]);
+  }
+  // Last, so a name is not lost to an exception thrown by a loop point.
+  if (spec.name) writes.push(["name", String(spec.name)]);
+
+  for (var i = 0; i < writes.length; i++) {
+    try {
+      clip.set(String(writes[i][0]), writes[i][1]);
+    } catch (e) {
+      post("m4l-jweb: clip " + writes[i][0] + " = " + writes[i][1] + " did not take - " + (e as Error).message + "\n");
+    }
+  }
+}
+
 function getNotes(clip: LiveAPI, loopEnd: number): LiveNote[] | null {
   // Live 11+: get_notes_extended returns a JSON string.
   try {

@@ -9,7 +9,7 @@
  * hello-clip device; here we prove our half.
  */
 import { expect, test } from "vitest";
-import { readClip, readSelectedClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
+import { AudioClipError, createAudioClip, decodeBase64, readClip, readSelectedClip, writeClip, simulate, tapMessages } from "@m4l-jweb/bridge";
 
 /** Capture the outbound messages a function produces. */
 function captureOut(fn) {
@@ -85,4 +85,72 @@ test("reads are answered in order", async () => {
   simulate("notes", 8, 1, 72, 0, 2); // answers b
   expect((await a).loopEnd).toBe(2);
   expect((await b).loopEnd).toBe(8);
+});
+
+/* ------------------------------------------------------------------ *
+ * createAudioClip - a rendered file into a Live clip slot
+ *
+ * The wrapper half is LiveAPI and can only be proven in Live. What the bridge owns is
+ * the payload: ONE base64 atom, because a path and a clip name both contain spaces and
+ * Max splits a message on them - two variadic fields in one flat message cannot be
+ * told apart again.
+ * ------------------------------------------------------------------ */
+
+test("createAudioClip sends its whole spec as ONE base64 atom", () => {
+  const out = captureOut(() =>
+    createAudioClip("C:/Ableton Library/User Library/x.wav", { target: "selected" }, { name: 's("bd sd")', loopEnd: 4, warp: true }),
+  );
+  expect(out.length).toBe(1);
+  const [selector, requestId, payload] = out[0];
+  expect(selector).toBe("create_audio_clip");
+  expect(typeof requestId).toBe("string");
+  // A path with three spaces in it and a name with one, and the message is still two atoms.
+  expect(String(payload)).not.toMatch(/\s/);
+  expect(JSON.parse(decodeBase64(String(payload)))).toEqual({
+    path: "C:/Ableton Library/User Library/x.wav",
+    target: "selected",
+    name: 's("bd sd")',
+    loopEnd: 4,
+    warp: true,
+  });
+});
+
+test("a track target carries its indices", () => {
+  const out = captureOut(() => createAudioClip("x.wav", { target: "track", track: 3, slot: 0 }));
+  const spec = JSON.parse(decodeBase64(String(out[0][2])));
+  expect(spec).toEqual({ path: "x.wav", target: "track", track: 3, slot: 0 });
+});
+
+test("clip_created resolves the request that asked", async () => {
+  let id;
+  const off = tapMessages((m) => {
+    if (m.direction === "out" && m.selector === "create_audio_clip") id = m.args[0];
+  });
+  const p = createAudioClip("x.wav");
+  off();
+  simulate("clip_created", id);
+  await expect(p).resolves.toBeUndefined();
+});
+
+test("clip_error rejects with the REASON machine-readable and the message readable", async () => {
+  let id;
+  const off = tapMessages((m) => {
+    if (m.direction === "out" && m.selector === "create_audio_clip") id = m.args[0];
+  });
+  const p = createAudioClip("x.wav");
+  off();
+  // The wrapper's message is human text, so Max delivers it split on its spaces.
+  simulate("clip_error", id, "not_audio_track", "the", "target", "is", "not", "an", "audio", "track");
+  await expect(p).rejects.toThrow(/not an audio track/);
+  await p.catch((e) => {
+    expect(e).toBeInstanceOf(AudioClipError);
+    // The branch a device needs: this failure has a way out (bounce to a new track),
+    // and needs_live_1205 does not.
+    expect(e.reason).toBe("not_audio_track");
+  });
+});
+
+test("a reply for an unknown request is ignored, not thrown", () => {
+  expect(() => simulate("clip_created", "nobody")).not.toThrow();
+  expect(() => simulate("clip_error", "nobody", "failed", "x")).not.toThrow();
 });
