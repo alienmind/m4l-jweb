@@ -28,6 +28,12 @@ wrapper answers `track_kind audio|midi|none` at ui_ready, from `has_audio_input`
 `has_midi_input` on the device's own track. The alternative was baking the answer into the
 build - two entries differing in a fact Live already knows, and a manifest able to lie.
 
+**A release can carry DOCS.** A named `docs` export beside the device manifest lists files
+that ride along in the zip and the installed folder without belonging to any device - a
+manual, a licence. A listed file that is not there is a warning rather than a build failure,
+because a generated doc (a PDF rendered by a headless browser) may not exist on a machine
+with no browser, and that is never worth failing a build that produced every device.
+
 **An instrument cannot target an audio track from its own view**, and that is a UI fact
 rather than a LOM one: a device's view is on screen only while its track is selected, so
 the highlighted clip slot is always one of its own. `{ target: "new" }` is the escape;
