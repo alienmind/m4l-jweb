@@ -346,6 +346,8 @@ export const CLIP_OUT = {
   read_selected_clip: "read_selected_clip",
   /** UI -> wrapper: `write_clip <lengthBeats> <n> <pitch start duration velocity> ...` - fill the first empty slot. */
   write_clip: "write_clip",
+  /** UI -> wrapper: `create_audio_clip <requestId> <base64 spec>` - a WAV on disk into a clip slot. */
+  create_audio_clip: "create_audio_clip",
 } as const;
 
 /** ...and the reply from a read. */
@@ -354,6 +356,10 @@ export const CLIP_IN = {
   notes: "notes",
   /** wrapper -> UI: there was no clip on this track to read. */
   read_error: "read_error",
+  /** wrapper -> UI: `clip_created <requestId>` - the audio clip is in the slot. */
+  clip_created: "clip_created",
+  /** wrapper -> UI: `clip_error <requestId> <reason> <msg...>` - it is not, and why. */
+  clip_error: "clip_error",
 } as const;
 
 /** A note handed to the `midiout` chain. Max does the placing; you do the timing. */
@@ -788,6 +794,129 @@ export function writeClip(lengthBeats: number, notes: readonly ClipNote[]): void
   const flat: number[] = [lengthBeats, notes.length];
   for (const nt of notes) flat.push(nt.pitch, nt.start, nt.duration, nt.velocity);
   outlet(CLIP_OUT.write_clip, ...flat);
+}
+
+/* ------------------------------------------------------------------ *
+ * A rendered file INTO a Live clip
+ *
+ * The other half of `saveToFile()`. A device that bounces its pattern writes a WAV and
+ * then has no way to hand it over: a page cannot give Live a file (Chromium strips the
+ * drag payload), Max cannot open a file manager, so the whole handoff was a path on the
+ * clipboard and five manual steps in Explorer.
+ *
+ * `ClipSlot.create_audio_clip` is ordinary LOM, so `[js]` can call it - which the drawer
+ * said for months was impossible. It is Live 12.0.5 or newer (documented earlier, and
+ * non-functional before that), so the wrapper reads Live's version and refuses rather
+ * than trusting the docs, and answers `clip_error <id> needs_live_1205` where a device
+ * should keep offering the clipboard instead.
+ *
+ * NO CHAIN AND NO BOXES. This is pure LiveAPI, like `defineWatch()` - nothing is derived
+ * into the patcher graph. It does need `unmatchedTo: "js"`, like every other bare
+ * wrapper selector.
+ * ------------------------------------------------------------------ */
+
+/** Where a created clip lands. */
+export type AudioClipTarget =
+  /** Live's highlighted clip slot - which, in a device's own view, is always a slot on
+   *  the device's OWN track: a device's UI is only visible while its track is selected,
+   *  so there is no reachable moment at which the highlighted slot is somebody else's. */
+  | { target: "selected" }
+  /** A slot named by index. `track` is the index in `live_set tracks`, `slot` the scene. */
+  | { target: "track"; track: number; slot: number }
+  /** A brand-new audio track (`create_audio_track(-1)`), first slot. The one target that
+   *  cannot fail on a MIDI track, and therefore the honest escape for an instrument. */
+  | { target: "new" };
+
+/** What to make of the clip once it exists - the things a render already knows. */
+export interface AudioClipSetup {
+  /** The clip's name. What the user wrote, not `export-1785343077706.wav`. */
+  name?: string;
+  /** Warping on, so the clip follows Live's tempo. */
+  warp?: boolean;
+  /** Live's warp mode index (0 Beats, 1 Tones, 2 Texture, 3 Re-Pitch, 4 Complex...). */
+  warpMode?: number;
+  /**
+   * The loop end in BEATS - `cycles * beatsPerCycle` for a pattern render.
+   *
+   * The reason to send it: a device that rendered N whole cycles at a known cps knows the
+   * loop length exactly, and Live otherwise guesses it from transient analysis. The
+   * difference is a bounce that plays in time and one that needs hand-warping.
+   */
+  loopEnd?: number;
+}
+
+/** Why a clip was not created. Branch on it - `not_audio_track` is the one a device can offer a way out of. */
+export type AudioClipFailure =
+  /** Live is older than 12.0.5, where the call exists but does nothing. */
+  | "needs_live_1205"
+  /** The target is a MIDI track (or a return, or the master). */
+  | "not_audio_track"
+  /** The target track is frozen, or armed and recording. */
+  | "track_busy"
+  /** No slot resolved: nothing highlighted, or the index does not exist. */
+  | "no_slot"
+  /** The file is not on disk at the path given. */
+  | "no_file"
+  /** The call ran and the slot still holds no clip. */
+  | "failed";
+
+/** The rejection `createAudioClip()` throws, with the reason machine-readable. */
+export class AudioClipError extends Error {
+  readonly reason: AudioClipFailure;
+  constructor(reason: AudioClipFailure, message: string) {
+    super(message);
+    this.name = "AudioClipError";
+    this.reason = reason;
+  }
+}
+
+const clipCreateResolvers = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+let clipCreateBound = false;
+
+/**
+ * Put a file that is already on disk into a Live clip slot.
+ *
+ * @param path Absolute, or relative to the device folder (resolved wrapper-side, the same
+ *   resolution `saveToFile()` uses - so pass back exactly the name you saved).
+ * @param where Which slot. See AudioClipTarget.
+ * @param setup Name, warping and loop points, applied after the clip exists.
+ *
+ * THE PAYLOAD IS BASE64, and that is not ceremony. Max parses a message into atoms on
+ * whitespace, and both of the strings here have spaces in them in practice: a real
+ * install's path contains "Ableton Library", and a clip name is whatever the user typed.
+ * Two variadic fields cannot be rejoined from one flat message - there is no way to tell
+ * where the first ends - so the whole spec travels as one JSON blob in one atom, which is
+ * what `encodeBase64` exists for. (m4l-jweb's TODO sketched `create_audio_clip <id>
+ * <path> <target...>`; that shape splits at the first space and loses the target.)
+ *
+ * A CLIP IS NOT ATOMIC. When the call succeeds but a `setup` field does not take, the
+ * clip still exists and this still resolves - the wrapper posts what failed. Refusing a
+ * bounce that landed because its name did not is the wrong trade.
+ */
+export function createAudioClip(path: string, where: AudioClipTarget = { target: "selected" }, setup: AudioClipSetup = {}): Promise<void> {
+  if (!clipCreateBound) {
+    clipCreateBound = true;
+    bindInlet(CLIP_IN.clip_created, (id) => {
+      const p = clipCreateResolvers.get(String(id));
+      if (!p) return;
+      clipCreateResolvers.delete(String(id));
+      p.resolve();
+    });
+    bindInlet(CLIP_IN.clip_error, (id, reason, ...rest) => {
+      const p = clipCreateResolvers.get(String(id));
+      if (!p) return;
+      clipCreateResolvers.delete(String(id));
+      // The message is human text and splits on its spaces; the REASON is one word and
+      // does not, which is why it is a separate atom rather than parsed out of the text.
+      p.reject(new AudioClipError(String(reason) as AudioClipFailure, rest.join(" ") || String(reason)));
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = Math.random().toString(36).substring(2, 10);
+    clipCreateResolvers.set(requestId, { resolve, reject });
+    outlet(CLIP_OUT.create_audio_clip, requestId, encodeBase64(JSON.stringify({ path, ...where, ...setup })));
+  });
 }
 
 /**
