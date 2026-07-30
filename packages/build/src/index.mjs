@@ -123,6 +123,26 @@ async function readManifest(root) {
   return (await import(pathToFileURL(p).href)).default;
 }
 
+/**
+ * Files that ride along with the release without being part of any device.
+ *
+ * A user manual, a licence, a chart - things a person opens, not things Max loads. They
+ * are declared as a named `docs` export next to the manifest:
+ *
+ *   export const docs = ["USERSMANUAL.md", "dist/manual/USERSMANUAL.pdf"];
+ *
+ * MISSING IS NOT FATAL, and that is the whole reason this is a list rather than a
+ * `looseFiles` entry: a generated doc (a PDF rendered by a headless browser) may not
+ * exist on a machine that has no browser, and a manual is never worth failing a build
+ * that produced every device correctly. What is missing is named in the log.
+ */
+async function readDocs(root) {
+  const p = path.join(root, "patcher", "devices.mjs");
+  if (!existsSync(p)) return [];
+  const mod = await import(pathToFileURL(p).href);
+  return Array.isArray(mod.docs) ? mod.docs : [];
+}
+
 /** patcher/base.json in the device repo wins; otherwise the packaged template. */
 function readBase(root) {
   const local = path.join(root, "patcher", "base.json");
@@ -457,6 +477,19 @@ export async function packageDevices(root) {
     console.log(`m4l-jweb: ${f} -> dist/${name}/ (preset)`);
   }
 
+  // Documentation for the human, alongside the devices for Max. See readDocs.
+  const docs = [];
+  for (const f of await readDocs(root)) {
+    const from = path.join(root, f);
+    if (!existsSync(from)) {
+      console.warn(`m4l-jweb: doc ${f} is not there - skipped (it is not part of any device)`);
+      continue;
+    }
+    await copyFile(from, path.join(outDir, path.basename(f)));
+    docs.push(path.basename(f));
+    console.log(`m4l-jweb: ${path.basename(f)} -> dist/${name}/ (doc)`);
+  }
+
   // Installers go next to the devices so `dist/install-*.ps1` just works.
   const installers = ["install-windows.ps1", "install-mac.sh"];
   for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
@@ -473,6 +506,7 @@ export async function packageDevices(root) {
       ...devices.map((d) => `${d.name}.html`), // each device's own UI, for inspection
       ...loose.map((f) => path.basename(f)),
       ...presets,
+      ...docs,
       "wrapper.js",
     ];
     for (const f of files) {
