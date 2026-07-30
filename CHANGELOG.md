@@ -22,6 +22,12 @@ LiveAPI's own `call` does NOT split a string argument, which is the separate que
 that had to pass first; both are measured in doc/MAX-FACTS.md, along with the finding
 that Live REFERENCES the file in place rather than copying it into the project.
 
+**`onTrackKind()`.** A page cannot see its own container, and what a device may do depends
+on it: an audio clip only lands on an audio track, a MIDI clip only on a MIDI one. The
+wrapper answers `track_kind audio|midi|none` at ui_ready, from `has_audio_input` /
+`has_midi_input` on the device's own track. The alternative was baking the answer into the
+build - two entries differing in a fact Live already knows, and a manifest able to lie.
+
 **An instrument cannot target an audio track from its own view**, and that is a UI fact
 rather than a LOM one: a device's view is on screen only while its track is selected, so
 the highlighted clip slot is always one of its own. `{ target: "new" }` is the escape;
