@@ -1,8 +1,8 @@
 # M4L-JWEB: what is left to do
 
 The backlog for the library itself - things any device built on M4L-JWEB could use,
-not one device's business logic. **Only open work lives here**, ordered from smallest
-effort to biggest. What has shipped is recorded where it belongs: **what the library
+not one device's business logic. **Only open work lives here**, and as of 1.3.0 that is
+ONE item - the library does what the devices built on it need. What has shipped is recorded where it belongs: **what the library
 does** in [README.md](../README.md), **how and why (including everything measured in
 Live)** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -39,32 +39,23 @@ table) rather than lean on the transient, and have the reply path address whoeve
 `fetchToFile()` has the same shape and the same bug; fix both at once, since a window
 that can save but not fetch is a distinction nobody can remember.
 
-**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 2) - it will be able to
+**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 6d) - it will be able to
 render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
 cannot travel back to the device view through Max messages to be saved there.
 
-## 2. Lift the shared codegen, now that there are three declarations
+---
 
-`defineFiles()` shipped in 1.3.0, so the precondition is met: declaration -> boxes ->
-wiring -> selectors is one pipeline across Surface, Watch and Files, and three
-instances is enough to extract from where two was not. Leave the user-facing APIs
-bespoke. End state is `defineDevice()` - folding in the manifest, so you never write
-`[js]`.
+# The way forward: a VST3 backend, so a device runs outside Live
 
-Do NOT build the generic compiler first and express the Surface in terms of it. An
-abstraction from one example is a guess.
-
-**What the three have in common, as the starting point:** each loads a TypeScript
-declaration through esbuild (`loadSurface` / `loadWatch` / `loadFiles` are the same
-function three times), and each emits some mix of a data banner and patcher boxes.
-The loader is the obvious extraction; the emitters are the part worth being careful
-with, because `defineFiles()` is the only one that derives a CHAIN and the shape of
-that is not yet proven twice.
-
-## 3. (for next generation) A VST3 backend, so a device runs outside Live
+**Not a backlog item.** It is what this library could become NEXT, and it is written down
+here so the shape is not re-derived from scratch by whoever picks it up - possibly as a
+separate project rather than as work on this one.
 
 Assessed in [FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md): the app, the bridge, the surface
 and the harness port; the LiveAPI wrapper does not. **One repo, not a fork** - the
-shared traps *are* the product. Its first step is a `Target` seam extracted from
-`packages/build` while there is still only one target, which is worth doing on its
-own merits.
+shared traps *are* the product, and a fork would have to re-learn every one of them
+recorded in [MAX-FACTS.md](MAX-FACTS.md).
+
+Its first step is a `Target` seam extracted from `packages/build` while there is still
+only one target, which is worth doing on its own merits and is the only part of it that
+belongs in this repo today.
