@@ -131,6 +131,33 @@ function observeProperty(objectPath: string, property: string, selector: string)
  * Clip I/O
  * ------------------------------------------------------------------ */
 
+/**
+ * Tell the page which CONTAINER it is in: `track_kind <audio|midi|none>`.
+ *
+ * A page cannot see its own track, and what a device may do depends on it - an audio clip
+ * only lands on an audio track, a MIDI clip only on a MIDI one. Baking the answer into the
+ * build instead would mean two builds differing in a fact Live already knows, and a
+ * manifest that can lie. Sent at ui_ready, alongside the device folder.
+ *
+ * `has_audio_input` is the audio-track test and `has_midi_input` the MIDI one; a MIDI
+ * track hosting an instrument still answers `has_audio_input 0`, which is the distinction
+ * that matters here.
+ */
+function sendTrackKind(): void {
+  try {
+    var track = ownTrack();
+    if (!track || !track.id || track.type !== "Track") {
+      reply("track_kind", "none");
+      return;
+    }
+    var kind = Number(track.get("has_audio_input")) === 1 ? "audio" : Number(track.get("has_midi_input")) === 1 ? "midi" : "none";
+    reply("track_kind", kind);
+    post("m4l-jweb: this device is on " + (kind === "none" ? "no reachable track" : "a " + kind + " track") + "\n");
+  } catch (e) {
+    post("m4l-jweb: track_kind unavailable - " + (e as Error).message + "\n");
+  }
+}
+
 interface LiveNote {
   pitch: number;
   start_time: number;

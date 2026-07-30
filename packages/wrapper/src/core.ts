@@ -125,6 +125,7 @@ function ui_ready(): void {
   sendCurrentTempo(); // liveapi.ts
   resendWatches(); // watch.ts - the current value of every declared watch, for a late page
   sendDeviceFolder(); // where this device's files land, for a device that declares any
+  sendTrackKind(); // liveapi.ts - audio | midi | none, which decides what clips it can make
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
