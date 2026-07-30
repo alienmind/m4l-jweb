@@ -435,6 +435,64 @@ wrap into a per-loop boundary bang and the groove becomes its own clock with no
 transport at all; and its **loop point interpolates**, leaving a faint click at the seam
 - worst on a pure sine, near-inaudible on real material.
 
+## `ClipSlot.create_audio_clip` works from `[js]`, and it REFERENCES the file (2026-07-30)
+
+Measured in Live 12.4.3, by a spike device built for it, against the four questions that
+could each have killed the feature.
+
+**1. A path with spaces survives as ONE symbol.** `slot.call("create_audio_clip", path)`
+with `C:/Music/AlienMindLibrary/Ableton Library/User Library/Max For Live/m4l-gugelhupf/
+gugelhupf-export-<n>.wav` - three spaces - created the clip. LiveAPI's `call` does NOT
+split a JS string argument into atoms the way a Max message would. This was the spike
+that had to pass first, because a User Library path always contains "Ableton Library",
+and this repo had already been bitten twice by the message-level splitting.
+
+**That says nothing about the MESSAGE that carries the path to `[js]`**, which does split
+- so `createAudioClip()` sends its whole request as ONE base64 atom. A path and a clip
+name are both variadic and both routinely contain spaces; two of them in one flat message
+cannot be told apart again.
+
+**2. Live REFERENCES the file in place. It does not copy it into the project.** The proof
+is a directory listing rather than an argument: `gugelhupf-export-<n>.wav.asd` - Live's
+analysis file - appeared **next to the .wav in the device folder**, at the second the clip
+was created, and no copy appeared under the project. So a set that moves without Collect
+All and Save loses its audio, exactly as a hand-dragged file would. A device bouncing
+into its own folder is choosing that trade; `defineFiles()` would have to write into the
+project folder to change it, and nothing here does yet.
+
+**3. An instrument can never provide an audio target.** Not a Live limitation this time
+but a UI one, and it invalidates the obvious design: pressing a
+button in a device's view requires that device's track to be SELECTED, so
+`live_set view highlighted_clip_slot` is always a slot on the device's own track. An
+instrument sits on a MIDI track, so its highlighted slot is a MIDI slot, always. There is
+no reachable moment at which a device's own button and another track's slot are both
+live. Hence two answers, neither of them a fallback: a device that means to bounce ships
+as an AUDIO EFFECT (its own track takes audio clips), and `create_audio_track(-1)` is
+offered explicitly where it does not.
+
+WHAT A MIDI TARGET ACTUALLY DOES - a printed Live error, a catchable exception, or a
+silent no-op - is STILL not measured, and now cannot be from here: the `has_audio_input`
+pre-check fires first and the call is never made. Confirmed in Live from the instrument
+flavour, which reported `create_audio_clip not_audio_track` and left the file on disk;
+pressing the offered escape then created the clip in `live_set tracks 5 clip_slots 0`, a
+track that did not exist a moment earlier. The wrapper depends on none of the three
+behaviours - it re-reads `has_clip` afterwards, which catches all of them alike.
+
+**4. The version is read, not inferred from a thrown exception.** `create_audio_clip` is
+documented well before 12.0.5 and does nothing there, so the failure mode to design
+around is a call that raises nothing and leaves the slot empty - indistinguishable from a
+slot that was already empty. `hasAudioClipApi()` asks `live_app` and refuses below 12.0.5
+with `needs_live_1205`. **The getter is `get_major_version`** - measured on 12.4.3, which
+answered that spelling and not `get_version_major`; the wrapper tries both and posts
+which one replied, because a name Max does not recognise is not an error here either. Unknown version means ATTEMPT: the slot is then inspected
+afterwards, which is the check that cannot be fooled. The gate itself is UNMEASURED
+against an old Live - there is no 12.0.4 on this machine to run it on - so what is
+proven is which getter answers on 12.4.3, not that the refusal reads well on 12.0.4.
+
+**The slot is the evidence, never the call.** `has_clip` is read back after
+`create_audio_clip` returns, for the same reason `[buffer~]`'s frame count is read after
+`replace`: a LOM method that declines prints to the Max window and returns nothing.
+
 ## Live's Browser is unreachable from `[js]` (spike, 2026-07-17)
 
 `new LiveAPI("live_app browser")` resolves to id 0 -

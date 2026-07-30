@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.0 - a rendered file goes straight into a Live clip
+
+**`createAudioClip(path, target, setup)`.** A device that bounces its pattern used to end
+at a file, a copied path and five manual steps in Explorer. `ClipSlot.create_audio_clip`
+is ordinary LOM - the "the LOM cannot make an audio clip" premise this repo carried for
+months was false - so the wrapper calls it, sets the clip up from what the render already
+knows (name, warping, and loop points from the exact cycle count), and answers
+`clip_created` or `clip_error <reason>`. No chain and no patcher boxes: pure LiveAPI, like
+`defineWatch()`.
+
+**Gated on a version READ, not on a caught exception.** The call is documented well
+before Live 12.0.5 and does nothing there, so the failure to design around is one that
+raises nothing and leaves the slot empty. `needs_live_1205` is answered instead, and a
+device keeps offering the clipboard.
+
+**The request travels as ONE base64 atom.** A path and a clip name are both variadic and
+both contain spaces in real use ("Ableton Library"; whatever the user typed), and Max
+splits a message on whitespace - two such fields in one flat message cannot be recovered.
+LiveAPI's own `call` does NOT split a string argument, which is the separate question
+that had to pass first; both are measured in doc/MAX-FACTS.md, along with the finding
+that Live REFERENCES the file in place rather than copying it into the project.
+
+**An instrument cannot target an audio track from its own view**, and that is a UI fact
+rather than a LOM one: a device's view is on screen only while its track is selected, so
+the highlighted clip slot is always one of its own. `{ target: "new" }` is the escape;
+shipping the device as an audio effect is the better answer.
+
 ## 1.2.1 - telling the user where a file went, and two dials that were not what they seemed
 
 **A runtime range costs a dial its automation.** `describeParam(id, { range })` no
