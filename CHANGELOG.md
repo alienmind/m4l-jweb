@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1 - a release can carry docs
+
+**`docs` beside the device manifest.** A named export listing files that ride along in the
+release zip and the installed folder without belonging to any device - a manual, a licence.
+A listed file that is not there is a warning rather than a build failure, because a
+generated doc (a PDF rendered by a headless browser) may not exist on a machine with no
+browser, and that is never worth failing a build that produced every device.
+
+It missed 1.3.0 by one commit, and npm versions are permanent - hence a patch release
+rather than a corrected one.
+
 ## 1.3.0 - a rendered file goes straight into a Live clip
 
 **`createAudioClip(path, target, setup)`.** A device that bounces its pattern used to end
