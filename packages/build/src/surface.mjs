@@ -102,6 +102,24 @@ export function parameterRegistry(surface) {
 }
 
 /**
+ * The scripting names of the device view's native objects, for the wrapper's
+ * diagnostics block.
+ *
+ * A LAYERED panel (`panel: true`) puts `[jweb]` over the dials and lets the APP show
+ * one layer at a time - so a device whose page never loaded shows BOTH, and what a
+ * user reports is "the layout is broken" rather than "the page did not load". The
+ * wrapper prints each object's rect and hidden flag at load, which is what tells the
+ * two apart from a screenshot taken on a machine nobody here owns.
+ */
+export function nativeParamsBanner(surface) {
+  const native = surface?.layout?.native;
+  if (!native) return "";
+  const ids = [...native.params];
+  if (native.switch && !ids.includes(native.switch)) ids.push(native.switch);
+  return `var NATIVE_PARAMS = ${JSON.stringify(ids)};\n`;
+}
+
+/**
  * What a chain is handed to reach the parameters: `surface` (to check a parameter
  * it needs exists) and the two outlets it must fan a value out of. Spread into the
  * chain context by the build - and by the codegen test, so the test drives the

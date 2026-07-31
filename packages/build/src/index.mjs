@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
 import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
-import { applySurface, applyWindows, applyPersistence, loadSurface, parameterRegistry, surfaceContext } from "./surface.mjs";
+import { applySurface, applyWindows, applyPersistence, loadSurface, nativeParamsBanner, parameterRegistry, surfaceContext } from "./surface.mjs";
 import { effectiveChains, filesSpecBanner, loadFiles } from "./files.mjs";
 import { loadWatch, watchSpecsBanner } from "./watch.mjs";
 
@@ -413,8 +413,14 @@ export async function packageDevices(root) {
     // ...and so do its declared files: FILES_SPEC is what tells the packaged wrapper
     // this device writes to disk, and therefore to hand the page its device folder.
     const files = await loadFiles(root, d.ui ?? d.name);
+    const deviceSurface = await loadSurface(root, d.ui ?? d.name);
     let wrapperData =
-      banner + watchSpecsBanner(watch) + filesSpecBanner(files) + siteWindowsBanner(root, outDir, d, await loadSurface(root, d.ui ?? d.name)) + wrapperJs;
+      banner +
+      watchSpecsBanner(watch) +
+      filesSpecBanner(files) +
+      nativeParamsBanner(deviceSurface) +
+      siteWindowsBanner(root, outDir, d, deviceSurface) +
+      wrapperJs;
     const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
 
     // Main UI payload
@@ -494,7 +500,21 @@ export async function packageDevices(root) {
   const installers = ["install-windows.ps1", "install-mac.sh"];
   for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
 
-  const zipPath = path.join(dist, `${name}.zip`);
+  // The VERSION is in the zip's name, and only there: the folder inside it keeps the
+  // bare device name, because that is the folder the installers look for and the one
+  // that lands in the User Library. So two downloads are distinguishable in a Downloads
+  // folder without either of them installing to a different place.
+  const zipPath = path.join(dist, `${name}-${version}.zip`);
+
+  // A versioned name means a bump no longer overwrites - so the previous zip would sit
+  // in dist/ next to the new one, and two zips a version apart is exactly the confusion
+  // the version was put in the name to end. Only this package's zips go.
+  for (const f of readdirSync(dist)) {
+    if (f.endsWith(".zip") && f.startsWith(name) && f !== path.basename(zipPath)) {
+      rmSync(path.join(dist, f), { force: true });
+      console.log(`m4l-jweb: removed stale dist/${f}`);
+    }
+  }
   await new Promise((resolve, reject) => {
     const output = createWriteStream(zipPath);
     const archive = archiver("zip", { zlib: { level: 9 } });
@@ -527,7 +547,7 @@ export async function packageDevices(root) {
   });
 
   const { size } = await stat(zipPath);
-  console.log(`m4l-jweb: dist/${name}.zip (${size} bytes)`);
+  console.log(`m4l-jweb: dist/${name}-${version}.zip (${size} bytes)`);
 }
 
 export async function buildAll(root) {

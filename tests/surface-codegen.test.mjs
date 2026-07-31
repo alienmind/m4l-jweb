@@ -27,7 +27,7 @@ import { expect, test } from "vitest";
 
 import { composePatcher } from "@m4l-jweb/build";
 import { box, line, registerChain, removeLine } from "@m4l-jweb/build/chains";
-import { SURFACE_ROUTE, computeNativeSlots } from "@m4l-jweb/build/surface";
+import { SURFACE_ROUTE, computeNativeSlots, nativeParamsBanner } from "@m4l-jweb/build/surface";
 import { button, defineSurface, dial, menu, toggle, window, state } from "@m4l-jweb/surface";
 
 const require = createRequire(import.meta.url);
@@ -868,4 +868,21 @@ test("a device with no parameters gets NO registry - an empty block is not what 
 	const base = JSON.parse(readFileSync(BASE, "utf8"));
 	const { patcher } = composePatcher(base, { name: "test", type: "midi", chains: [] }, null);
 	expect(patcher.parameters).toBeUndefined();
+});
+
+test("the native params banner names every object the diagnostics has to read", () => {
+  const s = defineSurface({
+    params: {
+      a: dial({ range: [0, 1], default: 0, short: "A" }),
+      b: dial({ range: [0, 1], default: 0, short: "B" }),
+      flip: button({ default: false, short: "Flip" }),
+    },
+    layout: { native: { params: ["a", "b"], rows: [2], panel: true, switch: "flip" } },
+  });
+  // The SWITCH is in it too: it is the one native object that stays visible in both
+  // layers, so a panel drawn over the page is only readable with it named.
+  expect(nativeParamsBanner(s)).toBe('var NATIVE_PARAMS = ["a","b","flip"];\n');
+  // No native layout, no banner - `typeof NATIVE_PARAMS === "undefined"` is the guard
+  // the wrapper checks.
+  expect(nativeParamsBanner(defineSurface({ params: { a: dial({ range: [0, 1], default: 0, short: "A" }) } }))).toBe("");
 });
