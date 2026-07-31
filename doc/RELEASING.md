@@ -39,6 +39,10 @@ automatically (visible as a "Provenance" badge on the package page).
 
 ## Cutting a release
 
+The release zip is named `<package>-<version>.zip`, from the root `package.json` - so two
+downloads never collide in someone's Downloads folder. The FOLDER inside it keeps the bare
+package name: that is what the installers look for and what lands in the User Library.
+
 1. **Bump the version in all five package.json files** - the root and the four packages.
    They ship together, always: `workspace:*` dependencies are rewritten to the real
    version at publish time, so a package left behind at 0.6.0 would be published as a

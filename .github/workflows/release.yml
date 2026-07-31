@@ -103,4 +103,4 @@ jobs:
           generate_release_notes: true
           files: |
             dist/m4l-jweb/*.amxd
-            dist/m4l-jweb.zip
+            dist/m4l-jweb-*.zip
