@@ -14,6 +14,11 @@ Three documents, one subject, deliberately layered:
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** is how the system is built, and points here
   for the Max behaviour it relies on.
 
+**Every measurement here was taken on Windows 11, in Live 12, and nowhere else.** Max is
+not the same program on both platforms - paths in particular arrive in shapes this
+machine never sees - so read each entry as "measured on Windows" unless it names macOS,
+and do not promote a macOS claim to this file until a Mac has produced it.
+
 The method is worth as much as the results: **gate every unknown behind a cheap spike
 that can fail early**. A wrong guess about `set` semantics, discovered after the
 Surface codegen was written, would have cost a week; discovered in a spike, it cost an
@@ -597,3 +602,45 @@ page does not have. A copy can be claimed and never confirmed. `copyPath()` in
 `@m4l-jweb/bridge` therefore attempts the copy, then shows a focused, pre-selected
 field and waits for the browser's own `copy` event - the only honest confirmation
 available - and reports `copied` / `manual` / `cancelled` rather than a boolean.
+
+## macOS, from the first Mac ever to run this (2026-07-31, Live 12, 1.3.2-beta)
+
+Four facts, all from one Max console on someone else's machine. Everything else in this
+file is Windows 11.
+
+**`this.patcher.filepath` is MAX-STYLE on macOS.** Verbatim:
+
+    Macintosh HD:/Users/mattestela/Music/Ableton/User Library/M4L/m4l-gugelhupf/alienmind-gugelhupf.amxd
+
+Not a POSIX path. Every path in the system derives from this value, and two things fell
+out of it: `"file:///" + fp` produced a URL naming a host, and the old absolute-path test
+`destPath.indexOf(":") === 1` read it as RELATIVE - which is the stray-file trap two
+entries up, one save away from poisoning that filename machine-wide. Stripping the volume
+gives the real path, and the boot volume is `/`:
+
+    /Users/mattestela/Music/Ableton/User Library/M4L/m4l-gugelhupf/alienmind-gugelhupf.amxd
+
+confirmed by opening it, which is what `patcherPath()` does before it believes either
+candidate. A non-boot volume would be `/Volumes/<name>/...`; that half is still unmeasured.
+
+**`[jweb]` loads a three-slash `file://` URL with a percent-encoded path.** The page came
+up from
+
+    file:///Users/mattestela/Music/Ableton/User%20Library/M4L/m4l-gugelhupf/alienmind-gugelhupf.html?v=...
+
+so the space encoding and the cache-buster query are both fine on macOS, and the
+self-extracting payload writes and is re-read (`payload up to date (1388310 bytes)`).
+
+**`Folder` exists in `[js]` on macOS and walks a real directory.** 28 entries came back
+from the install folder. **The walk opens on an EMPTY filename** - one blank entry at the
+head of every listing, which reads as a file with no name until it is skipped.
+
+**A Maxobj's attributes are ACCESSOR FUNCTIONS, not values.** Reading
+`obj.presentation_rect` returns
+
+    function presentation_rect() { [native code] }
+
+and prints that way, so a diagnostics block asking for eleven rects printed the same
+function eleven times. Writing the property still works (that is how a runtime
+hide/show is done, entry above); READING wants `obj.getattr("presentation_rect")`, the
+documented reader that the parameter code already uses.

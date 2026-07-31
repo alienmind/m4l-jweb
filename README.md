@@ -216,6 +216,31 @@ device name and source folder, which is how the CLI drives them - someone who
 receives only the release zip runs the script sitting next to the device folder,
 with no repo and no Node. There is no Linux installer: Live has no Linux build.
 
+### On macOS, from the release zip
+
+```bash
+cd ~/Downloads/m4l-jweb-1.3.2-beta   # the zip carries its version; the folder inside does not
+bash install-mac.sh                  # NOT ./install-mac.sh
+```
+
+Two things are macOS's and not this project's, and the installer handles both:
+
+- **Run it with `bash`.** Archive Utility does not reliably keep the executable
+  bit a zip records, so `./install-mac.sh` can fail with `permission denied`.
+- **Quarantine.** Everything unpacked from a downloaded zip carries
+  `com.apple.quarantine` - the `.amxd` files and every file inside a `-site`
+  sidecar folder. The installer clears it on what it installed
+  (`xattr -dr com.apple.quarantine <folder>`); if you copy the devices by hand
+  instead, run that yourself.
+
+The script prints the preferences file it read, the `ProjectPath` it found, the
+User Library it chose and a listing of what it installed. If it chose wrong, pass
+the folder as a third argument:
+
+```bash
+bash install-mac.sh m4l-jweb ./m4l-jweb "/Users/you/Music/Ableton/User Library"
+```
+
 ---
 
 ## Why: what Max for Live development normally costs

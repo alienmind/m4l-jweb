@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.3.2-beta - macOS paths, and a device that reports itself
+
+**A beta, deliberately.** Nothing below has run on macOS - it exists to be installed by
+someone whose Mac can answer the question. The release zip is now named
+`<package>-<version>.zip` so the build a report refers to is unambiguous.
+
+**A `file://` URL is joined, not concatenated.** `"file:///" + path` is right on Windows
+(`C:/...`) and gives four slashes on macOS, where the path already starts with one - so
+the URL sent to `[jweb]` named a host of `/Users` instead of a file. It was in the path of
+every page a device loads and every save and fetch `[maxurl]` performs.
+
+**A Max-style filepath is converted and checked.** `<Volume>:/Users/...` is a shape Max's
+own `File` accepts and libcurl and Chromium do not; it is now resolved to a mounted path,
+probed against the disk, and reported. The same shape also read as a RELATIVE destination
+in `resolveFetchPath` - which is the stray-file trap - and now reads as absolute.
+
+**Every load posts what it resolved.** The raw `patcher.filepath`, the device folder, the
+UI URL, a listing of what is actually beside the `.amxd`, and the device view's native
+objects - each rect and hidden flag next to the page box's. An up-to-date payload says so
+rather than staying silent. A layered panel whose page never loaded draws both layers at
+once, so "the layout is broken" is a report those rects turn back into the real question.
+
+**The installers copy the docs, and macOS gets its two steps.** `install-mac.sh` copies
+`*.pdf`/`*.md` beside the devices (the Windows one too), clears `com.apple.quarantine` on
+what it installed, prints the preferences file, `ProjectPath` and User Library it chose,
+takes an explicit User Library as a third argument, and is documented as `bash
+install-mac.sh` - Archive Utility does not reliably keep the executable bit.
+
+**A Mac has now run it.** `patcher.filepath` is Max-style there
+(`Macintosh HD:/Users/...`), so the conversion above is load-bearing rather than a
+defence; the page loads from a three-slash percent-encoded `file://` URL, the payload
+extracts, `Folder` walks a real directory, and a `site:` window's audio reaches the track.
+The device view's LAYOUT is still wrong there and is the open item. See MAX-FACTS.md,
+"macOS, from the first Mac ever to run this".
+
 ## 1.3.1 - a release can carry docs
 
 **`docs` beside the device manifest.** A named export listing files that ride along in the

@@ -854,6 +854,60 @@ Two hard-won facts, both still binding:
 > not put audio on the track; `[jweb~]` can, so the page plays its own audio and the
 > `webaudio` chain carries it. `saveToFile` is the only piece of that era still shipping.
 
+### Where a device is: one path, and the shapes it arrives in
+
+Everything on disk hangs off ONE value, `this.patcher.filepath`: the extracted UI, every
+window page, a `site:` sidecar, every download and every save. `deviceFolder()` is its
+only reader, and `fileUrl()` is the only thing that turns a path into a URL.
+
+`fileUrl()` exists because **`"file:///" + path` is a Windows assumption**. A Windows
+path starts `C:/`, so the three slashes are right. A POSIX path starts with its own
+slash, so the same concatenation gives `file:////Users/...` - four slashes, an empty
+authority and a *host* of `/Users`. That went to `[jweb]` (every page a device loads) and
+to `[maxurl]` (the last step of every save and every fetch), so on macOS it was in the
+path of both. It is now one join that looks at the leading character.
+
+`patcherPath()` exists because Max has a path style of its own, `<Volume>:/Users/...`,
+which its `File` object accepts and which libcurl and Chromium have never heard of. When
+the filepath arrives in that shape it is converted - the boot volume is `/`, any other is
+under `/Volumes` - and the candidate is CHECKED against the disk before it is believed,
+because nothing in `[js]` says which volume is which. Both candidates are named in the
+console when neither answers.
+
+The same shape had a second consequence: `resolveFetchPath()` classified an absolute path
+by `indexOf(":") === 1`, which reads `Macintosh HD:/Users/...` as RELATIVE - and a
+relative path handed to `File` is the stray-file trap in
+[MAX-FACTS.md](MAX-FACTS.md), which poisons that filename for every device on the machine.
+It now accepts `<anything>:/` as absolute.
+
+**None of this is measured on macOS.** Every line of this project was written and tested
+on Windows 11; the four-slash URL is provably wrong by reading, and the Max-style filepath
+is a defence, not a diagnosis. Which of the two macOS actually hands back is what the
+diagnostics block below is for.
+
+### The diagnostics block
+
+A page's `console.log` never reaches the Max window, so a device on a machine the
+maintainer cannot reach has to REPORT itself. Every load posts one block: the raw
+`patcher.filepath`, the folder derived from it, the URL sent to `[jweb]`, and a listing of
+what is actually on disk beside the `.amxd` (via `Folder`, `[js]`'s only `ls`). Payload
+extraction posts its byte count, and now also posts when it SKIPS a payload that is
+already current - an up-to-date file and a file that was never written are otherwise both
+silent, and they are the two halves of "the page is blank".
+
+That listing is the point. When a file is not where the program says it is, the answer has
+always been to list the directory rather than reason once more about it; this is how that
+`ls` gets run on someone else's computer.
+
+The block also prints the device view's native objects - each `param-<id>`'s presentation
+rect and hidden flag, and the `[jweb]` box's own - from a `NATIVE_PARAMS` banner the build
+writes out of `layout.native`. That exists because of how a LAYERED panel fails: `[jweb]`
+covers the dials and the APP shows one layer at a time, so a page that never loaded leaves
+both drawn at once. The symptom is a scrambled device view and the report is "the layout
+is broken", which is the wrong bug. Rects at their built values with nothing hidden say
+"no page ever ran"; rects that are not what the build wrote would say something else
+entirely.
+
 ### The native audio bridge: four routes, and the object that made all four moot
 
 This was the biggest open item in the backlog for most of the library's life, and it is
