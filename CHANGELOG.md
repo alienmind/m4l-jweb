@@ -1,10 +1,15 @@
 # Changelog
 
-## 1.3.2-beta - macOS paths, and a device that reports itself
+## 1.3.2-beta2 - macOS paths, and a device that reports itself
 
-**A beta, deliberately.** Nothing below has run on macOS - it exists to be installed by
-someone whose Mac can answer the question. The release zip is now named
-`<package>-<version>.zip` so the build a report refers to is unambiguous.
+**A beta, deliberately**, and numbered: it exists to be installed by someone whose Mac can
+answer what this repo cannot. The release zip is named `<package>-<version>.zip` so the
+build a report refers to is unambiguous - which is the whole reason the beta number moves.
+
+**beta2** reads a Maxobj's geometry through `getattr`. The attributes are accessor
+functions, so the diagnostics block printed `function presentation_rect() { [native
+code] }` where beta1 meant to print eleven rects, and the one open question on macOS is
+exactly the one those rects answer.
 
 **A `file://` URL is joined, not concatenated.** `"file:///" + path` is right on Windows
 (`C:/...`) and gives four slashes on macOS, where the path already starts with one - so
