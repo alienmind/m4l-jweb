@@ -85,6 +85,12 @@ foreach ($d in @(Get-ChildItem (Join-Path $src "*-site") -Directory -ErrorAction
     Write-Host "  installed $($d.Name)/ (site sidecar)"
 }
 
+# The manual and anything else the release carries for a person rather than for Max.
+foreach ($f in @(Get-ChildItem (Join-Path $src "*.pdf") -ErrorAction SilentlyContinue) + @(Get-ChildItem (Join-Path $src "*.md") -ErrorAction SilentlyContinue)) {
+    Copy-Item $f.FullName $dest -Force
+    Write-Host "  installed $($f.Name) (doc)"
+}
+
 Write-Host "Installed to $dest"
 Write-Host "In Live: User Library > Max For Live > $deviceName"
 Write-Host "NOTE: Live embeds a copy of the device in the set. Instances already"
