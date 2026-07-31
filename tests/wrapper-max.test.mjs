@@ -132,7 +132,7 @@ function makeFileClass() {
 /**
  * Boot the wrapper in a fake Max, and hand back the seams a test drives it through.
  */
-function bootWrapper() {
+function bootWrapper(filepath) {
   // The SPACE is deliberate. Every real install sits under "Ableton Library", and a
   // temp dir named `m4l-wrapper-XXXX` made percent-encoding a no-op - so the suite
   // could not tell an encoded path from a raw one, and passed while nothing saved.
@@ -147,7 +147,11 @@ function bootWrapper() {
   const ctx = {
     // At [js] global scope `this` IS the jsthis object - that is how the wrapper finds
     // the folder it may write into.
-    patcher: { filepath: `${dir}/device.amxd` },
+    // An override is how the macOS shapes of this value are tested from Windows:
+    // a POSIX path, and Max's own `<Volume>:/...`. Neither exists on the machine
+    // running the suite, which is the point - the resolution is string work, and
+    // what it must not do is build a URL nobody can open.
+    patcher: { filepath: filepath ?? `${dir}/device.amxd` },
     post: (...a) => posts.push(a.join("")),
     outlet: (n, ...a) => sent.push([n, ...a]),
     messnamed: (name, ...a) => named.push([name, ...a]),
@@ -216,7 +220,7 @@ function maxurl(h, { status = 200, body = "payload", error = null } = {}) {
   expect(req, "the wrapper sent no request to [maxurl]").toBeDefined();
 
   const out = req.filename_out; // an unknown key would leave this undefined - as Max does
-  const isFileScheme = String(req.url).indexOf("file:///") === 0;
+  const isFileScheme = String(req.url).indexOf("file://") === 0;
 
   if (isFileScheme) {
     // A local copy. libcurl streams the source file to filename_out, and there is no
@@ -227,7 +231,10 @@ function maxurl(h, { status = 200, body = "payload", error = null } = {}) {
     // thoroughly as decodeURI does is NOT settled: a spaced device folder has been
     // seen failing the place anyway. This models the optimistic reading, so a test
     // passing here is not evidence that a spaced path works in Live.
-    const src = decodeURI(String(req.url).replace("file:///", ""));
+    // `file://` off the front, then the slash that only a drive-letter path has in
+    // front of it - so this reads a POSIX `file:///Users/...` as `/Users/...` rather
+    // than as the relative `Users/...` a blind replace("file:///") would give.
+    const src = decodeURI(String(req.url).replace(/^file:\/\//, "").replace(/^\/(?=[A-Za-z]:)/, ""));
     if (out && existsSync(src)) writeFileSync(out, readFileSync(src));
     // Answer the dict the REQUEST asked for. Fetch and save place through the same cord
     // and are told apart only by this name, so hardcoding the fetch one made a save look
@@ -507,3 +514,60 @@ test("a window message the library does not know reaches the device's onWindowMe
   expect(seen).toEqual([["editor", "cell_toggle", 3, 7]]);
 });
 
+
+/* ------------------------------------------------------------------ *
+ * Paths, on a platform this machine is not
+ *
+ * `this.patcher.filepath` is the root of every path the wrapper builds, and its
+ * shape is platform dependent. These pin the two shapes that are NOT the Windows
+ * one - a POSIX path, and Max's own `<Volume>:/...` - because nothing else in this
+ * repo can see them and a wrong URL here is a device with no UI at all.
+ * ------------------------------------------------------------------ */
+
+test("a POSIX device folder makes a THREE-slash file:// URL, not four", () => {
+  const mac = bootWrapper("/Users/somebody/Music/Ableton/User Library/Max For Live/x/device.amxd");
+  mac.ctx.loadbang();
+  const [url] = mac.toUi("url")[0];
+  // "file:///" + "/Users/..." is four slashes: an empty authority and a HOST of
+  // "/Users". That is not the file anyone asked for, and it is what shipped.
+  expect(url.indexOf("file:////")).toBe(-1);
+  expect(url).toMatch(/^file:\/\/\/Users\/somebody\/Music\/Ableton\/User%20Library\/Max%20For%20Live\/x\/ui\.html\?v=/);
+  mac.cleanup();
+});
+
+test("a Windows device folder keeps its drive letter behind the three slashes", () => {
+  const win = bootWrapper("C:/Users/somebody/Documents/Ableton/User Library/Max For Live/x/device.amxd");
+  win.ctx.loadbang();
+  const [url] = win.toUi("url")[0];
+  expect(url).toMatch(/^file:\/\/\/C:\/Users\/somebody\//);
+  win.cleanup();
+});
+
+test("a Max-style filepath is converted, and says which paths it tried", () => {
+  const maxStyle = bootWrapper("Macintosh HD:/Users/somebody/Max For Live/x/device.amxd");
+  maxStyle.ctx.loadbang();
+  const [url] = maxStyle.toUi("url")[0];
+  // Neither candidate exists on the machine running this, so the boot-volume
+  // reading is what it falls back to - and both are named in the console, which is
+  // the only thing that can tell a user's report apart from a wrong guess.
+  expect(url).toMatch(/^file:\/\/\/Users\/somebody\/Max%20For%20Live\/x\/ui\.html/);
+  expect(maxStyle.posts.join("")).toContain("/Volumes/Macintosh HD/Users/somebody");
+  maxStyle.cleanup();
+});
+
+test("a Max-style DESTINATION is absolute, not something to hang off the device folder", () => {
+  // The trap: `destPath.indexOf(":") === 1` reads "Macintosh HD:/..." as relative,
+  // and a relative path handed to File is the stray that poisons the name machine-wide.
+  h.ctx.save_begin("r1", "Macintosh HD:/Users/somebody/out.wav", 3);
+  const line = h.posts.find((p) => p.indexOf("save begin") >= 0);
+  expect(line).toContain("Macintosh HD:/Users/somebody/m4l-jweb-save.part");
+  expect(line).not.toContain(h.dir);
+});
+
+test("the diagnostics block says where the device thinks it is", () => {
+  h.ctx.loadbang();
+  const all = h.posts.join("");
+  expect(all).toContain(`patcher.filepath = '${h.dir}/device.amxd'`);
+  expect(all).toContain(`device folder = '${h.dir}'`);
+  expect(all).toContain("ui url = file:///");
+});

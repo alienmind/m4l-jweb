@@ -46,6 +46,7 @@ function buildStamp(): string {
 /** live.thisdevice -> the device is fully loaded. Everything LiveAPI starts here. */
 function bang(): void {
   post("m4l-jweb: bang (device ready)\n");
+  postDiagnostics();
   extractExtraPayloads();
   loadWebview();
   setupTempoObserver(); // liveapi.ts
@@ -60,6 +61,7 @@ function bang(): void {
 /** Patcher loaded. File work is safe here; LiveAPI is NOT. */
 function loadbang(): void {
   post("m4l-jweb: loadbang\n");
+  postDiagnostics();
   extractExtraPayloads();
   loadWebview();
 }
@@ -67,6 +69,9 @@ function loadbang(): void {
 /** Manual re-init, handy while developing. */
 function reload(): void {
   sentWindowUrls = {}; // a manual reload MEANS re-fetch, dedupe or not
+  patcherPathResolved = null; // ...and re-derive where we are, rather than trust the cache
+  diagnosticsPosted = false;
+  postDiagnostics();
   loadWebview();
   setupTempoObserver();
   startTickPoll();
@@ -610,7 +615,7 @@ function loadWindows(): void {
  * and a visible second load.
  */
 function sendWindowUrl(winId: string, target: string): void {
-  var url = encodeURI("file:///" + target) + "?v=" + encodeURIComponent(buildStamp());
+  var url = fileUrl(target) + "?v=" + encodeURIComponent(buildStamp());
   if (sentWindowUrls[winId] === url) return;
   sentWindowUrls[winId] = url;
   messnamed("window-read-" + winId, "url", url);
@@ -754,13 +759,196 @@ function resolveUiUrl(): string | null {
   }
   // Cache-buster: the URL changes per build, so Chromium can never serve a page
   // it cached from a previous build of the same file path.
-  return encodeURI("file:///" + target) + "?v=" + encodeURIComponent(buildStamp());
+  return fileUrl(target) + "?v=" + encodeURIComponent(buildStamp());
+}
+
+/* ------------------------------------------------------------------ *
+ * Paths, and the shapes they arrive in
+ *
+ * Every file this device touches hangs off ONE value - `this.patcher.filepath` -
+ * and that value is platform dependent in two ways that nothing reports:
+ *
+ *   - a Windows path uses `C:/...`, a macOS one `/Users/...`, so any code that
+ *     concatenates a prefix onto it has to know which it has;
+ *   - Max has a path style of its OWN, `<Volume>:/Users/...`, which its `File`
+ *     object accepts and which libcurl ([maxurl]) and Chromium ([jweb]) have
+ *     never heard of.
+ *
+ * So the raw value is normalised once, checked against the disk, and posted - and
+ * URLs are built by fileUrl() rather than by string addition.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A `file://` URL from an OS path.
+ *
+ * `"file:///" + path` is right on Windows, where the path starts `C:/`, and WRONG
+ * on macOS, where it already starts with its own slash: the concatenation yields
+ * `file:////Users/...` - four slashes, i.e. an empty authority followed by a host
+ * of `/Users` - which is not the path anyone asked for. Join on the leading slash.
+ */
+function fileUrl(path: string): string {
+  var p = String(path).replace(/\\/g, "/");
+  // A UNC path (`\\server\share`) is the one case where the two slashes ARE the
+  // authority, so the scheme takes no slashes of its own.
+  if (p.slice(0, 2) === "//") return encodeURI("file:" + p);
+  return encodeURI(p.charAt(0) === "/" ? "file://" + p : "file:///" + p);
+}
+
+/** What patcherPath() resolved, so the probing below happens once per load. */
+var patcherPathResolved: string | null = null;
+
+/**
+ * The .amxd's own path, in a shape every consumer can use.
+ *
+ * A `<Volume>:/...` filepath is converted to the mounted path and CHECKED against
+ * the disk before it is believed - the boot volume is `/`, any other is under
+ * `/Volumes`, and there is nothing in [js] that says which this is. A path that
+ * answers neither is still returned (there is no better guess to make) and said
+ * out loud, because a wrong folder here is every file this device writes landing
+ * somewhere else.
+ */
+function patcherPath(): string | null {
+  if (patcherPathResolved !== null) return patcherPathResolved;
+  var raw = this.patcher.filepath;
+  if (!raw || !String(raw).length) return null;
+  // Separators are LEFT ALONE. This value is what the page is shown and what every
+  // File and [maxurl] path is built from, and Windows takes either slash; rewriting
+  // them would only be cosmetic, in the one place cosmetic changes are expensive.
+  var p = String(raw);
+
+  // A colon past index 1 is not a Windows drive letter, so it is a volume name.
+  var colon = p.indexOf(":");
+  if (colon > 1) {
+    var rest = p.slice(colon + 1);
+    if (rest.charAt(0) !== "/") rest = "/" + rest;
+    var candidates = [rest, "/Volumes/" + p.slice(0, colon) + rest];
+    var chosen: string | null = null;
+    for (var i = 0; i < candidates.length; i++) {
+      if (fileExists(candidates[i])) {
+        chosen = candidates[i];
+        break;
+      }
+    }
+    post(
+      "m4l-jweb: patcher filepath is Max-style '" + p + "' -> " + (chosen || candidates[0]) +
+        (chosen ? "" : " (NOT on disk - tried " + candidates.join(" and ") + ")") + "\n",
+    );
+    p = chosen || candidates[0];
+  }
+  patcherPathResolved = p;
+  return p;
 }
 
 /** The folder the .amxd lives in, derived from the patcher's own path. */
 function deviceFolder(): string | null {
-  var fp: string = this.patcher.filepath;
-  return fp && fp.length ? fp.replace(/\/[^\/]*$/, "") : null;
+  var fp = patcherPath();
+  if (!fp) return null;
+  var slash = fp.lastIndexOf("/");
+  var back = fp.lastIndexOf("\\");
+  var cut = slash > back ? slash : back;
+  return cut > 0 ? fp.slice(0, cut) : null;
+}
+
+/* ------------------------------------------------------------------ *
+ * Diagnostics
+ *
+ * A page's `console.log` does not reach the Max window, and a user on a platform
+ * the maintainer does not own cannot be walked through a debugger. What a bug
+ * report needs is what this script RESOLVED, verbatim, next to what is actually on
+ * the disk beside the .amxd - one block, once per load, so a single "paste the Max
+ * console" answers where the device thinks it is and what it found there.
+ * ------------------------------------------------------------------ */
+
+var diagnosticsPosted = false;
+
+function postDiagnostics(): void {
+  if (diagnosticsPosted) return;
+  post("m4l-jweb: --- diagnostics (build " + buildStamp() + ", mode " + MODE + ") ---\n");
+  post("m4l-jweb: patcher.filepath = '" + String(this.patcher.filepath) + "'\n");
+  var folder = deviceFolder();
+  if (!folder) {
+    // Not yet fatal and not yet final: loadbang can run before the patcher has a
+    // path, and live.thisdevice's bang will try again.
+    post("m4l-jweb: device folder = (none - patcher not saved)\n");
+    return;
+  }
+  diagnosticsPosted = true;
+  post("m4l-jweb: device folder = '" + folder + "'\n");
+  var name = typeof UI_PAYLOAD_NAME !== "undefined" ? UI_PAYLOAD_NAME : "ui.html";
+  post("m4l-jweb: ui url = " + fileUrl(folder + "/" + name) + "\n");
+  postFolderListing(folder);
+  postNativeLayout();
+}
+
+/**
+ * The device view's native objects, as MAX sees them: each one's presentation rect
+ * and hidden flag, and the page box's own.
+ *
+ * A LAYERED panel (`panel: true`) stacks `[jweb]` over the dials and lets the APP show
+ * one layer at a time. So a device whose page never loaded shows BOTH layers at once -
+ * half-drawn dials over a grey page - and what gets reported is "the layout is broken"
+ * rather than "the page did not load". These numbers separate the two: dials at their
+ * built rects with nothing hidden is a page that never ran, and rects that are not the
+ * ones the build wrote is a presentation Live laid out differently.
+ */
+function postNativeLayout(): void {
+  try {
+    var page = this.patcher.getnamed("obj-jweb");
+    post("m4l-jweb: page box = " + (page ? describeBox(page) : "(no obj-jweb)") + "\n");
+    if (typeof NATIVE_PARAMS === "undefined") return;
+    var parts: string[] = [];
+    for (var i = 0; i < NATIVE_PARAMS.length; i++) {
+      var id = NATIVE_PARAMS[i];
+      var obj = this.patcher.getnamed("param-" + id);
+      parts.push(id + " " + (obj ? describeBox(obj) : "MISSING"));
+    }
+    post("m4l-jweb: native layout - " + parts.join(" | ") + "\n");
+  } catch (e) {
+    post("m4l-jweb: cannot read the native layout - " + (e as Error).message + "\n");
+  }
+}
+
+/**
+ * One box's geometry, READ THROUGH getattr.
+ *
+ * `obj.presentation_rect` is not the value: a Maxobj exposes its attributes as
+ * accessor FUNCTIONS, so reading the property gives back
+ * `function presentation_rect() { [native code] }` and a whole diagnostics block said
+ * that eleven times instead of naming a rect. `getattr` is the documented reader and
+ * the one the parameter code already uses. It is not called - a Max host function is
+ * not something to invoke creatively (see the .apply rule in CLAUDE.md) - so an
+ * attribute that still comes back as a function is reported as unreadable rather than
+ * coaxed.
+ */
+function describeBox(obj: Maxobj): string {
+  var rect = obj.getattr("presentation_rect");
+  var hidden = obj.getattr("hidden");
+  if (typeof rect === "function") rect = "(unreadable)";
+  return String(rect) + (Number(hidden) ? " HIDDEN" : "");
+}
+
+/**
+ * What is REALLY next to the .amxd.
+ *
+ * When a file is not where the program says it is, the answer has always been to
+ * list the directory rather than reason about it once more - and on a machine the
+ * maintainer cannot reach, this is the only way to run that `ls`.
+ */
+function postFolderListing(folder: string): void {
+  try {
+    var f = new Folder(folder);
+    var names: string[] = [];
+    while (!f.end && names.length < 60) {
+      // The walk opens on an empty name (measured on macOS) - one blank entry at the
+      // head of every listing, which reads as a file with no name.
+      if (f.filename) names.push(f.filename);
+      f.next();
+    }
+    f.close();
+    post("m4l-jweb: folder listing (" + names.length + "): " + names.join(", ") + "\n");
+  } catch (e) {
+    post("m4l-jweb: cannot list '" + folder + "' - " + (e as Error).message + "\n");
+  }
 }
 
 /**
@@ -825,7 +1013,12 @@ function extractPayload(targetPath: string, b64chunks: string[], byteCount: numb
     if (existing.isopen) {
       var sameSize = existing.eof === byteCount;
       existing.close();
-      if (sameSize && readTextFile(targetPath + ".stamp") === buildStamp()) return;
+      if (sameSize && readTextFile(targetPath + ".stamp") === buildStamp()) {
+        // Said out loud: an up-to-date payload and a payload that was never written
+        // are both silent otherwise, and they are the two halves of "the page is blank".
+        post("m4l-jweb: payload up to date (" + byteCount + " bytes) at " + targetPath + "\n");
+        return;
+      }
     }
   } catch (e) {
     /* fall through and (re)write */
@@ -1004,7 +1197,7 @@ function partPath(destPath: string): string {
  * encoding again without measuring both.
  */
 function placeUrl(path: string): string {
-  return encodeURI("file:///" + path);
+  return fileUrl(path);
 }
 
 /**
@@ -1061,7 +1254,11 @@ var currentFetch: ActiveFetch | null = null;
  * entry, and it cost weeks.
  */
 function resolveFetchPath(destPath: string): string | null {
-  var isAbsolute = destPath.indexOf("/") === 0 || destPath.indexOf(":") === 1;
+  // Absolute: POSIX `/...`, Windows `C:/...` or `C:\...`, and Max's own
+  // `<Volume>:/...`. The last one matters: a colon-at-index-1 test reads
+  // `Macintosh HD:/Users/...` as RELATIVE, and a relative path is exactly the
+  // stray-file trap above.
+  var isAbsolute = destPath.charAt(0) === "/" || /^[^\/\\]+:[\/\\]/.test(destPath);
   if (isAbsolute) return destPath;
   var folder = deviceFolder();
   return folder ? folder + "/" + destPath : null;

@@ -48,6 +48,13 @@ declare let outlets: number;
  * wrapper tries one and falls back to the other.
  */
 declare interface Maxobj {
+  /**
+   * ASSIGNING to one of these three works and is what the wrapper does. READING one
+   * does NOT: a Maxobj exposes its attributes as accessor functions, so
+   * `obj.presentation_rect` is `function presentation_rect() { [native code] }`,
+   * measured in Live on macOS. Read with `getattr` (below), which is the documented
+   * reader and returns the value.
+   */
   /** Hide or show in the device (presentation) view. Works at runtime; position does not. */
   hidden: number;
   /** Patching-canvas rect [left, top, right, bottom]. */
@@ -107,6 +114,25 @@ declare class File {
   readstring(count: number): string;
   writestring(s: string): void;
   writebytes(bytes: number[]): void;
+}
+
+/**
+ * A directory, walked one entry at a time. `[js]`'s only `ls`.
+ *
+ * UNVERIFIED - declared from Cycling '74's reference, used by the diagnostics
+ * block alone and behind a try/catch there, because a missing constructor is a
+ * ReferenceError and a missing property is `undefined` rather than anything worse.
+ * It exists so a user on a machine the maintainer cannot reach can be asked for
+ * the listing instead of another hypothesis.
+ */
+declare class Folder {
+  constructor(path: string);
+  /** True once the walk has passed the last entry. */
+  end: boolean;
+  /** The current entry's name, without its folder. */
+  filename: string;
+  next(): void;
+  close(): void;
 }
 
 /**
@@ -221,6 +247,16 @@ declare const FILES_SPEC: { saves: boolean; fetches: boolean; tellPage: boolean 
  * with the .amxd, and the wrapper says so if it does not.
  */
 declare const SITE_WINDOWS: { [id: string]: string } | undefined;
+
+/**
+ * The scripting-name suffixes of the device view's native objects (`param-<id>`),
+ * injected by the build from the surface's `layout.native`.
+ *
+ * Diagnostics only. Nothing decides anything on it - it exists so the wrapper can
+ * print each object's rect and hidden flag, which is what makes "the layout looks
+ * wrong" answerable from a screenshot taken on someone else's machine.
+ */
+declare const NATIVE_PARAMS: string[] | undefined;
 
 /*
  * Device hooks.
