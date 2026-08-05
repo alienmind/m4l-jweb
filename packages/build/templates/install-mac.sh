@@ -9,8 +9,9 @@
 # only thing that knows), and a wrong guess is indistinguishable from a broken
 # install unless it says what it read and what it chose.
 #
-# The device-folder name defaults to this repo's, and `m4l-jweb install` passes
-# the package name explicitly - so a repo scaffolded under another name works.
+# The folder of devices is FOUND (the one beside this script holding `.amxd`
+# files), so the unzipped release installs itself with no arguments. `m4l-jweb
+# install` passes the name and the folder explicitly, and those win.
 #
 # RUN IT AS `bash install-mac.sh`. A zip unpacked by Archive Utility does not
 # reliably keep the executable bit, and `./install-mac.sh` then fails with
@@ -20,20 +21,50 @@
 # `m4l-jweb install` passes the first two; standalone (from the zip) both are
 # inferred. The third overrides the User Library search entirely.
 set -euo pipefail
-device_name="${1:-m4l-jweb}"
+device_name="${1:-}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Source: an explicit second argument, else ./<name> next to this script (zip and
-# dist layouts), else ../dist/<name> (running it straight from a repo checkout).
 src="${2:-}"
-if [ -z "$src" ]; then
-	src="$here/$device_name"
-	[ -d "$src" ] || src="$(dirname "$here")/dist/$device_name"
+
+# WHERE THE DEVICES ARE. The name used to DEFAULT to this library's own
+# ("m4l-jweb"), which is right in this repo and wrong in every consumer's release:
+# the zip holds `m4l-gugelhupf/`, the script looked for `m4l-jweb/`, and a user who
+# had unzipped a perfectly good build was told to go and run `pnpm build`.
+#
+# So the folder is DISCOVERED rather than assumed - it is the one next to this
+# script with `.amxd` files in it - and the device name comes from what was found.
+# The named form still wins when `m4l-jweb install` passes it.
+if [ -z "$src" ] && [ -n "$device_name" ]; then
+	for c in "$here/$device_name" "$(dirname "$here")/dist/$device_name"; do
+		if compgen -G "$c/*.amxd" > /dev/null 2>&1; then
+			src="$c"
+			break
+		fi
+	done
 fi
-if ! compgen -G "$src/*.amxd" > /dev/null; then
-	echo "No .amxd found next to this script or in dist/. Run 'pnpm build' first." >&2
+if [ -z "$src" ]; then
+	# Next to this script covers the unzipped release AND dist/ after a build;
+	# ../dist/* covers running it straight out of a repo checkout.
+	found_count=0
+	for c in "$here"/*/ "$(dirname "$here")"/dist/*/; do
+		[ -d "$c" ] || continue
+		compgen -G "$c*.amxd" > /dev/null 2>&1 || continue
+		src="${c%/}"
+		found_count=$((found_count + 1))
+	done
+	if [ "$found_count" -gt 1 ]; then
+		echo "More than one folder of devices here. Name the one you want:" >&2
+		echo "  bash $(basename "$0") <folder-name>" >&2
+		exit 1
+	fi
+fi
+if [ -z "$src" ] || ! compgen -G "$src/*.amxd" > /dev/null 2>&1; then
+	echo "No .amxd found. Looked next to this script ($here) and in $(dirname "$here")/dist/." >&2
+	echo "From the release zip, run this script where you unzipped it - the devices are in the folder beside it." >&2
 	exit 1
 fi
+# The folder's own name is the name the User Library gets, so a repo scaffolded
+# under any name installs under that name without being told what it is.
+device_name="${device_name:-$(basename "$src")}"
 
 # An explicit third argument beats the search below - the escape hatch for a library
 # this cannot know about.
