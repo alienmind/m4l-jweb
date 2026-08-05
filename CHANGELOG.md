@@ -38,6 +38,13 @@ objects - each rect and hidden flag next to the page box's. An up-to-date payloa
 rather than staying silent. A layered panel whose page never loaded draws both layers at
 once, so "the layout is broken" is a report those rects turn back into the real question.
 
+**An unzipped release installs itself.** Both installers took the device-folder name
+from a default of `m4l-jweb` - the library's own - so from any consumer's zip they looked
+for a folder that is not in it and told the user to go and run `pnpm build` on a build
+they had just downloaded. The folder is now FOUND: the one beside the script with
+`.amxd` files in it, whose name is also the name the User Library gets. An explicit
+name/source still wins, which is how `m4l-jweb install` drives them.
+
 **The installers copy the docs, and macOS gets its two steps.** `install-mac.sh` copies
 `*.pdf`/`*.md` beside the devices (the Windows one too), clears `com.apple.quarantine` on
 what it installed, prints the preferences file, `ProjectPath` and User Library it chose,
