@@ -67,3 +67,15 @@ test("outside jweb nothing is sent, so the dev harness stays quiet", () => {
   logToMax("nobody is listening");
   expect(sent).toEqual([]);
 });
+
+test("the environment block names the display, the window and the agent", () => {
+  enterJweb();
+  uiReady();
+  const lines = sent.filter(([sel]) => sel === "page_log").map(([, text]) => String(text));
+  const env = lines.join("\n");
+  // Which display the window is on is the first suspect when one machine is wrong and
+  // another, same build, is not - a second monitor puts `at=` beyond the primary width.
+  expect(env).toMatch(/env window .*inner=\d+x\d+ .*at=-?\d+,-?\d+/);
+  expect(env).toMatch(/env screen \d+x\d+ .*dpr=/);
+  expect(env).toContain("env agent");
+});

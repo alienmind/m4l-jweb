@@ -933,7 +933,14 @@ function postDiagnostics(): void {
 function postNativeLayout(): void {
   try {
     var page = this.patcher.getnamed("obj-jweb");
-    post("m4l-jweb: page box = " + (page ? describeBox(page) : "(no obj-jweb)") + "\n");
+    // `rendermode` is in there because it is currently an A/B: two devices built from
+    // the same page, one onscreen and one offscreen, so a report from either has to say
+    // which it was without the reader counting on the file name.
+    post(
+      "m4l-jweb: page box = " +
+        (page ? describeBox(page) + ", rendermode " + String(page.getattr("rendermode")) + ", latency " + String(page.getattr("latency")) : "(no obj-jweb)") +
+        "\n",
+    );
     if (typeof NATIVE_PARAMS === "undefined") return;
     var parts: string[] = [];
     for (var i = 0; i < NATIVE_PARAMS.length; i++) {

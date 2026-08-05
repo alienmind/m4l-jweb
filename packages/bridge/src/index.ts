@@ -156,6 +156,50 @@ function reportPageMetrics(): void {
     window.screen?.width ?? 0,
     window.screen?.height ?? 0,
   );
+  reportPageEnvironment();
+}
+
+/**
+ * The rest of what the page can see about the machine it is on, as console lines.
+ *
+ * It is here because of a real report: one Mac drew a device page at the wrong scale
+ * while ANOTHER Mac, same build, was perfect - so the question stopped being "what does
+ * macOS do" and became "what is different about that machine", which nothing in Max can
+ * answer. Chromium can. Each of these has earned its place:
+ *
+ *   screenX/screenY  WHICH display the window is on. A second monitor at a different
+ *                    scale is the first thing to suspect, and a window on it has an x
+ *                    beyond the primary screen's width.
+ *   avail vs screen  the menu bar and dock, i.e. whether this is the built-in display.
+ *   outer vs inner   how much of the window is not the page.
+ *   clientWidth      what CSS actually laid out on, after any zoom.
+ *   visualViewport   pinch/browser zoom, which would scale everything silently.
+ *   userAgent        the Chromium build inside this Max, and the platform string.
+ *
+ * NOT here: the macOS version. Chromium freezes it in the user agent (every recent
+ * build claims 10_15_7) and reports "Intel" on Apple Silicon, so a number read from it
+ * would be confidently wrong. Ask the person.
+ */
+function reportPageEnvironment(): void {
+  const s = window.screen;
+  const vv = (window as unknown as { visualViewport?: { scale: number; width: number } }).visualViewport;
+  logToMax(
+    "env window",
+    `inner=${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)}`,
+    `outer=${Math.round(window.outerWidth)}x${Math.round(window.outerHeight)}`,
+    `css=${document.documentElement?.clientWidth}x${document.documentElement?.clientHeight}`,
+    `at=${Math.round(window.screenX)},${Math.round(window.screenY)}`,
+    `zoom=${vv ? vv.scale : "?"}`,
+  );
+  logToMax(
+    "env screen",
+    `${s?.width}x${s?.height}`,
+    `avail=${s?.availWidth}x${s?.availHeight}`,
+    `dpr=${window.devicePixelRatio}`,
+    `depth=${s?.colorDepth}`,
+    `orientation=${(s as unknown as { orientation?: { type?: string } })?.orientation?.type ?? "?"}`,
+  );
+  logToMax("env agent", navigator.userAgent);
 }
 
 /**
