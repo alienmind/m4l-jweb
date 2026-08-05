@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.2-beta2 - macOS paths, and a device that reports itself
+## 1.3.2-beta3 - macOS paths, and a device that reports itself
 
 **A beta, deliberately**, and numbered: it exists to be installed by someone whose Mac can
 answer what this repo cannot. The release zip is named `<package>-<version>.zip` so the
@@ -10,6 +10,17 @@ build a report refers to is unambiguous - which is the whole reason the beta num
 functions, so the diagnostics block printed `function presentation_rect() { [native
 code] }` where beta1 meant to print eleven rects, and the one open question on macOS is
 exactly the one those rects answer.
+
+**beta3 gives the PAGE a voice.** `logToMax()` prints a line in Live's Max window from
+inside `[jweb]`, where `console.log` reaches nobody; every outbound selector echoes itself
+through it, minus the ones a keystroke repeats; `ui_ready` reports the viewport, the
+device pixel ratio and the screen, because the page cannot see its box and Max cannot see
+the viewport; `native_show`/`native_hide` say what they set and read it back; the Live
+version is posted at every load; and `rendermode` is settable per device in the manifest.
+That last one is an experiment, not a fix: those rects came back EXACTLY as the build
+wrote them, so the layout maths is right and how the page is drawn inside the box is not,
+and `rendermode 1` is the mode Max documents as rendering straight into the patcher with
+no offscreen buffer. One Mac shows the fault and another running the same build does not.
 
 **A `file://` URL is joined, not concatenated.** `"file:///" + path` is right on Windows
 (`C:/...`) and gives four slashes on macOS, where the path already starts with one - so

@@ -219,7 +219,7 @@ with no repo and no Node. There is no Linux installer: Live has no Linux build.
 ### On macOS, from the release zip
 
 ```bash
-cd ~/Downloads/m4l-jweb-1.3.2-beta2   # the zip carries its version; the folder inside does not
+cd ~/Downloads/m4l-jweb-1.3.2-beta3   # the zip carries its version; the folder inside does not
 bash install-mac.sh                  # NOT ./install-mac.sh
 ```
 
