@@ -219,6 +219,23 @@ export function composePatcher(base, d, surface, files = null) {
    */
   if (d.latency != null) boxes.find((b) => b.box.id === "obj-jweb").box.latency = d.latency;
 
+  /**
+   * How the device page is DRAWN, per Max's own reference:
+   *
+   *   1 (default) onscreen  - renders directly in the patcher with no offscreen
+   *                           buffer, "drawing over any other UI elements".
+   *   0           offscreen - renders to a buffer first, then draws. Slower, and
+   *                           the mode that lets other UI appear IN FRONT of it.
+   *   2           onscreen with a transparent background.
+   *
+   * It is exposed because the direct path is where a display's backing scale can be
+   * lost: one macOS reported a page drawn at the wrong scale inside a box whose rect
+   * was exactly right, while another Mac running the same build showed nothing wrong.
+   * A knob in the manifest makes that an A/B between two devices in one build rather
+   * than a rebuild per guess.
+   */
+  if (d.rendermode != null) boxes.find((b) => b.box.id === "obj-jweb").box.rendermode = d.rendermode;
+
   const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
 
   /**

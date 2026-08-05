@@ -13,6 +13,10 @@ export interface DeviceManifestEntry {
   /** The folder under src/app/ holding this device's UI. Defaults to `name`. */
   ui?: string;
   chains?: string[];
+  /** The device page's [jweb~] ring buffer, in samples. Unset keeps the object's default. */
+  latency?: number;
+  /** How the device page is drawn: 1 onscreen (default), 0 offscreen, 2 onscreen transparent. */
+  rendermode?: 0 | 1 | 2;
   parameters?: { id: string; object: string; range?: [number, number]; default?: number }[];
   unmatchedTo?: string;
 }
