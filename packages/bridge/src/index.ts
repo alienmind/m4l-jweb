@@ -96,9 +96,66 @@ export function outlet(...args: unknown[]): void {
   emit("out", String(args[0]), args.slice(1));
   if (typeof window !== "undefined" && window.max) {
     window.max.outlet(...args);
+    echoToConsole(String(args[0]));
   } else {
     console.debug("[m4l-jweb:outlet]", ...args);
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * The page, in the Max console
+ *
+ * A page inside `[jweb]` has no console anyone can read: `console.log` goes to a
+ * devtools nobody can open in Live, and a `file://` page cannot write a log file.
+ * So the page's only voice is a message, and `logToMax()` is it.
+ *
+ * The echo below is why it exists. When a user says "the buttons do nothing", the
+ * question is whether a press produces a message AT ALL - and the answer used to
+ * be unobtainable, because a message that is sent and a message that is never sent
+ * look identical from Max unless something handles it. Now every outbound selector
+ * names itself in the console.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Selectors that do NOT echo: the ones a user's typing or a knob emits many times a
+ * second, and the ones the wrapper already prints for itself. An echo has to be
+ * cheap enough to leave on, or it gets turned off before the report that needed it.
+ */
+const ECHO_SKIP = new Set(["sync_state", "save_chunk", "page_log", "param_label", "param_unit", "param_range"]);
+
+/** Print a line in Live's Max window, from the page. */
+export function logToMax(...parts: unknown[]): void {
+  if (typeof window === "undefined" || !window.max) {
+    console.debug("[m4l-jweb:page]", ...parts);
+    return;
+  }
+  // NOT through outlet(): that would echo itself, forever.
+  window.max.outlet("page_log", parts.map(String).join(" "));
+}
+
+function echoToConsole(selector: string): void {
+  if (ECHO_SKIP.has(selector)) return;
+  logToMax("->", selector);
+}
+
+/**
+ * What Chromium gave this page, told to Max at ui_ready.
+ *
+ * The page is laid out in CSS pixels; its `[jweb]` box is sized in the patcher's
+ * units. Nothing in Max can read the first and nothing in the page can read the
+ * second, so a disagreement between them - a page drawing at the wrong scale inside
+ * a box whose rect is exactly right - is invisible from either side alone.
+ */
+function reportPageMetrics(): void {
+  if (typeof window === "undefined" || !window.max) return;
+  window.max.outlet(
+    "page_metrics",
+    Math.round(window.innerWidth),
+    Math.round(window.innerHeight),
+    window.devicePixelRatio ?? 1,
+    window.screen?.width ?? 0,
+    window.screen?.height ?? 0,
+  );
 }
 
 /**
@@ -130,6 +187,7 @@ export function uiReady(): void {
   // it, so no page can lose it by subscribing in a later effect.
   bindDeviceFolder();
   outlet("ui_ready");
+  reportPageMetrics();
 }
 
 /**

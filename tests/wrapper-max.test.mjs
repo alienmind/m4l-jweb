@@ -571,3 +571,23 @@ test("the diagnostics block says where the device thinks it is", () => {
   expect(all).toContain(`device folder = '${h.dir}'`);
   expect(all).toContain("ui url = file:///");
 });
+
+test("the page's own log line reaches the Max console, joined back together", () => {
+  // Max splits a message into atoms on whitespace, so the words arrive separately.
+  h.ctx.page_log("export", "pressed,", "rendering", 8, "cycles");
+  expect(h.posts.join("")).toContain("page: export pressed, rendering 8 cycles");
+});
+
+test("the page reports the viewport Chromium gave it, next to the box's own rect", () => {
+  h.ctx.page_metrics(424, 169, 2, 3456, 2234);
+  const line = h.posts.find((p) => p.indexOf("page viewport") >= 0);
+  // The two numbers only ever meet in the console: Max cannot read a viewport and the
+  // page cannot read its box.
+  expect(line).toContain("424x169 css px");
+  expect(line).toContain("devicePixelRatio 2");
+});
+
+test("a WINDOW's page gets the same voice, tagged with which window spoke", () => {
+  h.ctx.window("repl", "page_log", "shim", "armed");
+  expect(h.posts.join("")).toContain("page[repl]: shim armed");
+});

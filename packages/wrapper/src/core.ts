@@ -52,6 +52,7 @@ function bang(): void {
   setupTempoObserver(); // liveapi.ts
   startTickPoll(); // liveapi.ts
   setupWatches(); // watch.ts - the device's declared defineWatch() observers
+  liveVersion(); // liveapi.ts - posts it once, and two machines behaving differently start here
   followWindowSizes(); // a resized window resizes its page
   // A device's own wrapper/device.ts hooks in here: this is the ONLY safe place
   // to create LiveAPI objects (see the loadbang trap above).
@@ -134,6 +135,34 @@ function ui_ready(): void {
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
+}
+
+/**
+ * The page says what Chromium gave it: `page_metrics <w> <h> <dpr> <screenW> <screenH>`.
+ *
+ * The app lays itself out in CSS pixels off the viewport, and the box is sized in
+ * the patcher's own units - so if those two disagree the page draws at the wrong
+ * scale inside a box whose rect is perfectly correct. Nothing in Max can see the
+ * viewport and nothing in the page can see the box, so the two numbers only ever
+ * meet here, in the console, on the machine that has the problem.
+ */
+function page_metrics(w: number, h: number, dpr: number, screenW: number, screenH: number): void {
+  post(
+    "m4l-jweb: page viewport " + w + "x" + h + " css px, devicePixelRatio " + dpr + ", screen " + screenW + "x" + screenH + "\n",
+  );
+}
+
+/**
+ * The page's own console line, since `console.log` inside `[jweb]` reaches nobody:
+ * `page_log <words...>`.
+ *
+ * The words arrive split - Max parses a message into atoms on whitespace - so they
+ * are joined back before printing.
+ */
+function page_log(): void {
+  var parts: string[] = [];
+  for (var i = 0; i < arguments.length; i++) parts.push(String(arguments[i]));
+  post("m4l-jweb: page: " + parts.join(" ") + "\n");
 }
 
 /**
@@ -290,6 +319,10 @@ function setNativeHidden(varname: string, hidden: number): void {
     // there is no `native_rect` here - the panel LAYERS views and hides one, rather
     // than reflowing objects, because hide/show is the only thing that takes.
     obj.hidden = hidden;
+    // Said out loud, and READ BACK. A hide that never happened and a hide that
+    // worked used to look identical from the console - both silent - which is
+    // exactly the difference between "the app never asked" and "Max refused".
+    post("m4l-jweb: native " + varname + " hidden -> " + hidden + " (reads back " + String(obj.getattr("hidden")) + ")\n");
   } catch (e) {
     post("m4l-jweb: native " + varname + " error: " + (e as Error).message + "\n");
   }
@@ -532,6 +565,12 @@ function window(id: string): void {
     else if (selector === "param_label") param_label(String(args[0]), args.slice(1).join(" "));
     else if (selector === "param_unit") param_unit(String(args[0]), args.slice(1).join(" "));
     else if (selector === "param_range") param_range(String(args[0]), Number(args[1]), Number(args[2]));
+    // A window's page has the same lack of a console as the device's, and it is the
+    // one that carries the Studio - so it gets the same voice, tagged with which
+    // window spoke.
+    else if (selector === "page_log") post("m4l-jweb: page[" + id + "]: " + args.join(" ") + "\n");
+    else if (selector === "page_metrics")
+      post("m4l-jweb: page[" + id + "] viewport " + args[0] + "x" + args[1] + " css px, devicePixelRatio " + args[2] + "\n");
     else if (typeof onWindowMessage === "function") (onWindowMessage as any).apply(null, [id, selector].concat(args as any[]));
     else post("m4l-jweb: window " + id + " sent unhandled '" + selector + "'\n");
   } finally {
