@@ -120,7 +120,7 @@ pads.onPad((e) => {
 ```
 
 `x` is 0-7 left to right, `y` is 0-7 **bottom to top** - the Push's own orientation, and
-the one every layout in §5-§7 is written in. `value` is the raw value from the
+the one every layout in §5-§8 is written in. `value` is the raw value from the
 hardware (velocity on a press, 0 on release); `down` is `value > 0`, precomputed
 because that is the check nine handlers in ten want.
 
@@ -166,7 +166,7 @@ throttles timers on a hidden page, and a game or sequencer clocked off
 `requestAnimationFrame` will stutter or stop exactly when it matters. Dedicated Workers
 are exempt, which is why [ARCHITECTURE.md](ARCHITECTURE.md) makes them pattern 2.
 
-So the shape of every device in §5-§7 is the same:
+So the shape of every device in §5-§8 is the same:
 
 ```
   Worker            owns the state and the clock, emits a 64-cell frame
@@ -347,7 +347,7 @@ fixed arity - never assembled through `.apply`, which crashes the `[js]` engine
 
 `@m4l-jweb/surface/dev` already renders a mocked Live beside the app. Add a grid of divs
 that paints from `paint`/`paint_all` and sends `pad` on click, and every device in
-§5-§7 is buildable in a browser tab with no hardware in the room.
+§5-§8 is buildable in a browser tab with no hardware in the room.
 
 Not a nice-to-have here the way it was for parameters. Without it, every iteration is a
 rebuild, a reinstall, a re-drag (Live embeds a copy of the device in the set, so
@@ -941,7 +941,252 @@ of §5's per-tick redraw and the other half of U5's load profile.
 
 ---
 
-## 8. Order of work
+## 8. Example 4 - Doom, as a face and a trackpad
+
+Doom (1993) runs in a browser, and `[jweb~]` is a browser whose audio output is the
+track. So the game runs *inside a device* with no work at all - and that is the boring
+half. **The interesting half is that an 8x8 grid is a terrible display and a decent
+input device, so the pads get the two things they are actually good at: the Doom guy's
+face, and your hands.**
+
+The game is played on screen, in a window, at full resolution. The Push shows the face
+taking hits and drives the aiming.
+
+### 8.1 Which port, and the honest constraints
+
+Two live browser builds, and they differ in exactly the way that matters here:
+
+| | What it is | Why you would pick it |
+|---|---|---|
+| [**doomgeneric**](https://github.com/ozkl/doomgeneric) | Doom with the platform layer reduced to six functions, and an Emscripten target ([live build](https://ozkl.github.io/doomgeneric/), sound and music via timidity) | The whole design is a seam you implement. `DG_Init`, `DG_DrawFrame`, `DG_SleepMs`, `DG_GetTicksMs`, `DG_GetKey`, `DG_SetWindowTitle`, driven by `doomgeneric_Create()` + `doomgeneric_Tick()`. `DG_ScreenBuffer` is a `pixel_t*` - `uint32_t` per pixel unless `CMAP256` - at `DOOMGENERIC_RESX` x `DOOMGENERIC_RESY`, default 640x400. |
+| [**cloudflare/doom-wasm**](https://github.com/cloudflare/doom-wasm) | Chocolate Doom on SDL2, Emscripten, WebSockets netplay | Closer to vanilla behaviour, batteries included, and it already runs unmodified in a page. |
+
+**Take doomgeneric.** Not because it is a better Doom - because `DG_DrawFrame` and
+`DG_GetKey` are precisely the two seams this example needs, already named and already
+factored out. The other build is the fallback if the Emscripten target fights us.
+
+Three constraints, all of them real, none of them negotiable:
+
+- **Doom's source is GPL-2.0 and this repo is MIT.** A device that links a Doom build
+  cannot ship out of `dist/` here. It is its **own repo** (`m4l-doom`), GPL, consuming
+  `m4l-jweb` as a library - which is what the library is for, and what
+  `../m4l-gugelhupf` and `../m4l-qobuz-dj` already are.
+- **Ship no IWAD.** [Freedoom](https://github.com/freedoom/freedoom) is 3-clause BSD
+  and is the sane default; `DOOM1.WAD` is the user's to supply, dropped in the device
+  folder. This is the same shape as every other asset the library already handles.
+- **Vanilla Doom has no jump and no crouch.** They arrived with later source ports;
+  Chocolate Doom is deliberately vanilla and doomgeneric is vanilla. So the action row
+  is *fire*, *use* (the thing that opens doors, which is what people mean when they say
+  jump), *run* and *strafe* - and the weapons get a row of their own, which is a far
+  better use of eight pads than a button that would do nothing.
+
+### 8.2 The device shape - and it is one we have already built
+
+```ts
+windows: {
+  game: window({
+    title: "Doom",
+    width: 1280, height: 800,
+    site: "dist/doom-site",   // the emscripten output, plus our shim index.html
+    audio: true,              // [jweb~]: the game's sound IS the track
+    latency: 66,              // the measured value; see below
+  }),
+}
+```
+
+`site:` + `audio: true` is exactly `../m4l-gugelhupf`'s Studio window: a whole
+third-party web app, built offline by its own script, delivered as a folder next to the
+`.amxd`, sounding into the device's signal path. It runs whether or not the window is
+open, because a sounding window is pulsed open once at load.
+
+`latency: 66` is not a guess: it is the number gugelhupf measured after `[jweb~]`'s
+default (~21 ms at 48 kHz) underran a sustained tone within thirty seconds. Doom's
+audio is a continuous mix, so it is the same load, and 66 ms is the documented maximum
+(three times the minimum; jweb clamps above it).
+
+And the same script that builds the site injects our shim `index.html` - the one that
+instantiates the WASM module and speaks the bridge. That is how the strudel window
+works today, so there is a precedent rather than a new mechanism.
+
+### 8.3 Hijack 1 - the face, out
+
+Doom already computes exactly the state we want to show. `st_stuff.c` keeps a single
+`static int st_faceindex`, and the face vocabulary is a small closed set:
+
+```c
+#define ST_NUMPAINFACES     5      // health brackets, 0 = healthiest
+#define ST_NUMSTRAIGHTFACES 3      // looking left / forward / right
+#define ST_NUMTURNFACES     2      // hurt from the left, from the right
+#define ST_NUMSPECIALFACES  3      // ouch, evil grin, rampage
+#define ST_FACESTRIDE       (ST_NUMSTRAIGHTFACES+ST_NUMTURNFACES+ST_NUMSPECIALFACES)  // 8
+#define ST_TURNOFFSET       (ST_NUMSTRAIGHTFACES)        // 3
+#define ST_OUCHOFFSET       (ST_TURNOFFSET + ST_NUMTURNFACES)   // 5
+#define ST_EVILGRINOFFSET   (ST_OUCHOFFSET + 1)          // 6
+#define ST_RAMPAGEOFFSET    (ST_EVILGRINOFFSET + 1)      // 7
+#define ST_GODFACE          (ST_NUMPAINFACES*ST_FACESTRIDE)     // 40
+#define ST_DEADFACE         (ST_GODFACE+1)               // 41
+```
+
+So `st_faceindex` decomposes into **health bracket = `index / 8`** and **expression =
+`index % 8`**, plus two singletons for god mode and death. Forty-two states, eight
+expressions, five health levels - which is a spec for an 8x8 display, not a
+compromise.
+
+**Route A, recommended: export the index and draw our own art.** One line of C and one
+Emscripten export:
+
+```c
+/* doomgeneric_push.c - our platform file, beside the six DG_ functions */
+EMSCRIPTEN_KEEPALIVE int DG_FaceIndex(void) { return ST_FaceIndex(); }
+```
+
+then in the page:
+
+```ts
+const raw = Module._DG_FaceIndex();
+const face =
+  raw === 41 ? "dead" :
+  raw === 40 ? "god"  :
+  ["fwd", "left", "right", "hurtL", "hurtR", "ouch", "grin", "rampage"][raw % 8]!;
+const health = Math.floor(raw / 8);          // 0 healthiest .. 4 nearly dead
+```
+
+Eight 8x8 bitmaps, one per expression, tinted by health - green at bracket 0 through to
+`red_red` at 4, with `white` for god mode and `dark_grey` for dead. A hand-drawn 8x8
+face reads instantly across a room; it is the one display size where pixel art beats a
+photograph.
+
+```ts
+const FACES: Record<string, string> = {
+  //  8 rows of 8, bottom row first. '.' off, '#' skin, 'o' eyes, '~' blood
+  fwd:  "..####.." + ".######." + "#o####o#" + "########" + "#.####.#" + "#.####.#" + ".######." + "..####..",
+  ouch: "..####.." + ".##~~##." + "#o#~~#o#" + "###~~###" + "#..##..#" + "#.####.#" + ".#~~~~#." + "..#~~#..",
+  // ... grin, rampage, hurtL, hurtR, left, right, god, dead
+};
+
+pads.draw((f) => {
+  f.clear("black");
+  const art = FACES[face]!;
+  const skin = ["green", "green_green", "yellow_highlight", "orange_one", "red_red"][health]!;
+  for (let i = 0; i < 64; i++) {
+    const x = 4 + (i % 8) / 2, y = 7 - Math.floor(i / 8) / 2;   // 8x8 art into a 4x4 region
+    // ... or give the face the whole grid and move the controls to the scene column
+  }
+});
+```
+
+**Route B, zero engine patch: read the pixels.** The status bar face is drawn into the
+framebuffer at a fixed spot - `#define ST_FACESX 143` and `#define ST_FACESY 168`, in
+Doom's 320x200 coordinates - so cropping that rectangle out of `DG_ScreenBuffer` (or off
+the canvas) and downsampling it to 8x8 needs no C at all and works against an
+unmodified upstream build.
+
+It is the fallback, for two reasons. An 8x8 downsample of a ~24x29 sprite is mush, and
+**it depends on the IWAD actually shipping `STF*` lumps** - true of the id WADs,
+unverified for Freedoom's. Route A reads a number the *engine* computes and is therefore
+WAD-agnostic, which is the better property to depend on.
+
+### 8.4 Hijack 2 - the pads, in
+
+Doom's browser builds take input as ordinary DOM events, so the Push drives the game by
+**synthesising them** at the canvas. No engine patch, and it works for either port.
+
+```
+ y                                            scene column (a second grabbed control)
+ 7  [   face   ][ weapon 1 2 3 4 ]              [ FIRE   ]
+ 6  [   4 x 4  ][ weapon 5 6 7 . ]              [ USE    ]
+ 5  [   face   ][ . . map .      ]              [ RUN    ]
+ 4  [   face   ][ . . . .        ]              [ STRAFE<]
+ 3  [ - - - -  t r a c k p a d  - - - - ]       [ STRAFE>]
+ 2  [ - - - -  t r a c k p a d  - - - - ]       [ AUTOMAP]
+ 1  [ - - - -  t r a c k p a d  - - - - ]       [ PAUSE  ]
+ 0  [ - - - -  t r a c k p a d  - - - - ]       [ ESC    ]
+     x=0 1 2 3   x=4 5 6 7
+```
+
+The scene-launch column is a **second declared control**, which no other example in this
+plan uses - and it is what buys the trackpad its four full-width rows:
+
+```ts
+export default defineControls({
+  surface: "push",
+  controls: {
+    pads:   grid({ role: "matrix", rows: 8, cols: 8 }),
+    scenes: grid({ role: "scene_launch", rows: 8, cols: 1 }),
+  },
+});
+```
+
+**The trackpad.** Rows 0-3 are a 8x4 surface. Consecutive touches give a delta, and the
+delta becomes mouse movement - which in Doom is turn on X and forward/back on Y:
+
+```ts
+let last: { x: number; y: number } | null = null;
+
+pads.onPad((e) => {
+  if (e.y > 3) return handleFaceRegionOrWeapons(e);
+  if (!e.down) { last = null; return; }              // lift ends the gesture
+  if (last) {
+    doomCanvas.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      movementX: (e.x - last.x) * TURN_GAIN,
+      movementY: (e.y - last.y) * -MOVE_GAIN,
+    }));
+  }
+  last = { x: e.x, y: e.y };
+});
+```
+
+Eight columns is coarse for aiming, and the fix is the same one §6's crossfader has: if
+U1 (§4) says the grabbed value stream carries pressure and slide, the *within-pad*
+position gives the fine delta and the same handler becomes smooth. Until then, gain
+plus a little inertia on the JS side does the smoothing - and the coarse version is
+playable, which is the bar.
+
+**The buttons.** Keys, held for as long as the pad is:
+
+```ts
+const KEYS = { fire: "Control", use: " ", run: "Shift", strafeL: ",", strafeR: "." };
+
+const key = (name: keyof typeof KEYS, down: boolean) =>
+  doomCanvas.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", {
+    key: KEYS[name], code: codeFor(KEYS[name]), bubbles: true,
+  }));
+
+scenes.onPad((e) => key(SCENE_ORDER[e.y]!, e.down));
+pads.onPad((e) => { if (e.y >= 4 && e.x >= 4 && e.down) key(`weapon${weaponAt(e)}`, true); });
+```
+
+**This is the one part with real risk, and it is worth saying so before anyone starts.**
+Emscripten's SDL2 backend keys off `code` and `key` in ways that do not always match a
+naively constructed `KeyboardEvent`, and a synthetic event with the wrong field is
+silently ignored - the same failure shape as everything else in this document.
+doomgeneric's advantage here is that `DG_GetKey` is *our* function: if the DOM route
+fights back, we bypass it entirely and feed a queue the platform file drains, which is
+the seam existing for exactly this.
+
+### 8.5 Why it belongs in the plan and not just in a demo reel
+
+It is the only example that:
+
+- **treats the pads as a display for something the app does not own.** Snake, the DJ
+  decks and the scale view all render their own state. Doom renders *someone else's*,
+  read out of a running engine - which is the case a sequencer view of a Live clip has
+  too, and this is the cheap way to find out whether the API supports it.
+- **uses two grabbed controls at once** (§8.4), which is where a role table earns its
+  keep.
+- **is a continuous input device**, so it puts U1 and U5 under real load: aiming is
+  latency-visible in a way a step toggle is not, and a face repainting on every pain
+  event is the repaint budget being spent unpredictably rather than on a clock.
+- **runs a whole third-party WASM app in `[jweb~]`**, which the `site:` window already
+  supports and which nothing has yet stress-tested with something this size.
+
+And when it works, the demo is one sentence long: *the pads are the Doom guy's face,
+and it hurts when you do.*
+
+---
+
+## 9. Order of work
 
 ```
   1. live.push in defineSurface           small, independent, ships on its own (§3.4)
@@ -951,6 +1196,7 @@ of §5's per-tick redraw and the other half of U5's load profile.
   5. push-snake                           the exemplary device (§5)
   6. the Circuit scale view               a second shape on the same API (§7)
   7. qobuz-dj pads                        after that project's own stage 4 (§6)
+  8. m4l-doom                             its own GPL repo, any time after 5 (§8)
 ```
 
 Steps 1 and 2 are independent. **Nothing below step 2 starts until its gate is met.**
@@ -962,7 +1208,7 @@ attached).
 
 ---
 
-## 9. Where the names live
+## 10. Where the names live
 
 Never from memory, and never from a model. Under `C:\ProgramData\Ableton\`:
 
