@@ -219,6 +219,21 @@ export function composePatcher(base, d, surface, files = null) {
    */
   if (d.latency != null) boxes.find((b) => b.box.id === "obj-jweb").box.latency = d.latency;
 
+  /**
+   * `mpe: true` - ask Live to send this device MPE.
+   *
+   * `is_mpe` is a PATCHER attribute, not a box one, and it is a declaration rather
+   * than machinery: Max's own reference says "If enabled, a Max for Live device will
+   * receive MPE data from Live", and a shipping device that carries the MPE badge
+   * sets it to 1 while parsing the result with ordinary `midiin` / `midiparse` (see
+   * doc/MAX-FACTS.md). The template writes 0, so a device that wants it says so here
+   * and something still has to READ the stream - the `mpein` chain, or `midiin`.
+   *
+   * Off by default. A device declaring MPE it does not handle is a device Live sends
+   * per-note channels to for no reason, and the badge tells the user a lie.
+   */
+  if (d.mpe) p.patcher.is_mpe = 1;
+
   const unmatchedId = d.unmatchedTo === "js" ? "obj-js" : (d.unmatchedTo ?? "obj-js");
 
   /**
