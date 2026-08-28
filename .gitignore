@@ -6,3 +6,8 @@ dist/
 # bookkeeping). Never again.
 .git-rewrite/
 rewrite.cjs
+
+# Scratch space. Donor devices pulled apart to read their patcher, spike output,
+# anything on its way to doc/. Third-party bytes live here and must not be
+# committed; see doc/PLAN-PUSH-TAKEOVER.md.
+tmp/
