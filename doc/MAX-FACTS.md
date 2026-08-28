@@ -597,3 +597,307 @@ page does not have. A copy can be claimed and never confirmed. `copyPath()` in
 `@m4l-jweb/bridge` therefore attempts the copy, then shows a focused, pre-selected
 field and waits for the browser's own `copy` event - the only honest confirmation
 available - and reports `copied` / `manual` / `cancelled` rather than a boolean.
+
+## Grabbing a Push control (Push 3, Live 12, 2026-08-28)
+
+Measured with `push-probe` (`doc/TODO.md` item 2) on a **Push 3**, over six
+rounds. No Push 2 was reachable, so every number here is Push 3 and the plan's claim
+that the generations share this behaviour is still unmeasured.
+
+The spike exists because §3 of that plan was read off a shipping third-party device's
+patcher rather than run. Four of its statements are wrong on this hardware, and each
+one fails in the way this file exists to catch: silently.
+
+### An id must be spelled `id <n>`, and a rejected call is only a console line
+
+`get_control <name>` on the surface returns the control's LOM id - **negative** on a
+Push 3, because it is proxied through `RemoteControlSurfaceWrapper` rather than a
+Python remote script. Handing that number back as a bare int does not work:
+
+```
+surface.call("grab_control", "Button_Matrix")   ->  works
+surface.call("grab_control", "id", -3)          ->  works   (TWO atoms)
+surface.call("grab_control", -3)                ->  jsliveapi: 'int' (-3) is not a control of 'RemoteControlSurfaceWrapper'
+surface.call("grab_control", 144)               ->  the same, for the ControlProxy's own `id` property
+```
+
+So the LOM's object-argument convention is the two-atom `id <n>`, and the proxy's
+`id` property (144 here) is **not** an address - it is a different number that looks
+like one. Grab and release **by name**: it is the only form that needs no id at all,
+and the id is then wanted for one thing only, constructing the observer.
+
+**`LiveAPI.call` does not throw when Live rejects the call.** It posts to the Max
+console and returns normally, so a `try/catch` around it catches nothing. The probe
+reported "grabbed Button_Matrix", attached an observer and painted, all against a
+control it never held - and did it again two rounds later on the encoders, printing
+"was ACCEPTED" directly above the rejection. Nothing in `[js]` can read the result.
+**A grab is verified by looking at the hardware, or it is not verified.** The
+patcher-level design in §3.5 inherits this exactly: `[live.object]` has no error
+outlet either.
+
+### The value observer: five atoms, `<velocity> <x> <y>`, and y counts from the TOP
+
+§3.1 says three atoms, `<x> <y> <value>`. Both halves are wrong:
+
+```
+value cb: 2 atoms [0]=value [1]=bang               <- ON ATTACH. Not an event.
+value cb: 5 atoms [0]=value [1]=54 [2]=0 [3]=0 [4]=1   <- press, TOP-left
+value cb: 5 atoms [0]=value [1]=0  [2]=0 [3]=0 [4]=1   <- release
+value cb: 5 atoms [0]=value [1]=66 [2]=0 [3]=7 [4]=1   <- press, BOTTOM-left
+```
+
+Pressing the four corners in a known order gives `y = 7` on the **bottom** row and
+`y = 0` on the top. §2.3's API promises y bottom-to-top and §5's Snake layout is
+written that way, so **the library must flip it** (`y = 7 - hardware_y`) in exactly
+one place. Get it wrong and every device on the grid is mirrored vertically, with
+nothing to report it - the reading that cost two rounds here, because a wrong
+interpretation of the same payload collapsed four corners onto two cells and looked
+like a hardware fault.
+
+Atom `[4]` is `1` on every event observed, press and release alike. Unexplained.
+
+Observing `value` fires **once immediately with `value bang`** - two atoms, no
+coordinates. Forwarded blindly it is a press at `(undefined, undefined)`.
+
+### Press and release only. Velocity yes; aftertouch and slide no
+
+Velocities are real and vary with the strike (32, 35, 42, 45, 48, 52, 54, 57, 66, 67,
+73, 127 across the runs). But **nothing arrives between the press and the release**:
+a pad held still for seconds emits its press and then nothing until it is lifted, a
+hard sustained press adds no further events, and sliding a finger - within a pad or
+across pads - produces nothing at all.
+
+So the grabbed control is a **gate with a velocity**, not a continuous surface. U1 is
+answered in the negative, and §7.2's "the slide within the pad gives the fine
+position" crossfader cannot be built on this path. Whatever carries Push 3's
+aftertouch and MPE, it is not the grabbed `Button_Matrix`'s `value`.
+
+### The grab gates OUTPUT too, and Live repaints over your first frame
+
+`send_value` on the proxy with no grab held lights nothing: painting is not an
+independent capability. And the first paint *immediately* after a successful grab
+does not appear either, while the same paint 400 ms later does - measured directly,
+by painting the four corners twice from one handler:
+
+```
+probe: corners painted IMMEDIATELY after the grab      -> dark
+probe: corners repainted 400 ms LATER                  -> lit
+```
+
+The reading is that Live's own surface script redraws the matrix just after handing
+it over. **The takeover must defer its first frame**, which is the same shape as
+§3.3's `[deferlow]` before the grab, one step later - and a device that paints once
+on grab and then only on change would come up blank and stay blank.
+
+### The repaint budget is not a constraint
+
+64 `send_value` calls, timed in `[js]` across three burst sizes:
+
+```
+ 1 frame  =   64 calls in   3 ms   (3.00 ms/frame)
+10 frames =  640 calls in  27 ms   (2.70 ms/frame)
+50 frames = 3200 calls in 130 ms   (2.60 ms/frame)
+```
+
+~41 us per call, flat - no queue effect at fifty consecutive full-grid frames. A
+full 8x8 repaint is ~2.6 ms, so Snake at 8 fps spends 2% of its budget painting and
+30 fps of *full* repaints would still be under 8% of one thread. The frame diff in
+§2.2 stays worth having for the bridge traffic it removes, but it is not what makes
+the grid usable.
+
+### What is on a Push 3, and what is not
+
+`get_control_names` returns **176 controls**, as a Max-formatted reply - the selector,
+the count, then `control <name>` pairs, then `done` - so a parser has to skip the
+first two atoms. Push 3 carries names no Push 2 remote script has (`Jogwheel`,
+`Jogwheel_Tap`, `Sets_Button`, `Capture_Button`, `Single_Track_Mode_Button`,
+`Session_Screen_button`, `Nav_Select_Touch`, `Mpe_Pitch_Bend_Elements`), a
+per-cell `<track>_Clip_<scene>_Button` for all 64 cells alongside `Button_Matrix`,
+and `Double_Press_Matrix` / `Single_Press_Event_Matrix` / `Double_Press_Event_Matrix`
+next to it. `Button_Matrix` itself resolves, which is what §3.2 could only infer.
+
+**So the role table cannot be one table.** Ask `get_control_names` and resolve
+against the answer, per §2.1 - a name from the Push 2 script is a guess on this
+hardware.
+
+### The palette: 0 is off, and an index is locatable
+
+Painting `y*8 + x` and then `64 + y*8 + x` across the grid photographs the whole
+128-index palette in two frames, with every index at a known pad (y from the top, as
+above). Index **0 is off** - the top-left pad is the only dark one on page 0.
+
+Colour NAMES for `defineControls` are still to be read off those photographs. And
+whether an index means the same colour on a Push 2 remains open, which is why §2.2's
+names are library data resolved per generation rather than a number a device writes.
+
+### Giving it back is safe, by three different routes
+
+The question that decides whether any of this is shippable - does a device leave Push
+broken? - answers cleanly. All three observed on the hardware:
+
+- `grab_control` then `release_control` leaves Push completely usable.
+- **Deleting the device without releasing** leaves Push completely usable. This is
+  `MxDCore`'s `GRABBED_CONTROLS_KEY` being walked in `release_device_context`, seen
+  from the outside: the grab belongs to the device context, not to the code.
+- **Reinstalling the `.amxd` while an instance is loaded** forces a release and
+  reload - Push blinks and comes back.
+
+So a device cannot strand the hardware by crashing, by being deleted, or by being
+replaced mid-session. That is what makes the takeover safe to ship at all, and it
+means a device does not have to be trusted to release: only to release when it stops
+wanting the grid.
+
+### The encoders ARE grabbable, which is why the library must refuse them
+
+`grab_control "Track_Controls"` is accepted, and so is the matching release - no
+console rejection either way. (The run before it passed the bare id `-4` and was
+rejected for that reason alone, measuring the addressing rule a third time and the
+encoders not at all.)
+
+And it does not merely return quietly - it **takes them**. With two dials declared so
+Push has something to map, the encoders move `ProbeA`/`ProbeB` normally, and from the
+moment `grab_control "Track_Controls"` is sent they stop responding entirely.
+
+So U6's answer is the one wanted: **yes, and never.** Grabbing an encoder costs it
+automation, MIDI mapping and its automation lane - everything the parameter path
+exists for - so `defineControls` refuses the role, and now refuses it for a measured
+reason rather than an assumption.
+
+Note the trap that made this hard to observe: grabbing and releasing in one message
+turn leaves no held state to look at, so the only readable outcome is "the call was
+accepted", which is exactly what this API will not tell you. And a device with no
+parameters shows "No parameters mapped" on Push whether or not its encoders are
+grabbed - the two are indistinguishable until the device declares a dial.
+
+### The grab can be made on the CONTROL, with no arguments
+
+`grab_control "Button_Matrix"` on the SURFACE is measured to work and is what the
+spike uses. It is not the only shape, and not the one a shipping device uses.
+
+The donor device's takeover is a subpatcher instantiated once per control, and its
+graph is:
+
+```
+[get_control $1] -> [prepend call] -> [live.object A]      A = the SURFACE
+                       -> [route get_control] -> [t l l]
+                                                   |
+                        the id, into the RIGHT inlet of [live.object B]
+                        and into [live.observer value]
+                                                   |
+   [grab_control] / [release_control]  ->  [prepend call] -> [live.object B]
+   [prepend send_value] --------------->
+```
+
+So `live.object` B is pointed AT THE CONTROL by id, and `grab_control`,
+`release_control` and `send_value` are then called **on the control, with no
+arguments**. That is the same thing as `[js]`'s `control.call("grab_control")` -
+which the spike listed as its strategy 3 and never ran, on the suspicion that it was
+what hung Live. A shipping device uses it in production, so that suspicion was
+wrong, and the MIDI-port explanation for the hang stands unchallenged.
+
+Two addressings, then, both real: by name on the surface (simplest, no id needed
+before the grab) and no-argument on the control (what the id is needed for anyway,
+since the observer wants it). A bare id as an argument remains rejected either way.
+
+The rest of that subpatcher is the contention handling section 3.3 describes, and it
+is worth reading as written: `[routepass 1]` -> `[deferlow]` before the grab, beside
+the comment *"Wait with grabbing to give another instance time to release."*, a
+`[route id]` -> `[!= 0]` -> `[change]` guard so a control that did not resolve never
+reaches the grab, and `[route none]` -> `release_control` so a "none" target releases.
+
+### The donor's control names are NOT one generation's
+
+The takeover addresses: `Button_Matrix`, `Pads`, `Display`, `Scene_Launch_Buttons`,
+`Track_State_Buttons`, `Step_Buttons`, `Shift_Button`, `Select_Button`,
+`Delete_Button`, `Duplicate_Button`, `New_Button`, `Undo_Button`, `Capture_Button`,
+`Record_Button`, `Loop_Button`, `Convert`, `Back_Button`, `Left_Button`,
+`Right_Button`, `Plus_Button`, `Minus_Button`, `Octave_Up_Button`,
+`Octave_Down_Button` - plus `Layout_Button`, `Session_Mode_Button` and
+`Note_Mode_Button` reached through **`get_control_by_name`**, a second resolver
+beside `get_control`.
+
+Several of those do not exist on a Push 3, which has `Left_Arrow` / `Right_Arrow`
+and `Layout`, and no `Pads`, `Back_Button`, `Plus_Button` or `Step_Buttons`. A
+device covering several generations therefore carries a superset and resolves what
+is actually there - which is the same conclusion the 176-name dump forced, arrived
+at from the other direction.
+
+### MPE is a different door, and the donor holds it open
+
+Devices that advertise MPE in Live (the badge top right of the device title bar) set a
+**patcher** attribute, `is_mpe` - read off Max's own reference on disk,
+`refpages/max-ref/patcher.maxref.xml`: *"Patch supports MPE (Max for Live). If enabled,
+a Max for Live device will receive MPE data from Live."* (`external_mpe_tuning_enabled`
+sits beside it and *"only has an effect if the is_mpe attribute is set to 1"*.)
+`packages/build/templates/base.json` already emits `"is_mpe": 0`, so every device this
+repo builds declares it explicitly off.
+
+**It would not change the measurement above.** MPE in Max is a MIDI-domain feature -
+`mpeparse`, `mpeformat`, `polymidiin`, per-note pitch bend on separate channels,
+arriving through `[midiin]`. The grabbed `Button_Matrix` is a control-surface object
+and its `value` property is a different channel entirely; enabling `is_mpe` adds no
+atoms to that callback.
+
+What it plausibly does is put Push 3's aftertouch and slide on the NOTE path, for a
+device that receives notes. That relocates §7.2's continuous crossfader rather than
+reviving it - the fine position would come from MPE notes, not from the grab. Untested
+here: no device in this repo has set `is_mpe 1`.
+
+**The donor sets it, and reads it with nothing special.** Its patcher carries
+`is_mpe: 1` and `external_mpe_tuning_enabled: 0` at the top level - siblings of
+`latency` and `devicewidth`, exactly where `base.json` writes `is_mpe: 0` - which is
+what puts the MPE badge in the device title bar. And its entire MIDI vocabulary is
+`midiin`, `midiparse`, `notein`, `noteout`, `makenote`: **no `mpeparse`, no
+`mpeformat`, no `polymidiin`.** The flag is a declaration to Live, not machinery.
+
+So a device that wants both does what the donor does: `is_mpe 1` to be sent the
+expression as per-channel MIDI, and a `SurfaceTakeover` to own the pads' identity and
+colour. The two paths do not meet - which is why no amount of flag-setting was ever
+going to add atoms to the `value` callback.
+
+**...and they are MUTUALLY EXCLUSIVE on the same pads.** Measured, with `is_mpe: 1`
+on `push-probe` and `[midiin] -> [mpeparse]` reading outlet 9:
+
+- MPE badge present in the device title bar, so Live accepted the declaration.
+- **Not grabbed**: playing the pads produces a stream of `mpeevent` messages.
+- **Grabbed**: the `mpeevent` stream stops completely.
+
+Grabbing `Button_Matrix` takes the pads off the note path entirely. They stop being
+an instrument and become a control surface, and the grabbed control's own `value` is
+then the ONLY thing they emit - press and release, with a velocity.
+
+That is the end of section 7.2's continuous crossfader, not a relocation of it. There
+is no arrangement in which one pad reports both a grid coordinate and a pressure: a
+device chooses, per moment, whether the pads are a grid or a keyboard. Which is
+presumably how the donor's mode subpatchers work - grabbing the matrix for its step
+view and releasing it to play.
+
+**It is the PADS, not the grab.** Grabbing `Scene_Launch_Buttons` - the scene column,
+not part of the 8x8 - leaves the `mpeevent` stream flowing untouched, and releasing it
+changes nothing either way. So a takeover is not all-or-nothing: a device can own part
+of the surface and keep expressive notes on the rest. Only claiming `Button_Matrix`
+costs the note path, and it costs exactly that.
+
+**And the stream depends on Push's own mode, with no grab involved.** All of the above
+was measured in NOTE mode. In Session mode the pads are clip launchers and send no MPE
+at all - Push's design, nothing to do with this API. So `mpeevent` arriving is never
+evidence that a grab succeeded or failed, and a device cannot assume expression is
+there: the user may simply be looking at a different page of their instrument.
+
+### Still open
+
+- Whether `Mpe_Pitch_Bend_Elements` - listed by `get_control_names` next to
+  `Button_Matrix`, along with `Double_Press_Matrix`, `Single_Press_Event_Matrix` and
+  `Double_Press_Event_Matrix` - carries the per-pad expression the matrix does not.
+  `probe_other <name> 1` in the spike grabs any of them and dumps the atoms.
+- Whether atom `[4]` of a pad event ever differs from `1`.
+- Colour NAMES: the palette is photographed and every index is locatable, but the
+  name table for `defineControls` is not written yet.
+- Everything about Push 2 and Push 1 - including whether a palette index means the
+  same colour there, which decides whether the name table is one table or three.
+- Two unattributed console lines appear on a reload of a device that is already
+  loaded: `get: no valid object set` and `The Max function "SendMessage" returned
+  with error 2: Bad parameter value`. They arrive between the payload extraction and
+  `bang`, before any probe code runs, and nothing observable follows from them.
+
+Live's UI did **not** stutter during the 50-frame repaint burst.

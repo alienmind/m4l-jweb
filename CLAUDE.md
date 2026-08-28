@@ -223,7 +223,7 @@ LEAVE OUT:
   the CI say that.
 - The evidence that isolated a cause. Which dial was dead while its sibling worked, what
   the before/after was - that is what makes the finding TRUE, and it belongs in the
-  evidence log (`doc/MAX-FACTS.md`, `doc/DRAWER_OF_FAILED_IDEAS.md`), not in a review
+  evidence log (`doc/MAX-FACTS.md`, `../m4l-gugelhupf/doc/DRAWER_OF_FAILED_IDEAS.md`), not in a review
   request.
 - The story of getting there. What an earlier attempt got wrong, what was believed for
   months, which spike was decisive.
