@@ -4,6 +4,11 @@
 a line of evolution that has not started, and it stays out of the backlog until the
 spike in §4 lands its findings in [MAX-FACTS.md](MAX-FACTS.md).
 
+**Scope.** §1-§4 are the design and the evidence. **§5 is the only device being built** -
+`push-snake` - and §6 is the order it happens in. **Part II is not being implemented**:
+three heavier devices, written down as design pressure on the API in §2 so it is not
+shaped around one game, and for no other reason. Work happens on `feat/push-takeover`.
+
 ---
 
 ## 1. The idea
@@ -120,7 +125,7 @@ pads.onPad((e) => {
 ```
 
 `x` is 0-7 left to right, `y` is 0-7 **bottom to top** - the Push's own orientation, and
-the one every layout in §5-§8 is written in. `value` is the raw value from the
+the one every layout in §5 and Part II is written in. `value` is the raw value from the
 hardware (velocity on a press, 0 on release); `down` is `value > 0`, precomputed
 because that is the check nine handlers in ten want.
 
@@ -166,7 +171,7 @@ throttles timers on a hidden page, and a game or sequencer clocked off
 `requestAnimationFrame` will stutter or stop exactly when it matters. Dedicated Workers
 are exempt, which is why [ARCHITECTURE.md](ARCHITECTURE.md) makes them pattern 2.
 
-So the shape of every device in §5-§8 is the same:
+So the shape of every device in §5 and Part II is the same:
 
 ```
   Worker            owns the state and the clock, emits a 64-cell frame
@@ -347,7 +352,7 @@ fixed arity - never assembled through `.apply`, which crashes the `[js]` engine
 
 `@m4l-jweb/surface/dev` already renders a mocked Live beside the app. Add a grid of divs
 that paints from `paint`/`paint_all` and sends `pad` on click, and every device in
-§5-§8 is buildable in a browser tab with no hardware in the room.
+§5 and Part II is buildable in a browser tab with no hardware in the room.
 
 Not a nice-to-have here the way it was for parameters. Without it, every iteration is a
 rebuild, a reinstall, a re-drag (Live embeds a copy of the device in the set, so
@@ -361,7 +366,7 @@ message-level contract, not pad latency, not pressure curves.
 
 | # | Question | Why it matters |
 |---|---|---|
-| U1 | Does the value observer carry **pressure/aftertouch and slide**, or only press and release? | §6's continuous gestures are designed around this. §3.1's device carries 18 aftertouch and slide destinations, but those may ride the ordinary MIDI note path, not the grabbed control. |
+| U1 | Does the value observer carry **pressure/aftertouch and slide**, or only press and release? | §7's continuous gestures are designed around this. §3.1's device carries 18 aftertouch and slide destinations, but those may ride the ordinary MIDI note path, not the grabbed control. |
 | U2 | The **colour palette**: all 128 indices, and whether they mean the same on Push 1, 2 and 3. | §2.2's colour names are library data and have to be right. Only `0`, `18`, `29`, `36` are attested. |
 | U3 | What does the user **see** during a grab, and does release restore Live's own mode? | A device that leaves Push broken after deletion is unshippable. The grab is dropped on teardown; the *display* is a separate question. |
 | U4 | Does `Button_Matrix` resolve on **Push 3**? | Strong evidence yes (§3.2), no measurement. One `get_control_names` settles it. |
@@ -391,20 +396,54 @@ Push 3 if both are reachable - and if only one, the fact says which.**
 
 ---
 
-## 5. Example 1 - `push-snake`, and it makes noise
+## 5. The device being built: `push-snake`
 
-**The exemplary device for this feature.** Snake, on the 8x8, in TypeScript, sounding
-through the track. Chosen because its bugs are visible from across the room, its rules
-fit in a paragraph, and it exercises every part of the API at once: a frame per tick, a
-press handler, a worker clock, parameters, and Web Audio.
+**This is the scope of the work.** Everything after §6 is a sketch of what the same API
+could carry later and is explicitly **not** being implemented.
 
-**Rules.** The snake moves one cell per tick. **Any pad press rotates it 90 degrees
-clockwise** - the whole grid is one button, which is the entire input. Fruit appears on
-a random free cell in a random colour; eating it grows the snake by one and speeds it
-up. The walls are the edge of the grid - there is no wrap - and hitting a wall or
-yourself ends the run.
+Snake, on the 8x8, in TypeScript, sounding through the track. Chosen because its bugs
+are visible from across the room, its rules fit in a paragraph, and it exercises every
+part of the API at once: a frame per tick, a press handler, a worker clock, parameters,
+and Web Audio.
 
-### 5.1 The device
+### 5.1 The rules, and the layout they imply
+
+```
+ y
+ 7  # # # # # # # #      #  wall  - dark_grey, always lit, never enters play
+ 6  # . . . . . . #      .  arena - the 6x6 the snake lives in
+ 5  # . . . . . . #
+ 4  # . . . o . . #      o  fruit - a random colour on a random free cell
+ 3  # . . @ * . . #      @  head   * body
+ 2  # . . * * . . #
+ 1  # . . . . . . #
+ 0  < > # # # # # #      <  turn anticlockwise    >  turn clockwise
+     x=0 1 2 3 4 5 6 7
+```
+
+**The border is a wall.** Row 0, row 7, column 0 and column 7 are drawn, permanently,
+and the snake dies on contact. The arena is the inner 6x6 - thirty-six cells - and a
+lit border is worth more than the six cells it costs: on a grid with no edge you cannot
+see, "I hit a wall" and "the device stopped responding" look identical.
+
+**Two reserved pads turn the snake**, and they sit *in* the wall - bottom-left corner
+and the pad beside it - so they cost nothing playable:
+
+| Pad | Does |
+|---|---|
+| `(0, 0)` | rotate **anticlockwise** |
+| `(1, 0)` | rotate **clockwise** |
+
+Every other pad is inert. Two buttons is what the game needs and no more: a direction
+per pad would want four, an absolute-heading grid would want the arena, and both make
+the wall harder to read. The two turn pads pulse on press, so the input is visible on
+the hardware even when the device view is closed.
+
+The snake moves one cell per tick and speeds up as it grows. Fruit appears on a random
+free arena cell in a random colour; eating it grows the snake by one. Hitting the wall
+or itself ends the run.
+
+### 5.2 The device
 
 ```js
 // patcher/devices.mjs
@@ -420,7 +459,7 @@ yourself ends the run.
 audio path, so the same page that owns the grid owns the sound. No window, no second
 bundle.
 
-### 5.2 `controls.ts`
+### 5.3 `controls.ts`
 
 ```ts
 import { defineControls, grid } from "@m4l-jweb/surface";
@@ -433,7 +472,7 @@ export default defineControls({
 });
 ```
 
-### 5.3 `surface.ts`
+### 5.4 `surface.ts`
 
 ```ts
 import { defineSurface, dial, toggle, state } from "@m4l-jweb/surface";
@@ -456,7 +495,7 @@ export default defineSurface({
 `defineControls` adds `takeover` and `focus` to that Surface (§2.4), so the bank shows
 five controls and the user can hand the pads back without deleting the device.
 
-### 5.4 `worker.ts` - the game
+### 5.5 `worker.ts` - the game
 
 Everything stateful lives here, so it keeps running with the device view closed.
 
@@ -465,9 +504,12 @@ Everything stateful lives here, so it keeps running with the device view closed.
 type Cell = [number, number];
 type Colour = "green" | "red_red" | "yellow_highlight" | "sky" | "purple";
 
-const W = 8, H = 8;
+/** The arena is the inner 6x6; everything outside it is wall. */
+const MIN = 1, MAX = 6;
+const inArena = (c: Cell) => c[0] >= MIN && c[0] <= MAX && c[1] >= MIN && c[1] <= MAX;
+
 const FRUIT_COLOURS: Colour[] = ["red_red", "yellow_highlight", "sky", "purple"];
-// Clockwise from up. A press advances one step around this ring.
+// Clockwise from up. A turn steps one place around this ring, either way.
 const DIRS: Cell[] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
 let snake: Cell[] = [];
@@ -483,7 +525,8 @@ const free = (c: Cell) => !snake.some((s) => same(s, c));
 
 function placeFruit(): void {
   const open: Cell[] = [];
-  for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) if (free([x, y])) open.push([x, y]);
+  for (let x = MIN; x <= MAX; x++) for (let y = MIN; y <= MAX; y++) if (free([x, y])) open.push([x, y]);
+  if (!open.length) return;                       // arena full: you won
   fruit = open[Math.floor(Math.random() * open.length)]!;
   fruitColour = FRUIT_COLOURS[Math.floor(Math.random() * FRUIT_COLOURS.length)]!;
 }
@@ -510,9 +553,8 @@ function step(): void {
   const [dx, dy] = DIRS[dir]!;
   const head: Cell = [hx + dx, hy + dy];
 
-  // The wall is the outside of the grid, and there is no wrap.
-  const hitWall = head[0] < 0 || head[0] >= W || head[1] < 0 || head[1] >= H;
-  if (hitWall || !free(head)) {
+  // The wall is the border ring, and there is no wrap.
+  if (!inArena(head) || !free(head)) {
     alive = false;
     if (timer) clearInterval(timer);
     self.postMessage(["dead", snake.length]);
@@ -533,15 +575,20 @@ function step(): void {
 }
 
 /**
- * One frame out per tick: a flat 64-cell array of colour NAMES, row-major from
- * the bottom-left. The page hands it straight to pads.draw(); the library works
- * out which cells actually changed.
+ * One frame out per tick: a flat 64-cell array of colour NAMES, row-major from the
+ * bottom-left. The page hands it straight to pads.draw(); the library works out which
+ * cells actually changed.
  */
 function paint(): void {
-  const f: (Colour | "black" | "dark_grey" | "white")[] = new Array(W * H).fill("black");
-  const at = (c: Cell) => c[1] * W + c[0];
+  const f: string[] = new Array(64).fill("dark_grey");     // the wall, everywhere
+  const at = (c: Cell) => c[1] * 8 + c[0];
+  for (let x = MIN; x <= MAX; x++) for (let y = MIN; y <= MAX; y++) f[at([x, y])] = "black";
+
+  f[at([0, 0])] = "ocean";                                  // turn anticlockwise
+  f[at([1, 0])] = "sky";                                    // turn clockwise
+
   if (alive) f[at(fruit)] = fruitColour;
-  snake.forEach((c, i) => { f[at(c)] = i === 0 ? "white" : alive ? "green" : "dark_grey"; });
+  snake.forEach((c, i) => { f[at(c)] = i === 0 ? "white" : alive ? "green" : "red_red"; });
   self.postMessage(["frame", f]);
 }
 
@@ -549,25 +596,25 @@ self.onmessage = (e: MessageEvent) => {
   const [type, arg] = e.data as [string, number];
   if (type === "start") reset();
   else if (type === "stop") { alive = false; if (timer) clearInterval(timer); }
-  else if (type === "turn") { if (alive) dir = (dir + 1) % 4; }   // any pad, clockwise
+  // arg is +1 clockwise, -1 anticlockwise. A dead snake ignores both.
+  else if (type === "turn") { if (alive) dir = (dir + arg + 4) % 4; }
   else if (type === "speed") { baseHz = arg; if (alive) reschedule(); }
 };
 ```
 
-*(Variant worth one line: `dir = (dir + (e.x < 4 ? 3 : 1)) % 4` in the page turns left
-on the left half and right on the right half. Same game, and it shows the coordinates
-being used for something.)*
-
-### 5.5 `App.tsx` - frames out, presses in, and the sound
+### 5.6 `App.tsx` - frames out, presses in, and the sound
 
 ```tsx
 import { useEffect, useRef, useState } from "react";
 import { useDevice, Frame } from "../shared/device";
-import { useParam, useStateSync } from "@m4l-jweb/surface/react";
-import { usePadGrid, usePadsHeld } from "@m4l-jweb/surface/react";
+import { useParam, useStateSync, usePadGrid, usePadsHeld } from "@m4l-jweb/surface/react";
 import GameWorker from "./worker.ts?worker&inline";
 import surface from "./surface";
 import controls from "./controls";
+
+/** The two reserved pads, in the wall, bottom-left. */
+const TURN_CCW = { x: 0, y: 0 };
+const TURN_CW = { x: 1, y: 0 };
 
 export default function App() {
   const device = useDevice();
@@ -626,8 +673,12 @@ export default function App() {
   useEffect(() => { worker.current?.postMessage([running ? "start" : "stop"]); }, [running]);
   useEffect(() => { worker.current?.postMessage(["speed", speed]); }, [speed]);
 
-  // Any pad, on the way down only. Sixty-four pads, one verb.
-  useEffect(() => pads.onPad((e) => { if (e.down) worker.current?.postMessage(["turn"]); }), [pads]);
+  // TWO pads, and only on the way down. Everything else on the grid is inert.
+  useEffect(() => pads.onPad((e) => {
+    if (!e.down) return;
+    if (e.x === TURN_CCW.x && e.y === TURN_CCW.y) worker.current?.postMessage(["turn", -1]);
+    else if (e.x === TURN_CW.x && e.y === TURN_CW.y) worker.current?.postMessage(["turn", +1]);
+  }), [pads]);
 
   return (
     <Frame device={device} title="Snake">
@@ -638,22 +689,62 @@ export default function App() {
 }
 ```
 
-**What this device proves, and why it is the right first one:** a full frame every
-tick through the diff (U5's load, visible); a press handler with no latency budget to
-spare; the worker clock surviving a hidden page; two parameters driving the loop from
-Live's side; a state slot that outlives the set; and audio out of the same page - all
-in under two hundred lines, none of it about Max.
+### 5.7 What it has to prove
+
+Not "Snake works". These, because they are what the next device inherits:
+
+| | Checked by |
+|---|---|
+| a full frame every tick survives the diff without flooding `[js]` | it plays smoothly at speed 16 with a long snake |
+| a press reaches the app fast enough to steer | a turn taken one tick before the wall does not hit the wall |
+| the worker clock survives a hidden page | close the device view mid-run; the snake keeps moving |
+| parameters drive the loop from Live's side | `running` from an encoder, `speed` from an automation lane |
+| a state slot outlives the set | save, close, reopen: `best` is still there |
+| audio reaches the track from the same page | Live's meters move on every blip |
+| **two instances in one set** | the second device does not steal the grid from the first (§3.3) |
+| **takeover off** | the device loads, shows its state, and does nothing to Push |
 
 ---
 
-## 6. Example 2 - a DJ surface for `qobuz-dj`
+## 6. Order of work
+
+```
+  1. push-probe                           the spike; the gate for everything below (§4)
+  2. the mock 8x8 grid in the harness     before the device (§3.6)
+  3. defineControls + the takeover chain  the library extension (§2, §3.5)
+  4. push-snake                           the device (§5)
+  5. live.push in defineSurface           independent of all of the above (§3.4)
+```
+
+**Nothing below step 1 starts until its gate is met.** Step 5 shares nothing with steps
+1-4 - it is a separate feature that happens to be about the same hardware - so it can be
+done at any point, or dropped.
+
+### What is NOT in this work
+
+Part II below sketches three heavier devices on the same API. They are written down so
+the API is not designed around one game, and for no other reason. **None of them is
+being implemented**, none of them is a dependency, and none of them should shape a
+decision in steps 1-4 beyond the one negative check: nothing in `defineControls` may
+assume the grid belongs to a sequencer, or to a game, or to eight-column anything.
+
+---
+
+# Part II - later, and not part of this work
+
+Three shapes the same API would have to carry. They exist here as design pressure on
+§2, not as a backlog. Read them before finalising `defineControls`; do not build them.
+
+---
+
+## 7. Later - a DJ surface for `qobuz-dj`
 
 `../m4l-qobuz-dj` is a two-deck mixer, scaffolded, nothing loaded in Live yet. Its
 encoders are already declared - EQ, filter, trim, pitch - and they must **stay**
 parameters, because those are the controls that automate and MIDI-map. What the grid
 adds is the part a knob cannot do: **gestures**.
 
-### 6.1 The layout: two halves and a seam
+### 7.1 The layout: two halves and a seam
 
 ```
  y
@@ -672,7 +763,7 @@ Left half is deck A, right half is deck B, and the bottom row is the seam betwee
 Deck colours run through everything - a cue pad, a loop pad and the platter all read as
 one deck at a glance, which is the only way an 8x8 stays legible in a dark room.
 
-### 6.2 The crossfader: a row you drag
+### 7.2 The crossfader: a row you drag
 
 Row 0 is eight cells from full-A to full-B. Dragging along it moves the crossfader, and
 the row lights as a bar so the position is readable without looking at the laptop.
@@ -695,7 +786,7 @@ redesign waiting on a measurement.
 pads, the on-screen fader, an encoder and an automation lane are all moving the same
 value. That is the whole reason the Surface stays the Surface.
 
-### 6.3 The platters: a circular gesture
+### 7.3 The platters: a circular gesture
 
 Rows 1-4 of each half are a 4x4 block, and its twelve perimeter pads are a ring. Read
 the angle of whichever pad is touched, take the delta between consecutive touches, and
@@ -729,7 +820,7 @@ The ring animates: the pad at the current playhead phase lights brighter, so bot
 platters visibly spin, and two decks running out of phase is something you can see
 before you can hear it.
 
-### 6.4 Cues and loops
+### 7.4 Cues and loops
 
 Rows 5-7 are ordinary buttons, and they are where the grid beats a knob outright: eight
 hot cues per deck, addressable in one press, lit to say which are set.
@@ -747,21 +838,22 @@ pads.onPad((e) => {
 Cue points persist in a `state()` slot, so they save with the set - a hot cue that
 vanishes when the set is reopened is worse than no hot cue.
 
-### 6.5 Where this sits in the order
+### 7.5 Why it is not being built
 
-**Second, and it stays second.** `../m4l-qobuz-dj`'s own gates come first: its CORS
-spike, and the memory question in its stage 2 (a decoded 10-minute FLAC is ~210 MB in
-the AudioContext; two decks plus a preload is over half a gigabyte inside a Chromium
-context inside Live). Pads on a mixer that has never made a sound are decoration.
+`../m4l-qobuz-dj`'s own gates come first: its CORS spike, and the memory question in
+its stage 2 (a decoded 10-minute FLAC is ~210 MB in the AudioContext; two decks plus a
+preload is over half a gigabyte inside a Chromium context inside Live). Pads on a mixer
+that has never made a sound are decoration.
 
-What it is worth *now* is negative: nothing in `defineControls` should assume the grid
-belongs to a sequencer. §7 will push hard in that direction, and this layout - halves,
-a seam, a ring, no steps anywhere - is the cheapest available check that the API did
-not follow it.
+**What this section is worth today is negative.** Nothing in `defineControls` should
+assume the grid belongs to a sequencer - and §8 will push hard in that direction, while
+§5 is a game with a wall and two buttons. A layout of halves, a seam, a ring and no
+steps anywhere is the cheapest available check that the API did not over-fit to either
+of them.
 
 ---
 
-## 7. Example 3 - the Circuit Tracks scale explorer
+## 8. Later - the Circuit Tracks scale explorer
 
 The full Circuit emulation is a large device: nine views, thirty-two steps, eight
 patterns per track, scenes. **This example is one view of it** - Scales - because it is
@@ -773,7 +865,7 @@ specification: `src/components/devices/Circuit/Scales/scalesData.ts` carries six
 scale modes as interval sets and the Circuit's piano-shaped chromatic layout. That file
 is the *spec*, not a dependency - this device shares no code with it.
 
-### 7.1 What the Circuit does
+### 8.1 What the Circuit does
 
 Two rows select a root note, laid out like a piano keyboard (black keys above, white
 keys below, four dead pads where a piano has no black key); another block selects one
@@ -806,7 +898,7 @@ const inScale = (pc: number, root: number, scale: keyof typeof SCALES) =>
   SCALES[scale].includes((pc - root + 12) % 12);
 ```
 
-### 7.2 The Push layout
+### 8.2 The Push layout
 
 The Circuit spreads this over two pages of sixteen pads. Push has sixty-four at once,
 so it fits with the *playable* keyboard in the middle - which the Circuit cannot do.
@@ -828,7 +920,7 @@ makes the layout readable to someone who has used the hardware. Rows 2-5 are the
 the Circuit has no room for: thirty-two in-scale notes ascending left-to-right, bottom
 row lowest, so a scale is something you can *play* while you are choosing it.
 
-### 7.3 The device
+### 8.3 The device
 
 ```ts
 // controls.ts
@@ -865,7 +957,7 @@ export const watches = defineWatch({
 });
 ```
 
-### 7.4 The frame
+### 8.4 The frame
 
 ```tsx
 const BLACK_COL: Record<number, number> = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };  // pc -> x
@@ -900,7 +992,7 @@ function drawScales(f: PadFrame, root: number, scale: keyof typeof SCALES, scale
 }
 ```
 
-### 7.5 The handler
+### 8.5 The handler
 
 ```tsx
 pads.onPad((e) => {
@@ -931,7 +1023,7 @@ velocity**, which is the first place in this plan where the third atom of the pa
 is doing real musical work - and the first place U1's answer would be felt as expression
 rather than as convenience.
 
-### 7.6 What it demonstrates that Snake does not
+### 8.6 What it demonstrates that Snake does not
 
 Three regions with three different behaviours on one grabbed control; parameters as the
 shared truth between pads, encoders and automation; a `defineWatch` binding to Live's
@@ -941,7 +1033,7 @@ of §5's per-tick redraw and the other half of U5's load profile.
 
 ---
 
-## 8. Example 4 - Doom, as a face and a trackpad
+## 9. Later - Doom, as a face and a trackpad
 
 Doom (1993) runs in a browser, and `[jweb~]` is a browser whose audio output is the
 track. So the game runs *inside a device* with no work at all - and that is the boring
@@ -952,7 +1044,7 @@ face, and your hands.**
 The game is played on screen, in a window, at full resolution. The Push shows the face
 taking hits and drives the aiming.
 
-### 8.1 Which port, and the honest constraints
+### 9.1 Which port, and the honest constraints
 
 Two live browser builds, and they differ in exactly the way that matters here:
 
@@ -980,7 +1072,7 @@ Three constraints, all of them real, none of them negotiable:
   jump), *run* and *strafe* - and the weapons get a row of their own, which is a far
   better use of eight pads than a button that would do nothing.
 
-### 8.2 The device shape - and it is one we have already built
+### 9.2 The device shape - and it is one we have already built
 
 ```ts
 windows: {
@@ -1008,7 +1100,7 @@ And the same script that builds the site injects our shim `index.html` - the one
 instantiates the WASM module and speaks the bridge. That is how the strudel window
 works today, so there is a precedent rather than a new mechanism.
 
-### 8.3 Hijack 1 - the face, out
+### 9.3 Hijack 1 - the face, out
 
 Doom already computes exactly the state we want to show. `st_stuff.c` keeps a single
 `static int st_faceindex`, and the face vocabulary is a small closed set:
@@ -1086,7 +1178,7 @@ It is the fallback, for two reasons. An 8x8 downsample of a ~24x29 sprite is mus
 unverified for Freedoom's. Route A reads a number the *engine* computes and is therefore
 WAD-agnostic, which is the better property to depend on.
 
-### 8.4 Hijack 2 - the pads, in
+### 9.4 Hijack 2 - the pads, in
 
 Doom's browser builds take input as ordinary DOM events, so the Push drives the game by
 **synthesising them** at the canvas. No engine patch, and it works for either port.
@@ -1137,7 +1229,7 @@ pads.onPad((e) => {
 });
 ```
 
-Eight columns is coarse for aiming, and the fix is the same one §6's crossfader has: if
+Eight columns is coarse for aiming, and the fix is the same one §7's crossfader has: if
 U1 (§4) says the grabbed value stream carries pressure and slide, the *within-pad*
 position gives the fine delta and the same handler becomes smooth. Until then, gain
 plus a little inertia on the JS side does the smoothing - and the coarse version is
@@ -1165,7 +1257,7 @@ doomgeneric's advantage here is that `DG_GetKey` is *our* function: if the DOM r
 fights back, we bypass it entirely and feed a queue the platform file drains, which is
 the seam existing for exactly this.
 
-### 8.5 Why it belongs in the plan and not just in a demo reel
+### 9.5 Why it is written down
 
 It is the only example that:
 
@@ -1173,7 +1265,7 @@ It is the only example that:
   decks and the scale view all render their own state. Doom renders *someone else's*,
   read out of a running engine - which is the case a sequencer view of a Live clip has
   too, and this is the cheap way to find out whether the API supports it.
-- **uses two grabbed controls at once** (§8.4), which is where a role table earns its
+- **uses two grabbed controls at once** (§9.4), which is where a role table earns its
   keep.
 - **is a continuous input device**, so it puts U1 and U5 under real load: aiming is
   latency-visible in a way a step toggle is not, and a face repainting on every pain
@@ -1183,28 +1275,6 @@ It is the only example that:
 
 And when it works, the demo is one sentence long: *the pads are the Doom guy's face,
 and it hurts when you do.*
-
----
-
-## 9. Order of work
-
-```
-  1. live.push in defineSurface           small, independent, ships on its own (§3.4)
-  2. push-probe                           the spike; the gate for everything below (§4)
-  3. the mock 8x8 grid in the harness     before any device (§3.6)
-  4. defineControls + the takeover chain  the library extension (§2, §3.5)
-  5. push-snake                           the exemplary device (§5)
-  6. the Circuit scale view               a second shape on the same API (§7)
-  7. qobuz-dj pads                        after that project's own stage 4 (§6)
-  8. m4l-doom                             its own GPL repo, any time after 5 (§8)
-```
-
-Steps 1 and 2 are independent. **Nothing below step 2 starts until its gate is met.**
-
-Two tests every device from step 5 on must carry, both of them cheap and both of them
-invisible with one device on the desk: **two instances in one set** (contention, §3.3)
-and **takeover switched off** (the device must still work, on screen, with no hardware
-attached).
 
 ---
 
