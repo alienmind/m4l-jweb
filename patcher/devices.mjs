@@ -229,6 +229,41 @@ export default [
   },
   {
     /**
+     * push-probe - THE SPIKE, and it is not an example. See
+     * doc/PUSH-USECASES.md and doc/MAX-FACTS.md.
+     *
+     * Six things about grabbing a Push control are unmeasured, and five of them gate
+     * every line of `defineControls`. This device asks the hardware and prints the
+     * answers; when they are written into doc/MAX-FACTS.md ("Grabbing a Push control")
+     * it can be deleted from this manifest and nothing will miss it.
+     *
+     * `mode: "probe"` is the only thing that makes it the probe. `wrapper/device.ts` is
+     * concatenated into EVERY device this repo builds, so the probe's handlers exist in
+     * all of them and refuse to run unless the [js] object-box argument says `probe` -
+     * hello-midi carrying an inert handler is fine, hello-midi grabbing the pads of
+     * somebody's set is not.
+     *
+     * IT GRABS NOTHING ON LOAD. Every call that touches the hardware is behind a
+     * button, because a spike that seizes a control surface the moment it is dropped
+     * on a track is a spike you cannot get out of. Live hung during one round of this,
+     * with the cause still unattributed - so no automatic grabs, ever.
+     *
+     * `mpe: true` + the `mpein` chain are the OTHER DOOR. The grabbed Button_Matrix
+     * carries press and release with a velocity and nothing else - no aftertouch, no
+     * slide, measured. The donor device that owns the pads also declares `is_mpe 1`,
+     * which is what makes Live send it per-note expression as MIDI. So the question
+     * this device now asks is whether a device can hold the grid AND receive that
+     * expression at the same time, which is the combination the donor implies works.
+     */
+    name: "push-probe",
+    type: "midi",
+    mode: "probe",
+    mpe: true,
+    chains: ["mpein"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
      * hello-window
      * Demonstrates the floating window API (`useWindow`): a second page, in a window
      * of its own, for a UI that does not fit in the device view's fixed ~169 px. The

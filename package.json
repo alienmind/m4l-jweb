@@ -16,6 +16,7 @@
 		"dev:hello-sampler": "node scripts/dev.mjs hello-sampler",
 		"dev:hello-state": "node scripts/dev.mjs hello-state",
 		"dev:hello-window": "node scripts/dev.mjs hello-window",
+		"dev:push-probe": "node scripts/dev.mjs push-probe",
 		"build": "tsc -b && node scripts/build-ui.mjs && m4l-jweb build",
 		"build:wrapper": "m4l-jweb wrapper",
 		"build:patchers": "m4l-jweb patchers",

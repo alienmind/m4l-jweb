@@ -278,3 +278,360 @@ function finishConformance(): void {
   }
   post("\n");
 }
+
+
+/* ==================================================================== *
+ * push-probe - THE SPIKE BEHIND doc/PUSH-USECASES.md (and MAX-FACTS.md, "Grabbing a Push control").
+ *
+ * The questions U1-U6 are ANSWERED and written up in doc/MAX-FACTS.md,
+ * "Grabbing a Push control". What is left here is the machinery that answering
+ * them proved correct, plus the parts still asking something:
+ *
+ *   scan / names        resolve the surface and the control vocabulary
+ *   grab / release      BY NAME - the one addressing Live accepts
+ *   paint / clear       send_value, and the deferred first frame
+ *   palette             still open: the colour NAMES are not derived yet
+ *   other <name>        still open: what Mpe_Pitch_Bend_Elements and the
+ *                       *_Press_Event_Matrix controls carry
+ *
+ * DELETED, because each answered its question and a spike that keeps its
+ * scaffolding stops being readable: the four grab strategies (only by-name and the
+ * two-atom `id <n>` work, and by-name needs no id at all), the four release
+ * strategies, the corner paints (the grab gates output; a palette shows it better),
+ * `info` (the dump is in the fact), `bench` (2.6 ms per full frame, flat), and
+ * `encoders` (grabbable, and therefore refused by the library).
+ *
+ * IT RUNS IN ONE DEVICE ONLY. `wrapper/device.ts` is concatenated into EVERY
+ * device this repo builds, so each entry point refuses unless the [js] object-box
+ * argument says `probe` (`mode: "probe"` in patcher/devices.mjs).
+ * ==================================================================== */
+
+/** The [js] object-box argument that says this build is the probe. */
+var PROBE_MODE = "probe";
+
+/** live_app, observing `control_surfaces` - a Push can be plugged in mid-set. */
+var probeApp: LiveAPI | null = null;
+/** The control surface we picked, and what Live calls its class. */
+var probeSurface: LiveAPI | null = null;
+var probeSurfaceType = "";
+/** The 8x8 grid: ONE control, one id - not sixty-four. */
+var probeMatrix: LiveAPI | null = null;
+var probeMatrixId = 0;
+/** The value observer. Dropping this reference kills the observer with it. */
+var probeValueObs: LiveAPI | null = null;
+/** The observer for whatever probe_other last grabbed. */
+var probeOtherObs: LiveAPI | null = null;
+/** How many more raw callback payloads to dump. Bounded so a held pad cannot flood. */
+var probeRawLeft = 0;
+/** The deferred first frame after a grab - see probe_grab. */
+var probeFirstFrameTask: Task | null = null;
+
+/**
+ * Every line goes to BOTH consoles: Max's, which is the record, and the device
+ * view, which is what you can read while looking at Push.
+ *
+ * Commas and semicolons are stripped because Max splits a MESSAGE on them - a log
+ * line containing one would arrive at [jweb] as two messages, the second of which
+ * is a selector nobody handles. Spaces are left alone: they split the SYMBOL into
+ * atoms, and the page joins them back.
+ */
+function probeLog(text: string): void {
+  var clean = String(text).replace(/[,;]/g, " ");
+  post("probe: " + clean + "\n");
+  outlet(0, "probe_log", clean);
+}
+
+/** The guard every entry point opens with: are we the probe, and is Live there? */
+function probeReady(what: string): boolean {
+  if (MODE !== PROBE_MODE) return false;
+  if (!probeSurface || !probeSurface.id) {
+    probeLog(what + ": no control surface yet - press Scan (and plug a Push in)");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * An id, however the LOM chose to hand it over: a bare number, "id 5", or
+ * ["id", 5]. Take the last atom in all three shapes.
+ *
+ * Wanted for ONE thing - constructing the observer. Grab and release go by NAME,
+ * because a bare id is rejected and the two-atom `id <n>` form buys nothing over
+ * the name (MAX-FACTS).
+ */
+function probeIdOf(v: unknown): number {
+  if (v === null || typeof v === "undefined") return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    var parts = v.split(" ");
+    return Number(parts[parts.length - 1]);
+  }
+  var list = v as { length?: number; [i: number]: unknown };
+  if (typeof list.length === "number" && list.length > 0) return Number(list[list.length - 1]);
+  return 0;
+}
+
+/** A LOM list as a plain JS array, whatever Max handed us. */
+function probeList(v: unknown): unknown[] {
+  if (v === null || typeof v === "undefined") return [];
+  if (typeof v === "string") return [v];
+  var list = v as { length?: number; [i: number]: unknown };
+  if (typeof list.length !== "number") return [v];
+  var out: unknown[] = [];
+  for (var i = 0; i < list.length; i++) out.push(list[i]);
+  return out;
+}
+
+/**
+ * Watch `control_surfaces` on live_app, from bang() - never loadbang (hard rule 4).
+ *
+ * Recreated unconditionally on every bang, with no `if (probeApp) return` guard:
+ * that guard is what makes the dead-observer bug permanent.
+ */
+function probeAttach(): void {
+  probeApp = null;
+  try {
+    probeApp = new LiveAPI(function (a: unknown[]) {
+      // Fixed arity, never outlet.apply - it crashes the [js] engine (MAX-FACTS).
+      if (a && a[0] == "control_surfaces") outlet(0, "probe_log", "control_surfaces changed - press Scan");
+    }, "live_app");
+    probeApp.property = "control_surfaces";
+    probeLog("watching live_app control_surfaces");
+  } catch (e) {
+    probeLog("cannot observe control_surfaces - " + (e as Error).message);
+  }
+}
+
+/**
+ * What is plugged in.
+ *
+ * `control_surfaces` is a flat list of `id N` pairs WITH EMPTY SLOTS (`id 0`) for
+ * every unconfigured control-surface slot in Live's preferences, so the position in
+ * this list is the slot number and most of them are nothing.
+ */
+function probe_scan(): void {
+  if (MODE !== PROBE_MODE) return;
+  probeLog("--- scan ---");
+  var app = new LiveAPI("live_app");
+  if (!app.id) {
+    probeLog("live_app did not resolve - is this running in Live at all?");
+    return;
+  }
+  var flat = probeList(app.get("control_surfaces"));
+  probeSurface = null;
+  probeSurfaceType = "";
+
+  var slot = 0;
+  for (var i = 0; i < flat.length; i++) {
+    if (String(flat[i]) === "id") continue; // the list alternates "id" and the number
+    var id = Number(flat[i]);
+    slot++;
+    if (!id) continue; // an empty preferences slot; not worth a line each
+    var cs = new LiveAPI("id " + id);
+    var type = cs.id ? String(cs.type) : "unresolved";
+    probeLog("slot " + slot + ": id " + id + " type " + type);
+    if (!probeSurface && (type === "Push" || type === "Push2" || type === "Push3" || type === "Move")) {
+      probeSurface = cs;
+      probeSurfaceType = type;
+    }
+  }
+
+  if (!probeSurface) {
+    probeLog("no Push or Move found - the rest of the probe has nothing to talk to");
+    return;
+  }
+  probeLog("using " + probeSurfaceType + " (id " + probeSurface.id + ")");
+  probeResolveMatrix();
+}
+
+/**
+ * The control vocabulary of whatever is plugged in.
+ *
+ * A Push 3 has no remote script on disk - its names are declared by the firmware at
+ * runtime - so this call is the only source of truth, and the names are NOT the
+ * Push 2 set (MAX-FACTS). Separate from `scan` because it is 45 lines of console
+ * and you rarely want it twice.
+ */
+function probe_names(): void {
+  if (!probeReady("names")) return;
+  var names = probeList(probeSurface!.call("get_control_names"));
+  probeLog("get_control_names: " + names.length + " atoms");
+  // The reply is Max-formatted: the selector, the count, then `control <name>`
+  // pairs, then `done`. Four to a line keeps it readable.
+  for (var i = 0; i < names.length; i += 4) probeLog("  " + names.slice(i, i + 4).join(" "));
+}
+
+/** `get_control Button_Matrix` -> the id the OBSERVER needs. The grab uses the name. */
+function probeResolveMatrix(): void {
+  probeMatrix = null;
+  probeMatrixId = probeIdOf(probeSurface!.call("get_control", "Button_Matrix"));
+  if (!probeMatrixId) {
+    probeLog("get_control Button_Matrix returned nothing usable");
+    return;
+  }
+  probeMatrix = new LiveAPI("id " + probeMatrixId);
+  probeLog("Button_Matrix -> id " + probeMatrixId + " type " + (probeMatrix.id ? String(probeMatrix.type) : "unresolved"));
+}
+
+/**
+ * Grab the grid and observe its `value`.
+ *
+ * BY NAME - the only addressing that needs no id, and one of only two Live accepts
+ * (a bare id is rejected; the ControlProxy's own `id` property is not an address).
+ *
+ * A REJECTED CALL DOES NOT THROW, IT POSTS. There is no try/catch here because
+ * there is nothing to catch: watch the Max console for a `jsliveapi:` line, and
+ * watch the hardware. That is the only verification this API offers.
+ */
+function probe_grab(): void {
+  if (!probeReady("grab")) return;
+  if (!probeMatrix || !probeMatrixId) {
+    probeLog("grab: no Button_Matrix - press Scan first");
+    return;
+  }
+  probeSurface!.call("grab_control", "Button_Matrix");
+  outlet(0, "probe_state", 1);
+  probeLog("grabbed Button_Matrix");
+
+  probeRawLeft = 16;
+  probeValueObs = null;
+  try {
+    probeValueObs = new LiveAPI(function (a: unknown[]) {
+      if (!a || a[0] != "value") return;
+      if (probeRawLeft > 0) {
+        probeRawLeft--;
+        var raw = "value cb: " + a.length + " atoms";
+        for (var k = 0; k < a.length; k++) raw += " [" + k + "]=" + String(a[k]);
+        probeLog(raw);
+      }
+      // THE ATTACH NOTIFICATION IS NOT AN EVENT: observing `value` fires once
+      // immediately with `value bang` - two atoms, no coordinates. Forwarded, it is
+      // a press at (undefined, undefined) that no device asked for.
+      if (a.length < 5) return;
+      // MEASURED: value <velocity> <x> <y-from-the-TOP> <1>. Passed on positionally
+      // and unflipped; the page names them and flips y. Fixed arity - never
+      // outlet.apply, it crashes Live.
+      outlet(0, "probe_pad", a[1], a[2], a[3], a[4], new Date().getTime());
+    }, "id " + probeMatrixId);
+    probeValueObs.property = "value";
+  } catch (e) {
+    probeLog("cannot observe value - " + (e as Error).message);
+  }
+
+  // THE FIRST FRAME AFTER A GRAB IS LOST. Live's own surface script redraws the
+  // matrix just after handing it over, so a paint issued in this message turn never
+  // appears - measured, and the reason the takeover chain will have to defer too.
+  // Blanking the grid here is what gives the page's latch a known starting state.
+  if (probeFirstFrameTask) probeFirstFrameTask.cancel();
+  probeFirstFrameTask = new Task(probeBlank, this);
+  probeFirstFrameTask.schedule(400);
+}
+
+/** The deferred first frame. Task, never setTimeout - there is none in [js]. */
+function probeBlank(): void {
+  if (!probeMatrix) return;
+  for (var y = 0; y < 8; y++) for (var x = 0; x < 8; x++) probeMatrix.call("send_value", x, y, 0);
+  outlet(0, "probe_blanked", 1);
+  probeLog("grid blanked (deferred 400 ms - an immediate paint is overwritten)");
+}
+
+/**
+ * Give it back.
+ *
+ * Safe by three routes, all measured: this, deleting the device without releasing,
+ * and reinstalling the .amxd while an instance is loaded. So the hardware cannot be
+ * stranded - but a device that means to stop should still say so.
+ */
+function probe_release(): void {
+  if (!probeReady("release")) return;
+  probeValueObs = null; // drop the reference: the observer dies with it
+  probeSurface!.call("release_control", "Button_Matrix");
+  outlet(0, "probe_state", 0);
+  probeLog("released Button_Matrix");
+}
+
+/** One cell: `call send_value <x> <y> <colour>`, y counted from the TOP. */
+function probe_paint(x: unknown, y: unknown, colour: unknown): void {
+  if (MODE !== PROBE_MODE || !probeMatrix) return;
+  probeMatrix.call("send_value", Number(x), Number(y), Number(colour));
+}
+
+/** Paint the whole grid off. */
+function probe_clear(): void {
+  if (!probeReady("clear")) return;
+  if (!probeMatrix) return;
+  for (var y = 0; y < 8; y++) for (var x = 0; x < 8; x++) probeMatrix.call("send_value", x, y, 0);
+  probeLog("painted all 64 pads colour 0");
+}
+
+/**
+ * The palette, in two photographs. STILL OPEN: the colour NAMES are not derived.
+ *
+ * Page 0 paints index `y*8 + x` on pad (x, y); page 1 paints `64 + y*8 + x`, with y
+ * from the TOP. Two pictures and every one of the 128 indices is at a known pad,
+ * which is what `defineControls` needs before it can offer names - a device that
+ * writes `36` is a device nobody can read.
+ */
+function probe_palette(page: unknown): void {
+  if (!probeReady("palette")) return;
+  if (!probeMatrix) return;
+  var base = Number(page) * 64;
+  for (var y = 0; y < 8; y++) for (var x = 0; x < 8; x++) probeMatrix.call("send_value", x, y, base + y * 8 + x);
+  probeLog("painted indices " + base + ".." + (base + 63) + " - pad (x y) carries " + base + " + y*8 + x");
+}
+
+/**
+ * Grab ANY control by name and dump what its `value` carries. STILL OPEN.
+ *
+ * `get_control_names` lists four controls next to `Button_Matrix` that nobody has
+ * looked at - `Mpe_Pitch_Bend_Elements`, `Double_Press_Matrix`,
+ * `Single_Press_Event_Matrix`, `Double_Press_Event_Matrix` - and the first is the
+ * obvious place for the per-pad expression the grabbed matrix does not carry.
+ *
+ * Nothing here assumes the payload has a shape: it prints the atoms, which is the
+ * point. `probe_other <name> <1 grab | 0 release>`.
+ */
+function probe_other(name: unknown, hold: unknown): void {
+  if (!probeReady("other")) return;
+  var control = String(name);
+  if (Number(hold) !== 1) {
+    probeSurface!.call("release_control", control);
+    probeOtherObs = null;
+    probeLog("released " + control);
+    return;
+  }
+
+  var id = probeIdOf(probeSurface!.call("get_control", control));
+  probeLog("--- " + control + " -> id " + id + " ---");
+  if (!id) {
+    probeLog(control + " did not resolve");
+    return;
+  }
+  probeSurface!.call("grab_control", control);
+  probeRawLeft = 16;
+  probeOtherObs = null;
+  try {
+    probeOtherObs = new LiveAPI(function (a: unknown[]) {
+      if (!a || a[0] != "value" || probeRawLeft <= 0) return;
+      probeRawLeft--;
+      var raw = control + " cb: " + a.length + " atoms";
+      for (var k = 0; k < a.length; k++) raw += " [" + k + "]=" + String(a[k]);
+      probeLog(raw);
+    }, "id " + id);
+    probeOtherObs.property = "value";
+    probeLog("observing " + control + " - press and SLIDE on the pads now");
+  } catch (e) {
+    probeLog("cannot observe " + control + " - " + (e as Error).message);
+  }
+}
+
+/**
+ * The one hook the probe needs: live.thisdevice has fired, so LiveAPI is finally
+ * safe. An observer built during loadbang constructs without error and then
+ * notifies nothing, forever (hard rule 4) - which for a probe would mean a device
+ * that reports "no control surface" with a Push sitting right there.
+ */
+function onDeviceReady(): void {
+  if (MODE !== PROBE_MODE) return;
+  probeAttach();
+}
