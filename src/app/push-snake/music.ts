@@ -1,9 +1,16 @@
 /**
  * music.ts (push-snake) - four mixes of one loop, one of them audible at a time.
  *
- * The tension layers. Level 1 is the sparsest arrangement and level 4 is the full
- * track; the game climbs through them as the snake grows, one step per two segments,
- * and stays on 4 once it gets there.
+ * Four loop layers and a win track.
+ *
+ * The layers are the tension: level 1 is the sparsest arrangement and level 4 the
+ * densest, and the game climbs through them as the snake grows, one step per two
+ * segments, staying on 4 once it gets there. All four are 18.823537 s at 22.05 kHz -
+ * the same length to the sample, which is what the sync below needs.
+ *
+ * `win.ogg` is not a fifth layer and could not be one: 88.2 s at 48 kHz, a different
+ * piece rather than a denser mix of the same one. It plays once, on its own bus, when
+ * the gauge fills.
  *
  * ------------------------------------------------------------------------------
  * ALL FOUR PLAY AT ONCE, IN SYNC, AND ONLY ONE IS AUDIBLE.
@@ -56,6 +63,7 @@ import level1 from "./music/level-1.ogg";
 import level2 from "./music/level-2.ogg";
 import level3 from "./music/level-3.ogg";
 import level4 from "./music/level-4.ogg";
+import winTrack from "./music/win.ogg";
 
 const TRACKS = [level1, level2, level3, level4];
 
@@ -85,6 +93,15 @@ export const musicLevelFor = (length: number) => Math.max(0, Math.min(MUSIC_LEVE
 export interface MusicPlayer {
   /** Decode (once) and start all four loops in sync, fading the current level in. */
   start(): Promise<void>;
+  /**
+   * Stop the loops and play the full track once, for a win.
+   *
+   * It is NOT a fifth layer and cannot be one: it is 88.2 s at 48 kHz where the four
+   * layers are 18.8 s at 22.05 kHz. Different length, so it cannot share their clock;
+   * different piece, so it is not a denser mix of them. It is the whole arrangement, and
+   * the one moment in a run that deserves the whole arrangement is filling the gauge.
+   */
+  playWin(): void;
   /** Fade out and release the sources. `start()` may be called again afterwards. */
   stop(): void;
   /** 0 .. MUSIC_LEVELS-1. Crossfades; out of range is clamped. */
@@ -126,6 +143,14 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
   master.gain.value = 0;
   master.connect(ctx.destination);
 
+  // The win track has its own bus, so it can come up while the loops go down without
+  // the two fighting over one gain.
+  const winBus = ctx.createGain();
+  winBus.gain.value = 0;
+  winBus.connect(ctx.destination);
+  let winBuffer: AudioBuffer | null = null;
+  let winSource: AudioBufferSourceNode | null = null;
+
   let buffers: (AudioBuffer | null)[] = [];
   let sources: (AudioBufferSourceNode | null)[] = [];
   let gains: GainNode[] = [];
@@ -148,6 +173,13 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
         }
       }),
     );
+
+    try {
+      winBuffer = await ctx.decodeAudioData(await fetchBytes(winTrack));
+    } catch {
+      console.info("[push-snake] the win track is not a decodable audio file - a win will be silent");
+      winBuffer = null;
+    }
 
     const lengths = buffers.filter((b): b is AudioBuffer => !!b).map((b) => b.duration.toFixed(3));
     if (new Set(lengths).size > 1) {
@@ -172,8 +204,31 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
   /** The gain one layer should sit at right now: `volume` if it is the level, 0 otherwise. */
   const target = (i: number) => (i === level ? 1 : 0);
 
+  function stopWin(fade = 0) {
+    const at = ctx.currentTime;
+    winBus.gain.cancelScheduledValues(at);
+    winBus.gain.setValueAtTime(winBus.gain.value, at);
+    winBus.gain.linearRampToValueAtTime(0, at + Math.max(0.01, fade));
+    const held = winSource;
+    winSource = null;
+    if (!held) return;
+    window.setTimeout(
+      () => {
+        try {
+          held.stop();
+        } catch {
+          // Already ended - the track is 88 s and a game can outlast it.
+        }
+      },
+      fade * 1000 + 50,
+    );
+  }
+
   return {
     async start() {
+      // A new game silences a win still playing out. It is 88 s long, and the second run
+      // would otherwise start under the end of the first one's victory music.
+      stopWin(FADE_OUT_S);
       if (playing) return;
       playing = true;
       // A page that has never had a user gesture starts its context suspended, and a
@@ -206,6 +261,22 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
       master.gain.cancelScheduledValues(at);
       master.gain.setValueAtTime(master.gain.value, at);
       master.gain.linearRampToValueAtTime(volume, at + FADE_IN_S);
+    },
+
+    playWin() {
+      // The loops go down, the whole track comes up, and nothing waits for a decode: if
+      // the win buffer is not there the run simply ends quietly.
+      this.stop();
+      if (!winBuffer) return;
+      const at = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = winBuffer;
+      src.connect(winBus);
+      src.start(at);
+      winSource = src;
+      winBus.gain.cancelScheduledValues(at);
+      winBus.gain.setValueAtTime(0, at);
+      winBus.gain.linearRampToValueAtTime(volume, at + FADE_IN_S);
     },
 
     stop() {
@@ -247,6 +318,12 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
 
     setVolume(v) {
       volume = Math.max(0, Math.min(1, v));
+      const now = ctx.currentTime;
+      if (winSource) {
+        winBus.gain.cancelScheduledValues(now);
+        winBus.gain.setValueAtTime(winBus.gain.value, now);
+        winBus.gain.linearRampToValueAtTime(volume, now + 0.05);
+      }
       if (!playing) return;
       const at = ctx.currentTime;
       master.gain.cancelScheduledValues(at);

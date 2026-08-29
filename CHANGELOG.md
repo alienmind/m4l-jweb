@@ -89,10 +89,10 @@ until you start another game.
 It draws the same grid in the device view, so you can play it with no Push in the room -
 click the pads or use the arrow keys.
 
-The soundtrack is four mixes of one loop, sparsest to full, moving up one level every two
-segments. All four start at the same moment and play in sync, and a level change
-crossfades their volumes, so transitions are exact. The tracks ship as empty placeholders
-in `src/app/push-snake/music/`; a layer that does not decode is simply silent.
+The soundtrack is four loop layers, sparsest to densest, moving up one level every two
+segments. All four are the same length to the sample, start at the same moment and play in
+sync, and a level change crossfades their volumes - so transitions are exact. Winning
+plays a fifth file, the full track, once.
 
 ### Fixed
 

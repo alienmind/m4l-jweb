@@ -192,9 +192,10 @@ export default function App() {
       } else if (type === "over") {
         const win = arg === 1;
         setOutcome(win);
-        // The face holds on the grid; the music does not. A loop still running under a
-        // finished game reads as a device that has not noticed.
-        music.current?.stop();
+        // A win gets the whole track. A loss gets silence - a loop still running under a
+        // dead snake reads as a device that has not noticed.
+        if (win) music.current?.playWin();
+        else music.current?.stop();
         if (win) blip(880, 500, "triangle");
         else blip(70, 700, "sawtooth");
         // The transport follows the game, so `running` reads false in Live, in the
