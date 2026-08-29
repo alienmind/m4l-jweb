@@ -1118,7 +1118,7 @@ saved months.
 So: when an item's cost is measured in weeks, re-verify its premise before designing
 around it - especially a premise of the form "X cannot do Y". What route B cost and what
 it taught is kept in
-[m4l-strudel's drawer of failed ideas](../../m4l-strudel/doc/DRAWER_OF_FAILED_IDEAS.md).
+[m4l-gugelhupf's drawer of failed ideas](../../m4l-gugelhupf/doc/DRAWER_OF_FAILED_IDEAS.md).
 
 ## The build pipeline
 

@@ -28,43 +28,7 @@ because it is settled history rather than work.
 
 ---
 
-## 1. Rename the project to `m4l-patchboard`
-
-**Nothing blocks this any more.** The headless target was the gate, and it shipped in
-1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
-HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
-works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
-
-Everything else still open - the touch strip, the colour table, `live.push`, and item 3
-below - is work on the library, not on its name. Merge 1.6.0 first, then rename.
-
-**The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
-was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
-interface in TypeScript and the build emits `[js]` and a patcher, with or without a
-Chromium page. So the name describes a COMPONENT rather than the project, and names one
-that `hello-headless` does not contain at all. `m4l-patchboard` says what it actually is:
-a generic Max for Live development framework in TypeScript.
-
-Do it in one commit, and now rather than later. A rename is cheap while the reason for it
-is visible, and expensive to explain afterwards. What it touches, so nobody rediscovers it
-in the middle:
-
-- the four published packages (`@m4l-jweb/{bridge,surface,build,wrapper}`), which are on
-  npm. This is a new SCOPE and a major version, not a rename of existing packages. The old
-  scope stays up, deprecated, pointing at the new one.
-- the `m4l-jweb` CLI binary, and `m4l-jweb init`'s scaffold, which writes the scope into
-  every generated `package.json`.
-- the payload and window filename prefixes the wrapper extracts next to the `.amxd`. They
-  are per-device, but some device repos carry the library name in their path.
-- the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
-  `../m4l-qobuz-dj`.
-
-The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
-about Max, not about this library, and they outlive both names.
-
----
-
-## 2. The pads as a surface you program
+## 1. The pads as a surface you program
 
 **Built, and confirmed working on hardware.** `defineControls` ships, `push-snake` runs in
 Live on a Push 3 - grid, HUD, sprint, music, state, the lot - and the checklist that could
@@ -74,7 +38,7 @@ Push control".
 
 Three things are still open, and none of them blocks anything:
 
-### 2a. The touch strip has no readable position
+### 1a. The touch strip has no readable position
 
 **J1 is answered and the jog wheel works.** Grabbed, `Jogwheel` streams continuously and
 reports a DELTA of one detent as a signed 7-bit step - 1 clockwise, 127 anticlockwise, one
@@ -93,7 +57,7 @@ lives.** `get_control_names` lists `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elemen
 nobody has read either. `probe_other <name> 1` in `push-probe` grabs any control by name,
 dumps its atoms and says whether the trace looks like a delta or a position.
 
-### 2b. The colour table is photographs, and there is a better source
+### 1b. The colour table is photographs, and there is a better source
 
 `PUSH_PALETTE` ships about 23 names, read off two photographs of the palette pages through
 a camera at one white balance. Index 0 = off is measured. Nothing else is. No grey is
@@ -142,7 +106,7 @@ table is a copied table) and the
 means the same colour on a Push 1, 2 and 3. Every source above is Push 2. Everything
 measured here is Push 3. Nobody has held both.
 
-### 2c. `live.push` in `defineSurface` - separate, droppable
+### 1c. `live.push` in `defineSurface` - separate, droppable
 
 `live.push` configures Push's own note mode: `play_pad_map`, `play_note_colors`,
 `play_usage`, and the expressive-pad geometry. It colours **notes, not pads**, so it cannot
@@ -151,28 +115,40 @@ protocol, no risk. Ship it separately, or not at all.
 
 ---
 
-## 3. A window page cannot write a file
+## 2. Rename the project to `m4l-patchboard`
 
-`saveToFile()` and `fetchToFile()` work from the device view only. A window's page is an
-ordinary bridge client - its messages arrive tagged `window <id> <selector> ...` - but
-`window()` in the wrapper passes through a whitelist (`ui_ready`, `get_state`,
-`sync_state`, `param_*`) and hands everything else to `onWindowMessage`. Widening that
-list is the small half.
+**Nothing blocks this any more.** The headless target was the gate, and it shipped in
+1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
+HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
+works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
 
-**The real obstacle is that `replyWindow` is a DISPATCH-SCOPED variable.** It is set for
-the duration of one inbound message and restored in `finally`, while a save's last phase
-is asynchronous: `[maxurl]` places the verified `.part` and answers later, by which time
-`replyWindow` is null again and `save_ok` goes to the DEVICE view - a window would sit
-waiting on a promise that has already been resolved somewhere else.
+It waits behind item 1 by choice, not by need: the pad work has loose ends worth closing
+while it is fresh, and a rename in the middle of them would make every one of those
+commits harder to read. Merge 1.6.0, close what is worth closing in item 1, then rename.
 
-So the fix is to record the origin on the PENDING REQUEST (`activeSave`, and the fetch
-table) rather than lean on the transient, and have the reply path address whoever asked.
-`fetchToFile()` has the same shape and the same bug; fix both at once, since a window
-that can save but not fetch is a distinction nobody can remember.
+**The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
+was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
+interface in TypeScript and the build emits `[js]` and a patcher, with or without a
+Chromium page. So the name describes a COMPONENT rather than the project, and names one
+that `hello-headless` does not contain at all. `m4l-patchboard` says what it actually is:
+a generic Max for Live development framework in TypeScript.
 
-**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 6d) - it will be able to
-render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
-cannot travel back to the device view through Max messages to be saved there.
+Do it in one commit, and now rather than later. A rename is cheap while the reason for it
+is visible, and expensive to explain afterwards. What it touches, so nobody rediscovers it
+in the middle:
+
+- the four published packages (`@m4l-jweb/{bridge,surface,build,wrapper}`), which are on
+  npm. This is a new SCOPE and a major version, not a rename of existing packages. The old
+  scope stays up, deprecated, pointing at the new one.
+- the `m4l-jweb` CLI binary, and `m4l-jweb init`'s scaffold, which writes the scope into
+  every generated `package.json`.
+- the payload and window filename prefixes the wrapper extracts next to the `.amxd`. They
+  are per-device, but some device repos carry the library name in their path.
+- the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
+  `../m4l-qobuz-dj`.
+
+The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
+about Max, not about this library, and they outlive both names.
 
 ---
 
