@@ -330,15 +330,17 @@ drifts:
 | the soundtrack | [`src/app/push-snake/music.ts`](../src/app/push-snake/music.ts), and [`music/README.md`](../src/app/push-snake/music/README.md) for what to render |
 | frames out, presses in, the sound | [`src/app/push-snake/App.tsx`](../src/app/push-snake/App.tsx) |
 
-**The soundtrack is four mixes of ONE loop**, sparsest to full. It climbs one level every
-two segments and holds on the full mix.
+**The soundtrack is four loop layers and a win track.** The layers go sparsest to densest,
+climbing one level every two segments and holding on the densest.
 
-All four are decoded and started at the same moment and play in sync. A level change
-crossfades their GAINS rather than restarting anything, which is what makes every
-transition sample-accurate - and why the four files must be the same length and tempo.
+All four are 18.823537 s at 22.05 kHz - the same length to the sample. They are decoded
+and started at the same moment and play in sync, and a level change crossfades their GAINS
+rather than restarting anything. That is what makes every transition sample-accurate, and
+why they must be the same length.
 
-They ship as zero-byte placeholders. A layer that does not decode is silent, and the game
-plays anyway.
+`win.ogg` is 88.2 s at 48 kHz. It is a different piece, not a denser mix of the same one,
+so it cannot share their clock. It plays once, on its own bus, when the gauge fills. A
+loss gets silence.
 
 Two things the shipped version does that the sketch above does not, both of them the
 API telling the truth about the hardware:
