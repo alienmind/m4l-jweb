@@ -221,7 +221,7 @@ export interface ButtonControlSpec extends ControlBase {
  *
  * NOTHING HERE IS MEASURED YET. Whether either emits a usable stream under a grab,
  * and whether the jog wheel reports a DELTA or an absolute position, is doc/TODO.md
- * item 2a - one button press in `push-probe`, and it gates the DJ surface in
+ * doc/TODO.md - one button press in `push-probe`, and it gates the DJ surface in
  * PUSH-USECASES.md. The shape exists so that answering the question does not force
  * an API change; it does not claim the answer.
  */

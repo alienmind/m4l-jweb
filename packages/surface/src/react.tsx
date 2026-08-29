@@ -235,10 +235,11 @@ export function usePadButton<C extends Record<string, ControlSpec>, K extends Ex
 /**
  * A declared STREAM's raw atoms - the jog wheel, the touch strip.
  *
- * Deliberately not decoded. Whether either emits a continuous stream under a grab,
- * and whether the jog wheel reports a DELTA or an absolute position, is doc/TODO.md
- * item 2a and is unanswered: a hook that returned "the position" would be inventing
- * the answer. It hands over what arrived.
+ * Deliberately not decoded, and now for a measured reason (doc/MAX-FACTS.md). Both stream
+ * continuously under a grab, and NEITHER carries a position: the jog wheel sends a delta
+ * of one detent as a signed 7-bit step, and the touch strip sends a byte that counts in
+ * 64s and wraps. A hook that returned "the position" would be inventing one. This hands
+ * over what arrived, and the device decides what it means.
  */
 export function usePadStream<C extends Record<string, ControlSpec>, K extends Extract<keyof C, string>>(controls: Controls<C>, key: K): number[] {
   const store = useMemo(() => padStore(controls), [controls]);

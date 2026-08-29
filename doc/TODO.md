@@ -16,6 +16,8 @@ Two rules everything here follows:
 - **Gate every unknown behind a cheap spike** that can fail in an afternoon rather than a
   week.
 
+**The order is priority order.** Item 1 is the next thing to do.
+
 A third rule, learned the expensive way in 0.9.9: **re-check a premise before designing
 around it.** The biggest item this file ever carried was "a page cannot put audio on a
 track, so we need a C++ external". It was false about the object we were already using.
@@ -26,28 +28,39 @@ because it is settled history rather than work.
 
 ---
 
-## 1. A window page cannot write a file
+## 1. Rename the project to `m4l-patchboard`
 
-`saveToFile()` and `fetchToFile()` work from the device view only. A window's page is an
-ordinary bridge client - its messages arrive tagged `window <id> <selector> ...` - but
-`window()` in the wrapper passes through a whitelist (`ui_ready`, `get_state`,
-`sync_state`, `param_*`) and hands everything else to `onWindowMessage`. Widening that
-list is the small half.
+**Nothing blocks this any more.** The headless target was the gate, and it shipped in
+1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
+HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
+works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
 
-**The real obstacle is that `replyWindow` is a DISPATCH-SCOPED variable.** It is set for
-the duration of one inbound message and restored in `finally`, while a save's last phase
-is asynchronous: `[maxurl]` places the verified `.part` and answers later, by which time
-`replyWindow` is null again and `save_ok` goes to the DEVICE view - a window would sit
-waiting on a promise that has already been resolved somewhere else.
+Everything else still open - the touch strip, the colour table, `live.push`, and item 3
+below - is work on the library, not on its name. Merge 1.6.0 first, then rename.
 
-So the fix is to record the origin on the PENDING REQUEST (`activeSave`, and the fetch
-table) rather than lean on the transient, and have the reply path address whoever asked.
-`fetchToFile()` has the same shape and the same bug; fix both at once, since a window
-that can save but not fetch is a distinction nobody can remember.
+**The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
+was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
+interface in TypeScript and the build emits `[js]` and a patcher, with or without a
+Chromium page. So the name describes a COMPONENT rather than the project, and names one
+that `hello-headless` does not contain at all. `m4l-patchboard` says what it actually is:
+a generic Max for Live development framework in TypeScript.
 
-**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 6d) - it will be able to
-render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
-cannot travel back to the device view through Max messages to be saved there.
+Do it in one commit, and now rather than later. A rename is cheap while the reason for it
+is visible, and expensive to explain afterwards. What it touches, so nobody rediscovers it
+in the middle:
+
+- the four published packages (`@m4l-jweb/{bridge,surface,build,wrapper}`), which are on
+  npm. This is a new SCOPE and a major version, not a rename of existing packages. The old
+  scope stays up, deprecated, pointing at the new one.
+- the `m4l-jweb` CLI binary, and `m4l-jweb init`'s scaffold, which writes the scope into
+  every generated `package.json`.
+- the payload and window filename prefixes the wrapper extracts next to the `.amxd`. They
+  are per-device, but some device repos carry the library name in their path.
+- the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
+  `../m4l-qobuz-dj`.
+
+The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
+about Max, not about this library, and they outlive both names.
 
 ---
 
@@ -80,16 +93,54 @@ lives.** `get_control_names` lists `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elemen
 nobody has read either. `probe_other <name> 1` in `push-probe` grabs any control by name,
 dumps its atoms and says whether the trace looks like a delta or a position.
 
-### 2b. Colour names are photographs
+### 2b. The colour table is photographs, and there is a better source
 
-`PUSH_PALETTE` ships about 23 names, read off the two palette pages through a camera at one
-white balance. Index 0 = off is measured. Nothing else is. No grey is named because none
-was identified, which is why `push-snake`'s wall is `tan`.
+`PUSH_PALETTE` ships about 23 names, read off two photographs of the palette pages through
+a camera at one white balance. Index 0 = off is measured. Nothing else is. No grey is
+named because none was identified, which is why `push-snake`'s wall is `tan`.
 
-Sampling the photographs properly - or finding a source inside Live that states the
-palette - would turn a table that is good enough to pick a readable colour into one a
-device can trust. Whether an index means the same colour on a Push 2 is wide open, and
-decides whether the table is one table or three.
+**A Push 2 scheme turned up, and it is a STRUCTURE rather than a list**
+([sonicbloom](https://sonicbloom.net/ableton-live-tutorial-create-your-own-colour-scheme-for-ableton-push/)):
+
+```
+BLACK 0   DARK_GREY 1   GREY 2   WHITE 3
+RED 5   AMBER 9   YELLOW 13   LIME 17   GREEN 21   SPRING 25   TURQUOISE 29
+CYAN 33   SKY 37   OCEAN 41   BLUE 45   ORCHID 49   MAGENTA 53   PINK 57
+```
+
+Four greys, then fourteen hues **every four indices from 5**. The `.highlight()` and
+`.shade(n)` in that API are the other three indices in each group of four. If it holds,
+the table stops being 23 photographed guesses and becomes a formula: 14 hues x 4
+brightnesses, named and generated.
+
+**It contradicts what was measured here.** The photographs put pure red at index **2**,
+where this scheme puts GREY. One of the two is wrong, and there are only two ways it can
+be: the Push 3 palette is not the Push 2 one, or the photographs were read a row out.
+Both are cheap to settle and neither has been.
+
+Two more sources, both Push 2 and neither read yet:
+[Ableton/push-interface](https://github.com/Ableton/push-interface) (Ableton's own, so
+check its licence before lifting a table out of it - a measured fact is a fact, a copied
+table is a copied table) and the
+[push2_display crate](https://crates.io/crates/push2_display/0.2.0/code/).
+
+**The plan, in order, and each step can kill the one after it:**
+
+1. **Test the structure, not the values.** Paint index 5, 21 and 41 on three pads with
+   `probe_paint`. If they are red, green and ocean, the Push 2 scheme holds on a Push 3
+   and steps 2 and 3 are unnecessary - go to 4.
+2. **If it does not hold, re-shoot the photographs with an orientation marker.** The
+   current ones are ambiguous about which corner is index 0, and that is exactly the error
+   that would put red at 2 instead of 5. `probe_palette` paints `base + y*8 + x` with y
+   from the TOP; painting a known asymmetric marker first makes a misread impossible.
+3. **Only then read the two repos**, to name what the photographs show rather than to
+   replace them.
+4. **Generate the table rather than list it.** `hue(name, brightness)` beats 23 constants,
+   and it is what makes `.shade()` and `.highlight()` expressible.
+
+**And the question that decides whether this is one table or three:** whether an index
+means the same colour on a Push 1, 2 and 3. Every source above is Push 2. Everything
+measured here is Push 3. Nobody has held both.
 
 ### 2c. `live.push` in `defineSurface` - separate, droppable
 
@@ -100,39 +151,28 @@ protocol, no risk. Ship it separately, or not at all.
 
 ---
 
-## 3. Rename the project to `m4l-patchboard`
+## 3. A window page cannot write a file
 
-**Nothing blocks this any more.** The headless target was the gate, and it shipped in
-1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
-HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
-works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
+`saveToFile()` and `fetchToFile()` work from the device view only. A window's page is an
+ordinary bridge client - its messages arrive tagged `window <id> <selector> ...` - but
+`window()` in the wrapper passes through a whitelist (`ui_ready`, `get_state`,
+`sync_state`, `param_*`) and hands everything else to `onWindowMessage`. Widening that
+list is the small half.
 
-Everything else still open - the jog wheel spike, the colour names, `live.push`, and item 1
-below - is work on the library, not on its name. Merge 1.6.0 first, then rename.
+**The real obstacle is that `replyWindow` is a DISPATCH-SCOPED variable.** It is set for
+the duration of one inbound message and restored in `finally`, while a save's last phase
+is asynchronous: `[maxurl]` places the verified `.part` and answers later, by which time
+`replyWindow` is null again and `save_ok` goes to the DEVICE view - a window would sit
+waiting on a promise that has already been resolved somewhere else.
 
-**The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
-was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
-interface in TypeScript and the build emits `[js]` and a patcher, with or without a
-Chromium page. So the name describes a COMPONENT rather than the project, and names one
-that `hello-headless` does not contain at all. `m4l-patchboard` says what it actually is:
-a generic Max for Live development framework in TypeScript.
+So the fix is to record the origin on the PENDING REQUEST (`activeSave`, and the fetch
+table) rather than lean on the transient, and have the reply path address whoever asked.
+`fetchToFile()` has the same shape and the same bug; fix both at once, since a window
+that can save but not fetch is a distinction nobody can remember.
 
-Do it in one commit, and now rather than later. A rename is cheap while the reason for it
-is visible, and expensive to explain afterwards. What it touches, so nobody rediscovers it
-in the middle:
-
-- the four published packages (`@m4l-jweb/{bridge,surface,build,wrapper}`), which are on
-  npm. This is a new SCOPE and a major version, not a rename of existing packages. The old
-  scope stays up, deprecated, pointing at the new one.
-- the `m4l-jweb` CLI binary, and `m4l-jweb init`'s scaffold, which writes the scope into
-  every generated `package.json`.
-- the payload and window filename prefixes the wrapper extracts next to the `.amxd`. They
-  are per-device, but some device repos carry the library name in their path.
-- the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
-  `../m4l-qobuz-dj`.
-
-The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
-about Max, not about this library, and they outlive both names.
+**Who needs it:** m4l-gugelhupf's Studio window (its TODO item 6d) - it will be able to
+render its own pattern to a WAV once that lands upstream in strudel, and a 17 MB buffer
+cannot travel back to the device view through Max messages to be saved there.
 
 ---
 
