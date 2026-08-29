@@ -94,6 +94,13 @@ segments. All four are the same length to the sample, start at the same moment a
 sync, and a level change crossfades their volumes - so transitions are exact. Winning
 plays a fifth file, the full track, once.
 
+Music by AlienMind. The device view credits it and links to the original track, which
+needed a small addition to the library: `openUrl()` in the bridge and `open_url` in the
+wrapper hand a URL to the real browser via `; max launchbrowser`. A page inside `[jweb]`
+cannot open a link itself - it is a `file://` document, and a plain `<a target="_blank">`
+either does nothing or navigates the device view, replacing the UI with a web page in a
+169 px box.
+
 ### Fixed
 
 - **The takeover said it was on and never grabbed anything.** A `[js]` property observer

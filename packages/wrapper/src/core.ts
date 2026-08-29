@@ -141,6 +141,27 @@ function ui_ready(): void {
 }
 
 /**
+ * `open_url <url>` - hand a URL to the user's default web browser.
+ *
+ * `; max launchbrowser <url>` is the only door Max offers, and it is measured to reach the
+ * shell (doc/MAX-FACTS.md). What it cannot do is REVEAL A FOLDER - the same message with a
+ * correct `file://` path opens nothing at all - so this is deliberately for `http` and
+ * `https`, which is what it does work for. Anything else is refused rather than sent into
+ * a mechanism known not to answer.
+ *
+ * `messnamed` is a Max HOST function: fixed arity only, never `.apply` (it crashes Live).
+ */
+function open_url(url: string): void {
+  var target = String(url);
+  if (target.indexOf("http://") !== 0 && target.indexOf("https://") !== 0) {
+    post("m4l-jweb: open_url refused " + target + " - only http and https are opened, and launchbrowser cannot reveal a folder\n");
+    return;
+  }
+  post("m4l-jweb: opening " + target + "\n");
+  messnamed("max", "launchbrowser", target);
+}
+
+/**
  * One page hands a message to another page's window.
  *
  * The two pages of a device are separate Chromium contexts and share nothing -
@@ -360,9 +381,7 @@ function param_label(id: string, ...rest: unknown[]): void {
   // The device view is told as well: its own controls should show what the code
   // called this, not the declared short name.
   outlet(0, "param_desc", id, label);
-  post(
-    "m4l-jweb: param_label " + id + " '" + before + "' -> '" + after + "'" + (String(after) === label ? "" : " (did NOT take)") + "\n",
-  );
+  post("m4l-jweb: param_label " + id + " '" + before + "' -> '" + after + "'" + (String(after) === label ? "" : " (did NOT take)") + "\n");
 }
 
 function param_unit(id: string, ...rest: unknown[]): void {
@@ -617,7 +636,10 @@ function loadWindows(): void {
         // is invisible without saying it: nothing else in Max reports a page that
         // did not load.
         post(
-          "m4l-jweb: window '" + siteId + "' is missing its sidecar folder - expected " + target +
+          "m4l-jweb: window '" +
+            siteId +
+            "' is missing its sidecar folder - expected " +
+            target +
             ". Install the whole '<device>-site' folder NEXT TO the .amxd.\n",
         );
       }

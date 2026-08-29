@@ -10,7 +10,7 @@
  * Audio does not appear here at all: it leaves the page as a SIGNAL on [jweb~]'s
  * outlets, which is what the `webaudio` chain is for.
  */
-import { CONTROLS_IN, CONTROLS_OUT, DEVICE_IN, STATE_OUT } from "@m4l-jweb/bridge";
+import { CONTROLS_IN, CONTROLS_OUT, DEVICE_IN, SHELL_OUT, STATE_OUT } from "@m4l-jweb/bridge";
 
 /** Device -> UI. */
 export const IN = {
@@ -24,4 +24,6 @@ export const OUT = {
   ui_ready: "ui_ready",
   ...CONTROLS_OUT,
   ...STATE_OUT,
+  // The music credit opens the original track in a real browser.
+  ...SHELL_OUT,
 } as const;

@@ -1,5 +1,10 @@
 # push-snake music
 
+Music by **AlienMind**. The original track is
+[Next Wave / Nextpoint OST](https://soundcloud.com/alienmindzzz/next-wave-nextpoint-ost),
+and the device view links to it - the credit line under the grid opens it in a real
+browser.
+
 Five files: four loop layers that play during a run, and one full track for a win.
 
 Converted from the WAV renders with ffmpeg, at Vorbis quality 4:
