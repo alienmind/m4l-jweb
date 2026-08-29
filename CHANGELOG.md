@@ -89,13 +89,18 @@ until you start another game.
 It draws the same grid in the device view, so you can play it with no Push in the room -
 click the pads or use the arrow keys.
 
-The soundtrack is four loop layers, sparsest to densest, moving up one level every two
-segments. All four are the same length to the sample, start at the same moment and play in
-sync, and a level change crossfades their volumes - so transitions are exact. Winning
-plays a fifth file, the full track, once.
+The main tune plays as a welcome when the device loads, and the pads scroll **SNAKE** as a
+banner until you start a game.
 
-Music by AlienMind. The device view credits it and links to the original track, which
-needed a small addition to the library: `openUrl()` in the bridge and `open_url` in the
+During a run the soundtrack is four loop layers, sparsest to densest, moving up one level
+every three segments. All four are the same length to the sample, start at the same moment
+and play in sync, so a level change only has to crossfade their volumes. **The crossfade is
+booked for the next bar**, because eating a fruit happens mid-bar and swapping the
+arrangement there sounds like a mistake rather than a cue. Winning plays the main tune
+again.
+
+Music by AlienMind. The device view credits it, links to the original track, and links to
+the framework - which needed a small addition to the library: `openUrl()` in the bridge and `open_url` in the
 wrapper hand a URL to the real browser via `; max launchbrowser`. A page inside `[jweb]`
 cannot open a link itself - it is a `file://` document, and a plain `<a target="_blank">`
 either does nothing or navigates the device view, replacing the UI with a web page in a

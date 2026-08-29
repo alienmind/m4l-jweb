@@ -95,6 +95,26 @@ var controlsDeviceObs: LiveAPI | null = null;
 var controlsFirstFrameTask: Task | null = null;
 var controlsDeviceObsTask: Task | null = null;
 
+/**
+ * The retry that exists because resolving on load is a RACE.
+ *
+ * A device loads when Live loads the set, and Live's own Push script initialises on its
+ * own schedule. Ask too early and `control_surfaces` is empty, or the surface is there and
+ * `get_control` answers 0 for every name - so every role comes back unresolved and the
+ * device never grabs anything. Re-adding the device by hand fixes it, because the second
+ * load happens after Push is ready. That is exactly the shape of the bug reported against
+ * this: intermittent, unrelated to any other device, and cured by a re-drag.
+ *
+ * The `control_surfaces` observer does not cover it. It fires on CHANGE, and a Push that
+ * was plugged in all along never changes - it just was not ready yet.
+ *
+ * So: if nothing resolved, ask again, a few times, and stop as soon as something does.
+ */
+var controlsRetryTask: Task | null = null;
+var controlsRetriesLeft = 0;
+var CONTROLS_RETRY_MS = 1000;
+var CONTROLS_RETRIES = 12;
+
 /** Is this build a device that declared controls at all? */
 function controlsDeclared(): boolean {
   return typeof CONTROLS_SPEC !== "undefined" && !!CONTROLS_SPEC && !!CONTROLS_SPEC.controls.length;
@@ -163,6 +183,10 @@ function setupControls(): void {
   controlsStarted = true;
   controlsReason = "";
   controlsApply();
+
+  // ...and if the answer was "nothing is there", it may simply be too early. See
+  // controlsRetryTask.
+  controlsScheduleRetry(CONTROLS_RETRIES);
 }
 
 /**
@@ -198,6 +222,8 @@ function controlsWatchSurfaces(): void {
         post("m4l-jweb: control surfaces changed - re-resolving\n");
         controlsResolve();
         controlsApply();
+        // A Push just arrived, or just left. Either way the retry's question is answered.
+        controlsScheduleRetry(CONTROLS_RETRIES);
       }
     }, "live_app");
     controlsApp.property = "control_surfaces";
@@ -451,6 +477,49 @@ function controlsHoldReason(): string {
     return controlsThisDeviceId !== 0 && controlsThisDeviceId === controlsSelectedDeviceId ? "held" : "not_focused";
   }
   return byTrack ? "held" : "not_focused";
+}
+
+/**
+ * Ask again in a second, up to `tries` times, unless something has already resolved.
+ *
+ * Cheap: `get_control_names` on a surface that is not ready costs a rejected call and a
+ * console line, and twelve of them over twelve seconds is nothing next to a device that
+ * silently never works until the user re-drags it.
+ */
+function controlsScheduleRetry(tries: number): void {
+  if (controlsRetryTask) controlsRetryTask.cancel();
+  controlsRetryTask = null;
+  if (tries <= 0) return;
+  if (controlsAnyResolved()) return;
+
+  controlsRetriesLeft = tries;
+  controlsRetryTask = new Task(controlsRetry, this);
+  controlsRetryTask.interval = CONTROLS_RETRY_MS;
+  controlsRetryTask.repeat(tries);
+}
+
+function controlsRetry(): void {
+  controlsRetriesLeft--;
+  if (controlsAnyResolved()) {
+    if (controlsRetryTask) controlsRetryTask.cancel();
+    controlsRetryTask = null;
+    return;
+  }
+  controlsResolve();
+  controlsApply();
+  if (controlsAnyResolved()) {
+    post("m4l-jweb: controls resolved on retry - Live's surface was not ready at device load\n");
+    if (controlsRetryTask) controlsRetryTask.cancel();
+    controlsRetryTask = null;
+    return;
+  }
+  if (controlsRetriesLeft <= 0) {
+    post(
+      "m4l-jweb: controls still unresolved after " +
+        CONTROLS_RETRIES +
+        " tries - plug a Push in, or delete and re-drag the device\n",
+    );
+  }
 }
 
 /** Did ANY declared role resolve? A surface with none of them is not a surface we can use. */

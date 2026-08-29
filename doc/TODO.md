@@ -26,7 +26,7 @@ because it is settled history rather than work.
 
 ---
 
-## 1. A WINDOW page cannot write a file, and the reply routing is why
+## 1. A window page cannot write a file
 
 `saveToFile()` and `fetchToFile()` work from the device view only. A window's page is an
 ordinary bridge client - its messages arrive tagged `window <id> <selector> ...` - but
@@ -53,115 +53,65 @@ cannot travel back to the device view through Max messages to be saved there.
 
 ## 2. The pads as a surface you program
 
-**Built, and not yet verified on hardware.** `defineControls` ships: `grid.draw()` and
-`grid.onPad()` in TypeScript, a `takeover` chain that puts the observer between the pads
-and the page with no `[js]` in the way, the frame diff and `send_value` in the wrapper,
-the mocked 8x8 grid in the harness, and `push-snake` built on all of it.
-
-How it fits together, and why the seams are where they are, is in
-[ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control surface you program". The
-hardware behaviour it is shaped around is in [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a
+**Built and working on hardware.** `defineControls` ships, `push-snake` runs in Live on a
+Push 3, and the checklist that could only be run with the hardware in the room has been
+run. How it fits together is in [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control
+surface you program". What was measured is in [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a
 Push control".
 
-What is left is not code:
+Three things are still open, and none of them blocks anything:
 
-### 2a. The jog wheel and the touch strip - A SPIKE, and it gates use case 2
+### 2a. The jog wheel and the touch strip - a spike
 
 Two questions. Each is one button press in `push-probe`, whose `probe_other` grabs any
-control by name and dumps the atoms its `value` carries:
+control by name, dumps 60 events and then says whether the trace looks like a delta or an
+absolute position:
 
 | # | Question | If it fails |
 |---|---|---|
 | J1 | Does `Jogwheel` emit a continuous stream under a grab - a DELTA or an absolute position? | The DJ surface dies. There is no other continuous rotary on the hardware. |
 | J2 | Does `Touch_Strip_Control` emit a continuous position, and at what resolution? | Its crossfader falls back to an encoder. Under ~64 steps it reads as stepped and is worse than the on-screen fader. |
 
-Cheap, and it gates the most visible half of `../m4l-qobuz-dj`'s stage 5. Answer it before
-anyone designs around either.
+Cheap, and it gates the most visible half of `../m4l-qobuz-dj`'s stage 5.
 
-`defineControls` already has the third shape the answer would need. `padStream({ role:
-"jogwheel" })` and `usePadStream()` hand over the raw atoms without decoding them,
-because nothing is known about what they mean.
+**It does not gate the rename, and it cannot change the API.** `padStream({ role:
+"jogwheel" })` and `usePadStream()` already exist and hand over the raw atoms without
+decoding them, because nothing is known about what they mean. The answer fills that in.
 
-### 2b. `push-snake` IN LIVE - the checklist nothing here can run
+**How to run it:** install, drop `push-probe` on a track, press **scan**, then **jog?** and
+turn the wheel steadily one way for about four seconds. Press **jog?** again to release.
+Then **touch?** and run a finger slowly up the strip. The verdict is the last few lines in
+the device's log and in the Max console.
 
-`pnpm test` proves the message contract. None of it proves the hardware, because **a
-rejected LiveAPI call reports nothing** and a grab is verified by looking at the Push or
-not at all. What to watch, in order:
+### 2b. Colour names are photographs
 
-| | Watch for |
-|---|---|
-| the roles resolve | the device view says "held", not "no matrix on the connected surface" |
-| the grid comes up at all | the wall is lit ~400 ms after `Takeovr` goes on - an immediate paint is overwritten by Live |
-| the y flip | the two turn pads are at the BOTTOM-left of the Push, not the top |
-| the turn pads steer | a turn taken one tick before the wall does not hit the wall |
-| the WIN | fill all twenty gauge cells - the border goes fully green and a green smiley blinks three times in the middle and stays lit. The only part of the game no test reaches: a snake of 20 in a 6x6 arena needs real play, and a bot greedy enough to write traps itself by segment eight |
-| the difficulty setting | Easy, Normal and Hard should all be playable at length 2 and all get hard by length 20 |
-| the pads can START it | with the game stopped both turn pads are GREEN, and either one begins a run - the only control a Push user has, since the `start` button is in a device view they are not looking at |
-| the worker clock survives a hidden page | close the device view mid-run; the snake keeps moving |
-| parameters drive it from Live's side | `running` from an encoder, `difficulty` from an automation lane |
-| a state slot outlives the set | save, close, reopen: `best` is still there |
-| audio reaches the track | Live's meters move on every blip |
-| **two instances in one set** | the second device does not steal the grid from the first, and `focus` decides which holds it |
-| **takeover off** | the device loads, shows its state, and does nothing to Push |
-
-The last two are the ones people forget, and a second device in a real set will find them
-first.
-
-### 2c. AN UNRELATED JWEB DEVICE BLOCKED THE TAKEOVER - unexplained
-
-Seen once, in a real set (2026-08-29). `push-snake` would not take the grid while
-`m4l-qobuz-dj` - a device that declares NO controls, on ANOTHER track - was loaded.
-Deleting that device and re-adding `push-snake` made the takeover work at once, and it
-has worked since.
-
-**The boring explanation is probably right, and it is not a bug.** `focus` defaults to
-`Track`, so an instance whose track is not selected is *supposed* to wait, and deleting a
-device on another track changes what Live has selected. That session also carried the NaN
-bug, which made the focus test false for every instance in every set - so the two cannot
-be told apart from that evidence.
-
-It is written down anyway, because the other possibility is serious. Two `[jweb]` devices
-contending for something in `MxDCore`'s grabbed-controls bookkeeping is exactly the kind
-of thing that is invisible from inside `[js]`, and "it started working after I deleted
-something" is how that class of bug announces itself.
-
-**The cheap test, in this order:**
-
-1. Reproduce on the CURRENT build. The NaN bug is fixed, and the console now says
-   `controls not held (<reason>)` on every decision. If the reason is `not_focused`, the
-   focus policy is doing its job and this item closes.
-2. If it says `held` and the pads are still dark, Live refused the grab. Watch the Max
-   console for a `jsliveapi:` line - that is the only report there is.
-3. Set **Focus = Always** and repeat 1-2. That takes the focus policy out of the question.
-
-Until step 1 runs on the fixed build there is nothing here to design around.
-
-### 2d. Colour NAMES are photographs
-
-`PUSH_PALETTE` ships about 23 names, read off the two palette pages through a camera at
-one white balance. Index 0 = off is measured. Nothing else is. No grey is named because
-none was identified, which is why `push-snake`'s wall is `tan`.
+`PUSH_PALETTE` ships about 23 names, read off the two palette pages through a camera at one
+white balance. Index 0 = off is measured. Nothing else is. No grey is named because none
+was identified, which is why `push-snake`'s wall is `tan`.
 
 Sampling the photographs properly - or finding a source inside Live that states the
 palette - would turn a table that is good enough to pick a readable colour into one a
 device can trust. Whether an index means the same colour on a Push 2 is wide open, and
 decides whether the table is one table or three.
 
-### 2e. `live.push` in `defineSurface` - independent, droppable
+### 2c. `live.push` in `defineSurface` - separate, droppable
 
 `live.push` configures Push's own note mode: `play_pad_map`, `play_note_colors`,
-`play_usage`, and the expressive-pad geometry. It colours **notes, not pads**, so it
-cannot address a step grid and shares nothing with the above. One box, a few attributes,
-no protocol, no risk. Ship it separately, or not at all.
+`play_usage`, and the expressive-pad geometry. It colours **notes, not pads**, so it cannot
+address a step grid and shares nothing with the above. One box, a few attributes, no
+protocol, no risk. Ship it separately, or not at all.
 
 ---
 
-## 3. THE RENAME to `m4l-patchboard`
+## 3. Rename the project to `m4l-patchboard`
 
-**The headless target shipped in 1.5.0**, which was the gate on this. `target: "headless"`
-emits only the `[js]` wrapper and the patcher - no `[jweb]`, no HTML payload, no Chromium
-- and `hello-headless` is the device that proves it. How the seam works is in
-[ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
+**Nothing blocks this any more.** The headless target was the gate, and it shipped in
+1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
+HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
+works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
+
+Everything else still open - the jog wheel spike, the colour names, `live.push`, and item 1
+below - is work on the library, not on its name. Merge 1.6.0 first, then rename.
 
 **The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
 was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its

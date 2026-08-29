@@ -60,9 +60,24 @@ const LIFE_CELLS: Cell[] = [
 ];
 const LIVES = LIFE_CELLS.length;
 
-/** The two reserved pads, in the wall, bottom-left. */
+/**
+ * The three reserved pads, in the wall, bottom-left: left, centre, right.
+ *
+ * Symmetrical on purpose - a turn either side of a boost reads as a control layout rather
+ * than two buttons that happen to be next to each other, and your thumb finds the middle
+ * one without looking.
+ */
 const TURN_CCW: Cell = [0, 0];
-const TURN_CW: Cell = [1, 0];
+const BOOST: Cell = [1, 0];
+const TURN_CW: Cell = [2, 0];
+
+/**
+ * How much faster the snake runs while the centre pad is held.
+ *
+ * Held, not toggled: it is a sprint you commit to and let go of, so the risk is real -
+ * two and a half times the current rate leaves very little time to see a wall coming.
+ */
+const BOOST_FACTOR = 2.5;
 
 /**
  * The face, in ARENA-LOCAL coordinates (0..5, mapping to the inner 6x6).
@@ -91,6 +106,51 @@ const SAD_MOUTH: Cell[] = [
   [3, 2],
   [4, 2],
 ];
+
+/**
+ * The attract banner: SNAKE, scrolling right to left while nothing is being played.
+ *
+ * A 4x5 font, because 3 columns cannot draw an N. Three-wide letters have no room for a
+ * diagonal, so N comes out as H and the word is unreadable at the one size that matters.
+ * Four columns and a blank between letters is 5 columns each, 24 for the word.
+ *
+ * Rows are written TOP DOWN here, the way you read them. `paint` flips to the grid's
+ * bottom-up y in the one place it draws them.
+ */
+const FONT: { [ch: string]: string[] } = {
+  S: [".###", "#...", ".##.", "...#", "###."],
+  N: ["#..#", "##.#", "#.##", "#..#", "#..#"],
+  A: [".##.", "#..#", "####", "#..#", "#..#"],
+  K: ["#..#", "#.#.", "##..", "#.#.", "#..#"],
+  E: ["####", "#...", "###.", "#...", "####"],
+};
+
+const BANNER_WORD = "SNAKE";
+/** Five rows of letters, sitting above the bottom row so the HUD keeps it. */
+const BANNER_TOP_Y = 6;
+const BANNER_ROWS = 5;
+/** Yellow, so it is not the green the turn pads use to mean START. */
+const BANNER_COLOUR = "yellow";
+/** One column per step. Slow enough to read a moving word, fast enough not to look stuck. */
+const BANNER_MS = 130;
+
+/**
+ * The word as a column bitmap: `BANNER_COLUMNS[i][row]` is lit or not.
+ *
+ * Built once, at module load, because it never changes - and building it here rather
+ * than in `paint` keeps the frame path free of string work.
+ */
+const BANNER_COLUMNS: boolean[][] = (() => {
+  const cols: boolean[][] = [];
+  for (const ch of BANNER_WORD) {
+    const glyph = FONT[ch];
+    for (let c = 0; c < glyph[0]!.length; c++) {
+      cols.push(glyph.map((row) => row[c] === "#"));
+    }
+    cols.push(new Array(BANNER_ROWS).fill(false)); // the gap between letters
+  }
+  return cols;
+})();
 
 /** How long one blink half-cycle lasts, and how many halves a result blinks for. */
 const BLINK_MS = 300;
@@ -124,9 +184,14 @@ let fruit: Cell = [0, 0];
 let fruitColour = FRUIT_COLOURS[0];
 let baseHz = 4;
 let timer: ReturnType<typeof setInterval> | null = null;
+/** True while the centre pad is held. Reset by anything that ends a run. */
+let boosting = false;
 let blinkOn = true;
 let blinkHalves = 0;
 let blinkTimer: ReturnType<typeof setInterval> | null = null;
+/** Where the banner has scrolled to, and the timer moving it. */
+let bannerAt = 0;
+let bannerTimer: ReturnType<typeof setInterval> | null = null;
 
 const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 const free = (c: Cell) => !snake.some((s) => same(s, c));
@@ -139,12 +204,38 @@ function placeFruit(): void {
   fruitColour = FRUIT_COLOURS[Math.floor(Math.random() * FRUIT_COLOURS.length)]!;
 }
 
+/**
+ * Scroll the banner while the device is idle.
+ *
+ * It starts off the right edge and runs until the word has left on the left, then wraps.
+ * Only the cells that change reach the hardware, so eight frames a second of a moving
+ * word costs a few `send_value` calls rather than sixty-four.
+ */
+function startBanner(): void {
+  stopBanner();
+  bannerAt = -8;
+  paint();
+  bannerTimer = setInterval(() => {
+    bannerAt++;
+    if (bannerAt > BANNER_COLUMNS.length) bannerAt = -8;
+    paint();
+  }, BANNER_MS);
+}
+
+function stopBanner(): void {
+  if (bannerTimer) clearInterval(bannerTimer);
+  bannerTimer = null;
+}
+
 /** A whole new game: three lives, a short snake, the clock running. */
 function reset(): void {
+  stopBanner();
   stopBlink();
   phase = "play";
   won = false;
   lives = LIVES;
+  // A pad held when the last run ended must not carry into this one.
+  boosting = false;
   respawn();
 }
 
@@ -169,7 +260,7 @@ function respawn(): void {
  */
 function reschedule(): void {
   if (timer) clearInterval(timer);
-  const hz = baseHz * (1 + (snake.length - 2) * 0.1);
+  const hz = baseHz * (1 + (snake.length - 2) * 0.1) * (boosting ? BOOST_FACTOR : 1);
   timer = setInterval(step, 1000 / hz);
 }
 
@@ -211,6 +302,8 @@ function crash(): void {
 function finish(win: boolean): void {
   if (timer) clearInterval(timer);
   timer = null;
+  boosting = false;
+  stopBanner();
   phase = "result";
   won = win;
   startBlink();
@@ -266,9 +359,11 @@ function paint(): void {
   const lost = LIVES - lives;
   for (let i = 0; i < LIVES; i++) f[at(LIFE_CELLS[i]!)] = i < lost ? "red" : "green";
 
-  // THE TURN PADS say what they do right now: green and both meaning START whenever
-  // there is no run, two colours and two directions while there is one.
+  // THE THREE PADS say what they do right now: all green and all meaning START whenever
+  // there is no run; two directions and a boost while there is one. The boost pad goes
+  // WHITE while it is held, so the sprint is visible on the hardware and not only felt.
   f[at(TURN_CCW)] = phase === "play" ? "ocean" : "green";
+  f[at(BOOST)] = phase === "play" ? (boosting ? "white" : "amber") : "green";
   f[at(TURN_CW)] = phase === "play" ? "sky" : "green";
 
   if (phase === "play") {
@@ -276,6 +371,16 @@ function paint(): void {
     snake.forEach((c, i) => {
       f[at(c)] = i === 0 ? "white" : "green";
     });
+  } else if (phase === "idle") {
+    // THE ATTRACT BANNER. It uses the full width, including the gauge columns - they are
+    // empty while idle, and a word that stopped at column 6 would be unreadable.
+    for (let x = 0; x < 8; x++) {
+      const col = BANNER_COLUMNS[bannerAt + x];
+      if (!col) continue;
+      for (let r = 0; r < BANNER_ROWS; r++) {
+        if (col[r]) f[at([x, BANNER_TOP_Y - r])] = BANNER_COLOUR;
+      }
+    }
   } else if (phase === "result" && blinkOn) {
     // The face sits in the inner 6x6, so the HUD around it stays readable while it
     // blinks: the full gauge on a win, the three red hearts on a loss.
@@ -288,15 +393,15 @@ function paint(): void {
 }
 
 /**
- * Paint once at load, before anything has been started.
+ * Start scrolling at load, before anything has been played.
  *
- * Without it the first frame only arrives when the game does, so a device that has
- * just been dropped on a track shows sixty-four dark pads - on the Push AND in the
- * device view - and the two turn pads, which are the only clue about how to play,
- * are invisible until you have already worked out how to play. The board is drawn
- * from the start; only the snake waits for `running`.
+ * This paints the first frame as well as beginning the banner, which matters: without a
+ * frame at load, a device just dropped on a track shows sixty-four dark pads - on the Push
+ * AND in the device view - and the two turn pads, the only clue about how to play, are
+ * invisible until you already know. The board is drawn from the start. Only the snake
+ * waits for `running`.
  */
-paint();
+startBanner();
 
 self.onmessage = (e: MessageEvent) => {
   const [type, arg] = e.data as [string, number];
@@ -309,13 +414,26 @@ self.onmessage = (e: MessageEvent) => {
     phase = "idle";
     if (timer) clearInterval(timer);
     timer = null;
+    boosting = false;
     snake = [];
     lives = LIVES;
-    paint();
+    // Back to the attract loop, so a stopped device is never a dark grid.
+    startBanner();
   }
   // arg is +1 clockwise, -1 anticlockwise. Only a running game turns.
   else if (type === "turn") {
     if (phase === "play") dir = (dir + arg + 4) % 4;
+  } else if (type === "boost") {
+    // Rescheduled immediately, both ways: waiting for the next tick to speed up would
+    // make the pad feel late, and waiting to slow down would spend a segment at a rate
+    // nobody asked for any more.
+    const next = arg === 1;
+    if (next === boosting) return;
+    boosting = next;
+    if (phase === "play") {
+      reschedule();
+      paint();
+    }
   } else if (type === "speed") {
     baseHz = arg;
     if (phase === "play") reschedule();

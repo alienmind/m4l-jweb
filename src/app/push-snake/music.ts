@@ -8,9 +8,10 @@
  * segments, staying on 4 once it gets there. All four are 18.823537 s at 22.05 kHz -
  * the same length to the sample, which is what the sync below needs.
  *
- * `win.ogg` is not a fifth layer and could not be one: 88.2 s at 48 kHz, a different
- * piece rather than a denser mix of the same one. It plays once, on its own bus, when
- * the gauge fills.
+ * `theme.ogg` is the main tune - 88.2 s at 48 kHz. It is not a fifth layer and could not
+ * be one: a different length cannot share the layers' clock, and it is a different piece
+ * rather than a denser mix of the same one. It plays once, on its own bus, twice in a
+ * session: as a welcome when the device loads, and again when the gauge fills.
  *
  * ------------------------------------------------------------------------------
  * ALL FOUR PLAY AT ONCE, IN SYNC, AND ONLY ONE IS AUDIBLE.
@@ -63,18 +64,37 @@ import level1 from "./music/level-1.ogg";
 import level2 from "./music/level-2.ogg";
 import level3 from "./music/level-3.ogg";
 import level4 from "./music/level-4.ogg";
-import winTrack from "./music/win.ogg";
+import themeTrack from "./music/theme.ogg";
 
 const TRACKS = [level1, level2, level3, level4];
 
 /** How many tension levels there are. Level 0 is the sparsest mix. */
 export const MUSIC_LEVELS = TRACKS.length;
 
-/** One speed step per segment eaten, one music step per TWO of those. */
-const SEGMENTS_PER_LEVEL = 2;
+/**
+ * How many segments the snake gains before the arrangement moves up.
+ *
+ * Three, not two: at two, the full mix arrived at segment 8 of 20 and the first three
+ * layers were each heard for about fifteen seconds. Three gives every layer a real turn
+ * and puts the densest mix at segment 11.
+ */
+const SEGMENTS_PER_LEVEL = 3;
 
 /** How long a level change takes. Long enough not to click, short enough to feel like a cue. */
 const CROSSFADE_S = 0.25;
+
+/**
+ * How many bars one loop is, which is what makes a level change land ON a bar.
+ *
+ * The layers are 18.823537 s. Eight bars of 4/4 in that time is 102.0000 BPM exactly - to
+ * four decimal places, which is not a coincidence - so a bar is 2.352942 s. Nothing reads
+ * the tempo from the file; this constant is the whole assumption, and it is the one line
+ * to change if the tune is ever re-cut at a different length or metre.
+ *
+ * Getting it wrong is not fatal. Eight when the truth is four means changes land on
+ * half-bars, which is still musical. It is only mid-bar changes that sound like a mistake.
+ */
+const BARS_PER_LOOP = 8;
 /** The fade in at the start of a run and out at the end of one. */
 const FADE_IN_S = 0.4;
 const FADE_OUT_S = 0.6;
@@ -94,6 +114,13 @@ export interface MusicPlayer {
   /** Decode (once) and start all four loops in sync, fading the current level in. */
   start(): Promise<void>;
   /**
+   * Play the main tune once - the welcome on load, and again on a win.
+   *
+   * It stops the loops first. Nothing waits for a decode: if the theme is not there the
+   * device is simply quiet.
+   */
+  playTheme(): void;
+  /**
    * Stop the loops and play the full track once, for a win.
    *
    * It is NOT a fifth layer and cannot be one: it is 88.2 s at 48 kHz where the four
@@ -101,7 +128,7 @@ export interface MusicPlayer {
    * different piece, so it is not a denser mix of them. It is the whole arrangement, and
    * the one moment in a run that deserves the whole arrangement is filling the gauge.
    */
-  playWin(): void;
+
   /** Fade out and release the sources. `start()` may be called again afterwards. */
   stop(): void;
   /** 0 .. MUSIC_LEVELS-1. Crossfades; out of range is clamped. */
@@ -143,13 +170,13 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
   master.gain.value = 0;
   master.connect(ctx.destination);
 
-  // The win track has its own bus, so it can come up while the loops go down without
-  // the two fighting over one gain.
-  const winBus = ctx.createGain();
-  winBus.gain.value = 0;
-  winBus.connect(ctx.destination);
-  let winBuffer: AudioBuffer | null = null;
-  let winSource: AudioBufferSourceNode | null = null;
+  // The theme has its own bus, so it can come up while the loops go down without the two
+  // fighting over one gain.
+  const themeBus = ctx.createGain();
+  themeBus.gain.value = 0;
+  themeBus.connect(ctx.destination);
+  let themeBuffer: AudioBuffer | null = null;
+  let themeSource: AudioBufferSourceNode | null = null;
 
   let buffers: (AudioBuffer | null)[] = [];
   let sources: (AudioBufferSourceNode | null)[] = [];
@@ -158,6 +185,9 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
   let level = 0;
   let volume = 0.5;
   let playing = false;
+  /** When the loops started, and how long one is - the two numbers a bar boundary needs. */
+  let loopStart = 0;
+  let loopSeconds = 0;
 
   async function decodeAll(): Promise<void> {
     buffers = await Promise.all(
@@ -175,10 +205,10 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
     );
 
     try {
-      winBuffer = await ctx.decodeAudioData(await fetchBytes(winTrack));
+      themeBuffer = await ctx.decodeAudioData(await fetchBytes(themeTrack));
     } catch {
-      console.info("[push-snake] the win track is not a decodable audio file - a win will be silent");
-      winBuffer = null;
+      console.info("[push-snake] the theme is not a decodable audio file - the welcome and the win will be silent");
+      themeBuffer = null;
     }
 
     const lengths = buffers.filter((b): b is AudioBuffer => !!b).map((b) => b.duration.toFixed(3));
@@ -204,13 +234,13 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
   /** The gain one layer should sit at right now: `volume` if it is the level, 0 otherwise. */
   const target = (i: number) => (i === level ? 1 : 0);
 
-  function stopWin(fade = 0) {
+  function stopTheme(fade = 0) {
     const at = ctx.currentTime;
-    winBus.gain.cancelScheduledValues(at);
-    winBus.gain.setValueAtTime(winBus.gain.value, at);
-    winBus.gain.linearRampToValueAtTime(0, at + Math.max(0.01, fade));
-    const held = winSource;
-    winSource = null;
+    themeBus.gain.cancelScheduledValues(at);
+    themeBus.gain.setValueAtTime(themeBus.gain.value, at);
+    themeBus.gain.linearRampToValueAtTime(0, at + Math.max(0.01, fade));
+    const held = themeSource;
+    themeSource = null;
     if (!held) return;
     window.setTimeout(
       () => {
@@ -224,11 +254,31 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
     );
   }
 
+  /**
+   * The next bar line, in AudioContext time.
+   *
+   * This is why a level change does not interrupt the music. Web Audio parameter
+   * automation is scheduled, not immediate: a ramp can be told to start at a time in the
+   * future and it lands there sample-accurately. So the crossfade is booked for the next
+   * bar rather than run now, and the arrangement changes on the beat.
+   *
+   * Falls back to "now" before the loops are running, when there is no grid to snap to.
+   */
+  function nextBar(): number {
+    const now = ctx.currentTime;
+    if (!loopSeconds || !playing) return now;
+    const bar = loopSeconds / BARS_PER_LOOP;
+    const elapsed = Math.max(0, now - loopStart);
+    // A hair of lead-in, so a change asked for a millisecond before a bar line does not
+    // land on the one after it.
+    return loopStart + Math.ceil((elapsed + 0.005) / bar) * bar;
+  }
+
   return {
     async start() {
-      // A new game silences a win still playing out. It is 88 s long, and the second run
-      // would otherwise start under the end of the first one's victory music.
-      stopWin(FADE_OUT_S);
+      // A new game silences the theme, whether it is the welcome or a win still playing
+      // out. It is 88 s long, so without this the run would start under it.
+      stopTheme(FADE_OUT_S);
       if (playing) return;
       playing = true;
       // A page that has never had a user gesture starts its context suspended, and a
@@ -240,6 +290,8 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
 
       stopSources();
       const at = ctx.currentTime;
+      loopStart = at;
+      loopSeconds = buffers.find((b): b is AudioBuffer => !!b)?.duration ?? 0;
       buffers.forEach((buf, i) => {
         if (!buf) {
           sources[i] = null;
@@ -263,20 +315,24 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
       master.gain.linearRampToValueAtTime(volume, at + FADE_IN_S);
     },
 
-    playWin() {
-      // The loops go down, the whole track comes up, and nothing waits for a decode: if
-      // the win buffer is not there the run simply ends quietly.
+    playTheme() {
+      // The loops go down and the whole tune comes up. Nothing waits for a decode: if the
+      // theme is not there, this is silence rather than an error.
       this.stop();
-      if (!winBuffer) return;
-      const at = ctx.currentTime;
-      const src = ctx.createBufferSource();
-      src.buffer = winBuffer;
-      src.connect(winBus);
-      src.start(at);
-      winSource = src;
-      winBus.gain.cancelScheduledValues(at);
-      winBus.gain.setValueAtTime(0, at);
-      winBus.gain.linearRampToValueAtTime(volume, at + FADE_IN_S);
+      stopTheme();
+      decoding ??= decodeAll();
+      void decoding.then(() => {
+        if (!themeBuffer || playing) return; // a game started while it decoded
+        const at = ctx.currentTime;
+        const src = ctx.createBufferSource();
+        src.buffer = themeBuffer;
+        src.connect(themeBus);
+        src.start(at);
+        themeSource = src;
+        themeBus.gain.cancelScheduledValues(at);
+        themeBus.gain.setValueAtTime(0, at);
+        themeBus.gain.linearRampToValueAtTime(volume, at + FADE_IN_S);
+      });
     },
 
     stop() {
@@ -308,9 +364,16 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
       const clamped = Math.max(0, Math.min(MUSIC_LEVELS - 1, Math.round(next)));
       if (clamped === level) return;
       level = clamped;
-      const at = ctx.currentTime;
+
+      // BOOKED FOR THE NEXT BAR, not run now. Eating a fruit happens whenever the snake
+      // gets there, which is mid-bar most of the time, and swapping the arrangement
+      // underneath the music at that moment sounds like a mistake rather than a cue.
+      const now = ctx.currentTime;
+      const at = nextBar();
       gains.forEach((g, i) => {
-        g.gain.cancelScheduledValues(at);
+        g.gain.cancelScheduledValues(now);
+        // Hold what it is now, all the way to the bar line, then cross.
+        g.gain.setValueAtTime(g.gain.value, now);
         g.gain.setValueAtTime(g.gain.value, at);
         g.gain.linearRampToValueAtTime(target(i), at + CROSSFADE_S);
       });
@@ -319,10 +382,10 @@ export function createMusic(ctx: AudioContext): MusicPlayer {
     setVolume(v) {
       volume = Math.max(0, Math.min(1, v));
       const now = ctx.currentTime;
-      if (winSource) {
-        winBus.gain.cancelScheduledValues(now);
-        winBus.gain.setValueAtTime(winBus.gain.value, now);
-        winBus.gain.linearRampToValueAtTime(volume, now + 0.05);
+      if (themeSource) {
+        themeBus.gain.cancelScheduledValues(now);
+        themeBus.gain.setValueAtTime(themeBus.gain.value, now);
+        themeBus.gain.linearRampToValueAtTime(volume, now + 0.05);
       }
       if (!playing) return;
       const at = ctx.currentTime;

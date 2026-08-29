@@ -321,6 +321,8 @@ var probeMatrixId = 0;
 var probeValueObs: LiveAPI | null = null;
 /** The observer for whatever probe_other last grabbed. */
 var probeOtherObs: LiveAPI | null = null;
+/** The first atom of each event probe_other saw, for the delta-or-absolute verdict. */
+var probeOtherValues: number[] = [];
 /** How many more raw callback payloads to dump. Bounded so a held pad cannot flood. */
 var probeRawLeft = 0;
 /** The deferred first frame after a grab - see probe_grab. */
@@ -608,7 +610,13 @@ function probe_other(name: unknown, hold: unknown): void {
     return;
   }
   probeSurface!.call("grab_control", control);
-  probeRawLeft = 16;
+  // FAR MORE THAN THE MATRIX NEEDS, because the question here is different. A pad is
+  // answered by four events - press, release, and their coordinates. A JOG WHEEL is
+  // answered only by a TRACE: whether the numbers repeat around zero (a delta) or climb
+  // (an absolute position) cannot be read off sixteen events that go past in half a
+  // second. Sixty is about four seconds of slow turning.
+  probeRawLeft = 60;
+  probeOtherValues = [];
   probeOtherObs = null;
   try {
     probeOtherObs = new LiveAPI(function (a: unknown[]) {
@@ -617,12 +625,64 @@ function probe_other(name: unknown, hold: unknown): void {
       var raw = control + " cb: " + a.length + " atoms";
       for (var k = 0; k < a.length; k++) raw += " [" + k + "]=" + String(a[k]);
       probeLog(raw);
+      // Keep the first atom of each event, so the verdict below can be computed rather
+      // than eyeballed off forty console lines.
+      if (a.length >= 2) probeOtherValues.push(Number(a[1]));
+      if (probeRawLeft === 0) probeOtherVerdict(control);
     }, "id " + id);
     probeOtherObs.property = "value";
-    probeLog("observing " + control + " - press and SLIDE on the pads now");
+    probeLog("observing " + control + " - now MOVE it: turn the wheel, or run a finger up the strip");
   } catch (e) {
     probeLog("cannot observe " + control + " - " + (e as Error).message);
   }
+}
+
+/**
+ * Say whether the trace looks like a DELTA or an ABSOLUTE POSITION.
+ *
+ * This is J1 and J2 from doc/TODO.md item 2a, and the answer decides whether the DJ
+ * surface in PUSH-USECASES.md can be built at all. It is computed rather than eyeballed,
+ * because forty console lines of numbers are exactly the kind of thing a person reads what
+ * they expected into.
+ *
+ * The test is simple and hard to fool. A DELTA repeats a small alphabet - typically 1 and
+ * -1, or 127 and 1 as two's-complement - no matter how far you turn, and its values do not
+ * trend. An ABSOLUTE position sweeps a range and mostly moves one way while you do.
+ */
+function probeOtherVerdict(control: string): void {
+  var n = probeOtherValues.length;
+  if (n < 8) {
+    probeLog(control + ": only " + n + " events - not enough to tell delta from absolute");
+    return;
+  }
+
+  var lo = probeOtherValues[0];
+  var hi = probeOtherValues[0];
+  var distinct: { [v: string]: boolean } = {};
+  var rising = 0;
+  var falling = 0;
+  for (var i = 0; i < n; i++) {
+    var v = probeOtherValues[i];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+    distinct[String(v)] = true;
+    if (i > 0) {
+      if (v > probeOtherValues[i - 1]) rising++;
+      else if (v < probeOtherValues[i - 1]) falling++;
+    }
+  }
+  var kinds = 0;
+  for (var key in distinct) if (distinct.hasOwnProperty(key)) kinds++;
+
+  probeLog(control + ": " + n + " events, range " + lo + ".." + hi + ", " + kinds + " distinct values, " + rising + " up / " + falling + " down");
+  if (kinds <= 4) {
+    probeLog(control + ": looks like a DELTA - it only ever reports " + kinds + " values, so it says CHANGE, not position");
+  } else if (kinds > n / 3) {
+    probeLog(control + ": looks like an ABSOLUTE POSITION - " + kinds + " distinct values over a range of " + (hi - lo));
+  } else {
+    probeLog(control + ": inconclusive - turn it further in ONE direction and press the button again");
+  }
+  probeLog(control + ": resolution is the range above; under ~64 steps a crossfader reads as stepped");
 }
 
 /**

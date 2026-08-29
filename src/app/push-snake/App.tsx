@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { Frame } from "../shared/Frame";
 import { useDevice } from "../shared/device";
 import { openUrl } from "@m4l-jweb/bridge";
+import { Help } from "./Help";
 import { PALETTE_CSS, type PadColour } from "@m4l-jweb/surface";
 import { useParam, usePadGrid, usePadsHeld, usePadsReason, useStateSync } from "@m4l-jweb/surface/react";
 import GameWorker from "./worker.ts?worker&inline";
@@ -53,9 +54,18 @@ const DIFFICULTY_HZ: Record<string, number> = { Easy: 2.5, Normal: 4, Hard: 6 };
  */
 const MUSIC_URL = "https://soundcloud.com/alienmindzzz/next-wave-nextpoint-ost";
 
-/** The two reserved pads, IN the wall, bottom-left - so they cost no playable cell. */
+/** ...and what the device is built with. */
+const FRAMEWORK_URL = "https://github.com/alienmind/m4l-jweb";
+
+/**
+ * The three reserved pads, IN the wall, bottom-left - so they cost no playable cell.
+ *
+ * Left turns, centre boosts, right turns. Symmetrical, so it reads as a control layout
+ * rather than two buttons that happen to be adjacent.
+ */
 const TURN_CCW = { x: 0, y: 0 };
-const TURN_CW = { x: 1, y: 0 };
+const BOOST = { x: 1, y: 0 };
+const TURN_CW = { x: 2, y: 0 };
 
 /**
  * The on-screen pad, in px.
@@ -69,6 +79,9 @@ const PAD = 12;
 const GAP = 2;
 
 const css = (name: string) => PALETTE_CSS[name as PadColour] ?? PALETTE_CSS.black;
+
+/** Both credits look like links, and neither is one - see the note at the first use. */
+const LINK: React.CSSProperties = { color: "var(--accent)", cursor: "pointer", textDecoration: "underline" };
 
 export default function App() {
   const device = useDevice();
@@ -86,6 +99,7 @@ export default function App() {
   const [lives, setLives] = useState(3);
   /** null while a run is in progress or has never happened; true/false is a finished one. */
   const [outcome, setOutcome] = useState<boolean | null>(null);
+  const [helping, setHelping] = useState(false);
   /** The last frame, in the WORKER's orientation: index `y * 8 + x`, y bottom-up. */
   const [frame, setFrame] = useState<string[]>([]);
 
@@ -145,19 +159,31 @@ export default function App() {
   runningRef.current = running;
 
   /**
-   * A turn pad, from the hardware or from the screen.
+   * One of the three pads, from the hardware or from the screen. `down` is press or
+   * release, and the boost needs both.
    *
-   * WHILE STOPPED IT STARTS, and that is the whole point: a Push user is looking at
-   * the Push, and the `start` button lives in a device view on a laptop behind them.
-   * The two pads are the only control this device has on the hardware, so they have to
-   * be enough to play it - press one to begin, press them to steer, press one again
-   * after a crash. It does not also turn: a fresh snake is pointed up by definition,
-   * so a turn before the first tick would mean nothing and read as a lost press.
+   * WHILE STOPPED ANY OF THEM STARTS, and that is the whole point: a Push user is looking
+   * at the Push, and the `start` button lives in a device view on a laptop behind them.
+   * These three pads are the only control this device has on the hardware, so they have to
+   * be enough to play it - press to begin, steer, sprint, press again after a crash.
+   *
+   * A press that starts a run does not also turn. A fresh snake is pointed up by
+   * definition, so a turn before the first tick would mean nothing and read as a lost
+   * press.
    */
-  const press = (x: number, y: number) => {
+  const press = (x: number, y: number, down: boolean) => {
     const ccw = x === TURN_CCW.x && y === TURN_CCW.y;
+    const boost = x === BOOST.x && y === BOOST.y;
     const cw = x === TURN_CW.x && y === TURN_CW.y;
-    if (!ccw && !cw) return;
+    if (!ccw && !boost && !cw) return;
+
+    // A RELEASE only ever ends a boost. Letting go of a turn pad means nothing, and
+    // letting go of anything at all while stopped means nothing.
+    if (!down) {
+      if (boost) worker.current?.postMessage(["boost", 0]);
+      return;
+    }
+
     if (!runningRef.current) {
       // A press after a result is a NEW GAME: the face on the grid is the only thing
       // still showing, and clearing it here keeps the device view in step with it.
@@ -166,6 +192,7 @@ export default function App() {
       setLength(2);
       return setRunning(true);
     }
+    if (boost) return void worker.current?.postMessage(["boost", 1]);
     turn(ccw ? -1 : +1);
   };
 
@@ -205,7 +232,9 @@ export default function App() {
         setOutcome(win);
         // A win gets the whole track. A loss gets silence - a loop still running under a
         // dead snake reads as a device that has not noticed.
-        if (win) music.current?.playWin();
+        // A win gets the main tune. A loss gets silence - a loop still running under a
+        // dead snake reads as a device that has not noticed.
+        if (win) music.current?.playTheme();
         else music.current?.stop();
         if (win) blip(880, 500, "triangle");
         else blip(70, 700, "sawtooth");
@@ -215,6 +244,14 @@ export default function App() {
       }
     };
     worker.current = w;
+
+    // THE WELCOME. The main tune plays once when the device loads, before anything is
+    // started - so dropping this on a track introduces itself rather than sitting silent.
+    // Starting a game fades it out.
+    const player = (music.current ??= createMusic(ensureAudio()));
+    player.setVolume(musicGain());
+    player.playTheme();
+
     return () => w.terminate();
     // Bound once, on purpose - see the refs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -248,7 +285,8 @@ export default function App() {
   }, [difficulty]);
 
   // TWO pads, and only on the way down. Everything else on the grid is inert.
-  useEffect(() => pads.onPad((e) => e.down && press(e.x, e.y)), [pads]);
+  // Press AND release: the boost is held, so a release is as much of an event as a press.
+  useEffect(() => pads.onPad((e) => press(e.x, e.y, e.down)), [pads]);
 
   /**
    * Arrow keys, for playing with no Push.
@@ -259,20 +297,42 @@ export default function App() {
    * `preventDefault` keeps the arrows from scrolling the embedded page.
    */
   useEffect(() => {
+    const padFor = (key: string) => (key === "ArrowLeft" ? TURN_CCW : key === "ArrowRight" ? TURN_CW : key === "ArrowUp" ? BOOST : null);
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const pad = padFor(e.key);
+      if (!pad) return;
       e.preventDefault();
+      // `repeat` is the held-key autorepeat. Without this guard a held Up would send a
+      // boost message twenty times a second, and each one reschedules the game clock.
+      if (e.repeat) return;
       // Through `press`, so a key does exactly what the pad above it does - including
       // starting a stopped game.
-      press(e.key === "ArrowLeft" ? TURN_CCW.x : TURN_CW.x, 0);
+      press(pad.x, pad.y, true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const pad = padFor(e.key);
+      if (pad) press(pad.x, pad.y, false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, []);
 
   return (
     <Frame title="Snake" device={device}>
-      <dd style={{ gridColumn: "1 / -1", display: "flex", gap: 10, alignItems: "flex-start" }}>
+      {/* Not a declared window() and not an overlay - see Help.tsx. It REPLACES the game
+          in the layout, because the device view is a fixed 169 px and there is no room
+          for both. */}
+      {helping && (
+        <dd style={{ gridColumn: "1 / -1" }}>
+          <Help onClose={() => setHelping(false)} />
+        </dd>
+      )}
+      <dd style={{ gridColumn: "1 / -1", display: helping ? "none" : "flex", gap: 10, alignItems: "flex-start" }}>
         <div
           style={{
             display: "grid",
@@ -288,12 +348,25 @@ export default function App() {
           {Array.from({ length: 64 }, (_, i) => {
             const x = i % 8;
             const y = 7 - Math.floor(i / 8);
-            const isTurn = (x === TURN_CCW.x || x === TURN_CW.x) && y === 0;
+            const isPad = y === 0 && (x === TURN_CCW.x || x === BOOST.x || x === TURN_CW.x);
             return (
               <button
                 key={i}
-                title={isTurn ? (running ? (x === TURN_CCW.x ? "turn anticlockwise" : "turn clockwise") : "start") : `x ${x} y ${y}`}
-                onClick={isTurn ? () => press(x, y) : undefined}
+                title={
+                  isPad
+                    ? running
+                      ? x === TURN_CCW.x
+                        ? "turn anticlockwise"
+                        : x === BOOST.x
+                          ? "hold to sprint"
+                          : "turn clockwise"
+                      : "start"
+                    : `x ${x} y ${y}`
+                }
+                // Down and up, not click: the middle pad is held, so the release matters.
+                onMouseDown={isPad ? () => press(x, y, true) : undefined}
+                onMouseUp={isPad ? () => press(x, y, false) : undefined}
+                onMouseLeave={isPad ? () => press(x, y, false) : undefined}
                 style={{
                   width: PAD,
                   height: PAD,
@@ -302,7 +375,7 @@ export default function App() {
                   borderRadius: 2,
                   background: css(frame[y * 8 + x] ?? "black"),
                   // Only the two turn pads do anything, here as on the hardware.
-                  cursor: isTurn ? "pointer" : "default",
+                  cursor: isPad ? "pointer" : "default",
                 }}
               />
             );
@@ -312,6 +385,9 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <div className="row" style={{ gap: 8, justifyContent: "flex-start" }}>
             <button onClick={() => setRunning(!running)}>{running ? "stop" : "start"}</button>
+            <button onClick={() => setHelping(true)} title="how to play">
+              ?
+            </button>
             <span>
               {/* The same three numbers the border ring is showing, for whoever is
                   looking at the screen instead of the Push. */}
@@ -329,7 +405,29 @@ export default function App() {
           <div style={{ color: "var(--muted)", fontSize: 9 }}>
             {/* The two turn pads are the bottom-left CORNER of the grid above, and of
                 the Push. If they are drawn at the top, the y flip is wrong. */}
-            {running ? "turn" : "start"}: the two lit pads bottom-left, or <kbd>&larr;</kbd> <kbd>&rarr;</kbd>
+            {running ? (
+              <>
+                turn <kbd>&larr;</kbd> <kbd>&rarr;</kbd> · hold <kbd>&uarr;</kbd> to sprint
+              </>
+            ) : (
+              <>
+                start: any of the three lit pads bottom-left, or <kbd>&larr;</kbd> <kbd>&uarr;</kbd> <kbd>&rarr;</kbd>
+              </>
+            )}
+          </div>
+
+          <div style={{ fontSize: 9, color: "var(--muted)" }}>
+            Developed with{" "}
+            <span
+              role="link"
+              tabIndex={0}
+              onClick={() => openUrl(FRAMEWORK_URL)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openUrl(FRAMEWORK_URL)}
+              style={LINK}
+              title={FRAMEWORK_URL}
+            >
+              m4l-jweb
+            </span>
           </div>
 
           <div style={{ fontSize: 9, color: "var(--muted)" }}>
@@ -343,7 +441,7 @@ export default function App() {
               tabIndex={0}
               onClick={() => openUrl(MUSIC_URL)}
               onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openUrl(MUSIC_URL)}
-              style={{ color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}
+              style={LINK}
               title={MUSIC_URL}
             >
               hear the original track
