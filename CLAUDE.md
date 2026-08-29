@@ -228,6 +228,31 @@ The same goes for sentences. Prefer "Claiming the matrix takes the pads off the 
 path" over "The one constraint every use case here is shaped by is that claiming the
 matrix takes the pads off the note path." Start with the subject.
 
+### No riddles
+
+**A title is not a puzzle to be solved by reading the section.** This repo wrote a whole
+CHANGELOG that way, and a reader could not tell from any release name what was in it:
+
+| Was | Means | Should have said |
+|---|---|---|
+| "a release can carry docs" | a maintenance release | "maintenance" |
+| "a rendered file goes straight into a Live clip" | you can now bounce audio into a clip slot | "put a rendered file straight into a Live clip" |
+| "two dials that were not what they seemed" | two bug fixes about parameter ranges | "where files went, and two dials that were not what they seemed" |
+| "declarations that persist" | windows and saved state | "declarations that persist, and samples" |
+
+Rules:
+
+- **Say what the thing IS before you say anything clever about it.** A release note opens
+  with what the release is FOR, in one line, in the words a user would use. "Two features
+  and one example" beats any metaphor.
+- **A maintenance release says "maintenance".** Do not dress up a version bump.
+- **Name the feature, not the insight behind it.** The reader wants "you can now program
+  the Push's 64 pads", not "the pads as a surface you program".
+- **No teasing.** Nothing that only makes sense after the reader has read the thing it is
+  labelling.
+
+This applies to release names, headings, the first sentence of a section, and PR titles.
+
 **Keep every technical word that is a name.** `parameter_enable`, `[live.observer]`,
 `decodeAudioData`, `canonical_parent` and `ctx.appIn` are not jargon to be simplified -
 they are what the thing is called, and a reader who cannot search for them cannot use
