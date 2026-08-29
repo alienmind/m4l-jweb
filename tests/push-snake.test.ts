@@ -70,8 +70,8 @@ test("the board is drawn at LOAD, before anything is started", () => {
   // turn pads - the only clue about how to play - are invisible until you already know.
   expect(frames.length).toBe(1);
   const f = frame();
-  expect(f[at(0, 0)]).toBe("green"); // both turn pads mean START
-  expect(f[at(1, 0)]).toBe("green");
+  // All three pads mean START while there is no run.
+  expect([f[at(0, 0)], f[at(1, 0)], f[at(2, 0)]]).toEqual(["green", "green", "green"]);
   expect(f[at(3, 0)]).toBe("tan"); // the rest of the bottom row is wall
   expect(f[at(3, 3)]).toBe("black"); // the arena is empty
 });
@@ -94,8 +94,10 @@ test("the gauge fills from the BOTTOM-LEFT, upwards", () => {
   expect(f[at(0, 1)]).toBe("green");
   expect(f[at(0, 2)]).toBe("green");
   expect(f[at(0, 3)]).toBe("tan");
-  expect(f[at(0, 0)]).toBe("ocean"); // ...and the turn pads are two directions now
-  expect(f[at(1, 0)]).toBe("sky");
+  // ...and the three pads are now left, sprint, right.
+  expect(f[at(0, 0)]).toBe("ocean");
+  expect(f[at(1, 0)]).toBe("amber");
+  expect(f[at(2, 0)]).toBe("sky");
 });
 
 test("a crash spends the RIGHTMOST heart first, and the run continues", () => {
@@ -174,26 +176,49 @@ test("a stopped game clears the board, and the turn pads go back to meaning STAR
   send("start");
   send("stop");
   const f = frame();
-  expect(f[at(0, 0)]).toBe("green");
-  expect(f[at(1, 0)]).toBe("green");
+  expect([f[at(0, 0)], f[at(1, 0)], f[at(2, 0)]]).toEqual(["green", "green", "green"]);
   expect(f[at(0, 1)]).toBe("tan"); // gauge empty
   expect(f[at(3, 3)]).toBe("black"); // arena empty
+});
+
+test("the idle grid scrolls SNAKE, and a run replaces it with the game", () => {
+  // The banner starts off the right edge, so the first frame is a clean board - which is
+  // also what the two tests above rely on.
+  expect(frame().some((c) => c === "yellow")).toBe(false);
+
+  // Eight steps in, the S is on the grid.
+  vi.advanceTimersByTime(130 * 9);
+  const lit = frame().filter((c) => c === "yellow").length;
+  expect(lit).toBeGreaterThan(0);
+  // ...in the five rows above the HUD, never in the bottom row, which is the controls
+  // and the lives.
+  for (let x = 0; x < 8; x++) expect(frame()[at(x, 0)]).not.toBe("yellow");
+
+  // Starting a game takes the grid back.
+  send("start");
+  expect(frame().some((c) => c === "yellow")).toBe(false);
+  expect(frame()[at(3, 3)]).toBe("white");
+
+  // ...and it does not come back mid-run.
+  vi.advanceTimersByTime(130 * 4);
+  expect(frame().some((c) => c === "yellow")).toBe(false);
 });
 
 /* ------------------------------------------------------------------ *
  * The soundtrack's tension level
  * ------------------------------------------------------------------ */
 
-test("the arrangement climbs one level per TWO segments, and stays on the full mix", () => {
-  // One speed increase per segment eaten, one music step per two of those - and then
-  // it holds, because there is no fifth mix and a game that ran out of music at
-  // segment nine would go quiet for the eleven that matter most.
+test("the arrangement climbs one level per THREE segments, and holds on the densest", () => {
+  // Three, not two: at two the densest mix arrived at segment 8 of 20 and each of the
+  // first three layers was heard for about fifteen seconds. And it holds at the top,
+  // because there is no fifth layer - a game that ran out of music at segment 11 would
+  // go quiet for the nine that matter most.
   expect(musicLevelFor(2)).toBe(0);
-  expect(musicLevelFor(3)).toBe(0);
-  expect(musicLevelFor(4)).toBe(1);
+  expect(musicLevelFor(4)).toBe(0);
   expect(musicLevelFor(5)).toBe(1);
-  expect(musicLevelFor(6)).toBe(2);
-  expect(musicLevelFor(8)).toBe(MUSIC_LEVELS - 1);
+  expect(musicLevelFor(7)).toBe(1);
+  expect(musicLevelFor(8)).toBe(2);
+  expect(musicLevelFor(11)).toBe(MUSIC_LEVELS - 1);
   expect(musicLevelFor(20)).toBe(MUSIC_LEVELS - 1);
 });
 
@@ -202,4 +227,34 @@ test("...and a crash drops it back down, because the game really is slow again",
   // the snake back to two segments, and the full mix under a two-segment snake reads as
   // a device that has lost track of what is happening.
   expect(musicLevelFor(2)).toBe(0);
+});
+
+/* ------------------------------------------------------------------ *
+ * The sprint pad
+ * ------------------------------------------------------------------ */
+
+test("holding the centre pad speeds the snake up, and releasing it puts it back", () => {
+  send("start");
+  // Normal: 4 Hz at length 2, so a crash is four ticks away - see TICKS_PER_LIFE.
+  send("boost", 1);
+  expect(frame()[at(1, 0)]).toBe("white"); // held, and visible on the hardware
+
+  // 2.5x means the same four steps take 400 ms rather than 1000.
+  vi.advanceTimersByTime(400);
+  expect(msgs.map((m) => m[0])).toContain("hurt");
+
+  send("boost", 0);
+  expect(frame()[at(1, 0)]).toBe("amber");
+});
+
+test("a sprint does not survive the run that was using it", () => {
+  // A pad held when the last life goes would otherwise carry into the next game, which
+  // starts at two and a half times the rate nobody asked for.
+  send("start");
+  send("boost", 1);
+  advanceOneLife();
+  advanceOneLife();
+  advanceOneLife();
+  send("start");
+  expect(frame()[at(1, 0)]).toBe("amber");
 });

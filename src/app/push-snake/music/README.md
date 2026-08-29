@@ -17,10 +17,10 @@ ffmpeg -i "<source>.wav" -c:a libvorbis -q:a 4 <name>.ogg
 
 | File | Arrangement | Heard while the snake is | Size |
 |---|---|---|---|
-| `level-1.ogg` | sparsest | 2-3 segments | 150 KB |
-| `level-2.ogg` | more instruments | 4-5 | 166 KB |
-| `level-3.ogg` | more again | 6-7 | 167 KB |
-| `level-4.ogg` | densest | 8 or longer | 159 KB |
+| `level-1.ogg` | sparsest | 2-4 segments | 150 KB |
+| `level-2.ogg` | more instruments | 5-7 | 166 KB |
+| `level-3.ogg` | more again | 8-10 | 167 KB |
+| `level-4.ogg` | densest | 11 or longer | 159 KB |
 
 All four are **18.823537 s, stereo, 22050 Hz** - the same length to the sample. That
 matters, and it is the one thing to preserve if you re-render them. All four are decoded
@@ -28,23 +28,35 @@ and started at the same moment and play in sync. Changing level crossfades their
 nothing restarts. That is what makes every transition exact. Loops of different lengths
 drift apart, and the device writes a console warning if it sees that.
 
-The game moves up one level every **two** segments and stays on `level-4` after that. A
+The game moves up one level every **three** segments and stays on `level-4` after that. A
 crash puts the snake back to two segments, so the music drops back too. The music shows
 how fast the game is right now.
 
-## The win track
+**A level change waits for the next bar.** Eating a fruit happens whenever the snake gets
+there, which is usually mid-bar, and swapping the arrangement at that moment sounds like a
+mistake rather than a cue. The crossfade is booked for the next bar line instead.
+
+The bar comes from the loop length: 18.823537 s is exactly 8 bars of 4/4 at 102.0000 BPM,
+so a bar is 2.352942 s. That is the one assumption, and it is one constant
+(`BARS_PER_LOOP`) in `../music.ts` if the tune is ever re-cut.
+
+## The main tune
 
 | File | | Size |
 |---|---|---|
-| `win.ogg` | the full track, played once when the gauge fills | 1.4 MB |
+| `theme.ogg` | the full track, played twice a session | 1.4 MB |
 
 **88.235 s, stereo, 48000 Hz.** It is not a fifth layer and cannot be one: it is a
 different length and a different piece, not a denser mix of the same one. So it does not
-share the layers' clock. It plays once, on its own bus, when you win. Starting a new game
-fades it out.
+share the layers' clock.
 
-A loss gets silence instead. A loop still running under a dead snake reads as a device
-that has not noticed.
+It plays once, on its own bus, in two places:
+
+- **as a welcome**, when the device loads and before anything is started;
+- **on a win**, when the gauge fills.
+
+Starting a game fades it out. A loss gets silence instead - a loop still running under a
+dead snake reads as a device that has not noticed.
 
 ## If you re-render
 

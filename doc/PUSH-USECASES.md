@@ -330,17 +330,23 @@ drifts:
 | the soundtrack | [`src/app/push-snake/music.ts`](../src/app/push-snake/music.ts), and [`music/README.md`](../src/app/push-snake/music/README.md) for what to render |
 | frames out, presses in, the sound | [`src/app/push-snake/App.tsx`](../src/app/push-snake/App.tsx) |
 
-**The soundtrack is four loop layers and a win track.** The layers go sparsest to densest,
-climbing one level every two segments and holding on the densest.
+**The soundtrack is four loop layers and a main tune.** The layers go sparsest to densest,
+climbing one level every three segments and holding on the densest. A change is booked for
+the next BAR rather than run on the spot, because a fruit is eaten mid-bar and swapping the
+arrangement there sounds like a mistake. The bar comes from the loop length: 18.823537 s is
+8 bars of 4/4 at 102.0000 BPM exactly.
 
 All four are 18.823537 s at 22.05 kHz - the same length to the sample. They are decoded
 and started at the same moment and play in sync, and a level change crossfades their GAINS
 rather than restarting anything. That is what makes every transition sample-accurate, and
 why they must be the same length.
 
-`win.ogg` is 88.2 s at 48 kHz. It is a different piece, not a denser mix of the same one,
-so it cannot share their clock. It plays once, on its own bus, when the gauge fills. A
-loss gets silence.
+`theme.ogg` is 88.2 s at 48 kHz. It is a different piece, not a denser mix of the same one,
+so it cannot share their clock. It plays once, on its own bus, twice in a session: as a
+welcome when the device loads, and again when the gauge fills. A loss gets silence.
+
+**While idle the pads scroll SNAKE**, in a 4x5 font - three columns cannot draw an N
+without it reading as an H. The bottom row keeps the HUD.
 
 Two things the shipped version does that the sketch above does not, both of them the
 API telling the truth about the hardware:
