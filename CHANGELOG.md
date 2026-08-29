@@ -80,16 +80,14 @@ a page is 437 KB.
 
 Snake on the 8x8 grid. The border ring is the scoreboard: a 20-cell length gauge filled
 from the bottom-left upwards, three lives at the bottom right spent right to left, and
-three pads at the bottom left - turn left, hold to sprint, turn right. All three start a
-game while one is stopped, and the sprint pad goes white while you hold it.
+two turn pads at the bottom left.
 
 A crash costs a life and restarts the snake. Filling the gauge wins and paints a green
 smiley. Losing all three lives paints a red frown. Either blinks three times and stays
 until you start another game.
 
 It draws the same grid in the device view, so you can play it with no Push in the room -
-click the pads, or use the arrow keys and hold Up to sprint. A **?** button opens a help
-panel with the pad layout, the HUD colours and the rules.
+click the pads or use the arrow keys.
 
 The main tune plays as a welcome when the device loads, and the pads scroll **SNAKE** as a
 banner until you start a game.
@@ -140,11 +138,16 @@ either does nothing or navigates the device view, replacing the UI with a web pa
 - `CLAUDE.md` now has a rule for writing Markdown in this repo: plain language, short
   sentences, and headings that say what a section is about. 49 headings were renamed across
   the docs and every internal link updated.
+- **`push-snake` ships as its own zip.** A named `bundles` export beside the device
+  manifest declares a release that is one device and a README, for somebody who wants the
+  game and has never heard of the library. CI uploads it and the release attaches it.
+- **The jog wheel and the touch strip were measured.** The wheel streams a delta of one
+  detent as a signed 7-bit step; the strip streams a wrapping byte with no readable
+  position. Both in `doc/MAX-FACTS.md`.
 
 ### Not yet checked in Live
 
-The win face, the difficulty curve, two copies in one set, and all of `hello-headless`.
-The checklist is `doc/TODO.md` item 2b.
+`hello-headless` - none of it. The checklist is `doc/TODO.md`.
 
 ## 1.3.1 - maintenance
 

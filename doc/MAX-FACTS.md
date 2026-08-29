@@ -951,12 +951,76 @@ holds the grid on a bare track and never on a racked one, silently.
 mistake produced "invalid property name" once a second. The takeover reuses it instead
 of working it out again. That is the point of it being one function.
 
+### The jog wheel is a DELTA of one detent, and it has no position at all
+
+Measured with `push-probe`'s `probe_other Jogwheel 1` on a Push 3, 2026-08-29. Grabbed,
+it streams continuously while the wheel turns, and its `value` is **two atoms** - the
+property name and one number - not the five the matrix sends:
+
+```
+Jogwheel cb: 2 atoms [0]=value [1]=bang     <- ON ATTACH. Not an event.
+Jogwheel cb: 2 atoms [0]=value [1]=1        <- one detent clockwise
+Jogwheel cb: 2 atoms [0]=value [1]=127      <- one detent anticlockwise
+```
+
+Across 31 events of turning one way and then the other, the only values were **1 and
+127**. That is a signed 7-bit step: 127 is -1. One event per detent, and turning faster
+sends them faster rather than sending a bigger number - there is no acceleration in the
+value.
+
+**So J1 is answered, and the DJ platter in PUSH-USECASES.md is buildable.** A device
+integrates the steps itself and owns the result; the hardware has no notion of where the
+wheel is, because a continuous rotary has no position to have.
+
+### The touch strip reports a WRAPPING BYTE, not a position
+
+Same run, `Touch_Strip_Control`. It streams continuously under a grab, in the same
+two-atom shape - and over 180 events across three passes it reported exactly **four**
+distinct values:
+
+```
+-128, -64, 0, 64          as unsigned bytes: 0, 64, 128, 192
+```
+
+Four values, 64 apart, arriving in cycles like `0, 64, -128, -64, 0, 64` - a byte
+counting in steps of 64 and wrapping. The direction of travel is recoverable from the
+wrapped difference between consecutive events. **The absolute position is not.** It
+repeats every four events, so where the finger is cannot be read from `value`.
+
+**J2 is answered in the negative, for the crossfader that wanted it.** Whatever carries
+the strip's real resolution, `value` on the grabbed control is not it: 64-unit steps of a
+wrapping byte is not the ~64 clean steps a crossfader needs, it is four values in a loop.
+A device can use it as a relative control - integrate the wrapped differences - and cannot
+use it as a fader.
+
+Not chased further, because the DJ surface is not scheduled work. What would answer it is
+`Nav_Select_Touch` or `Mpe_Pitch_Bend_Elements`, both of which `get_control_names` lists
+and neither of which anyone has read.
+
+### `probe_other`'s first verdict was wrong, and the bug is worth keeping
+
+It printed `range NaN..NaN, 5 distinct values` for a control that has four. Observing a
+property fires once immediately with `value bang`, and `Number("bang")` is **NaN** - which
+is not equal to itself, so it counted as a distinct value of its own AND made every
+min/max comparison false.
+
+The same attach notification is already recorded above as "not an event". It is worth
+recording again as this: it is not enough to drop it from the OUTPUT, because anything
+that then does arithmetic on the stream has to drop it too.
+
 ### Still open
 
 - Whether `Mpe_Pitch_Bend_Elements` - listed by `get_control_names` next to
   `Button_Matrix`, along with `Double_Press_Matrix`, `Single_Press_Event_Matrix` and
   `Double_Press_Event_Matrix` - carries the per-pad expression the matrix does not.
-  `probe_other <name> 1` in the spike grabs any of them and dumps the atoms.
+  `probe_other <name> 1` in the spike grabs any of them and dumps the atoms. The same
+  question now stands for the touch strip's real position, which `value` does not carry.
+- **`jweb~` warns that its source sample rate differs from the audio one**: `source
+  sample rate (44100) differs from audio sample rate, stop and restart audio stream to
+  correct`. Seen with `push-snake` playing its soundtrack in a set running at 48 kHz. A
+  page's `AudioContext` takes the system default rate and cannot be told Live's, so the
+  two can disagree. What it costs was not measured - the music sounded right - and the
+  obvious guess (a resample, or a pitch error) is a guess.
 - Whether atom `[4]` of a pad event ever differs from `1`.
 - Colour NAMES: the palette is photographed and every index is locatable, but the
   name table for `defineControls` is not written yet.

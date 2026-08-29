@@ -53,35 +53,32 @@ cannot travel back to the device view through Max messages to be saved there.
 
 ## 2. The pads as a surface you program
 
-**Built and working on hardware.** `defineControls` ships, `push-snake` runs in Live on a
-Push 3, and the checklist that could only be run with the hardware in the room has been
-run. How it fits together is in [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control
+**Built, and confirmed working on hardware.** `defineControls` ships, `push-snake` runs in
+Live on a Push 3 - grid, HUD, sprint, music, state, the lot - and the checklist that could
+only be run with the hardware in the room has been run. The jog wheel is answered too. How it fits together is in [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control
 surface you program". What was measured is in [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a
 Push control".
 
 Three things are still open, and none of them blocks anything:
 
-### 2a. The jog wheel and the touch strip - a spike
+### 2a. The touch strip has no readable position
 
-Two questions. Each is one button press in `push-probe`, whose `probe_other` grabs any
-control by name, dumps 60 events and then says whether the trace looks like a delta or an
-absolute position:
+**J1 is answered and the jog wheel works.** Grabbed, `Jogwheel` streams continuously and
+reports a DELTA of one detent as a signed 7-bit step - 1 clockwise, 127 anticlockwise, one
+event per detent. A device integrates them itself. The DJ platter in
+[PUSH-USECASES.md](PUSH-USECASES.md) is buildable.
 
-| # | Question | If it fails |
-|---|---|---|
-| J1 | Does `Jogwheel` emit a continuous stream under a grab - a DELTA or an absolute position? | The DJ surface dies. There is no other continuous rotary on the hardware. |
-| J2 | Does `Touch_Strip_Control` emit a continuous position, and at what resolution? | Its crossfader falls back to an encoder. Under ~64 steps it reads as stepped and is worse than the on-screen fader. |
+**J2 is answered in the negative.** `Touch_Strip_Control` also streams, but its `value` is
+a byte counting in steps of 64 and wrapping: four distinct values over 180 events. The
+direction of travel is recoverable from the wrapped difference; the position is not. That
+is a relative control, not the ~64-step fader the crossfader wanted.
 
-Cheap, and it gates the most visible half of `../m4l-qobuz-dj`'s stage 5.
+Both are measured in [MAX-FACTS.md](MAX-FACTS.md).
 
-**It does not gate the rename, and it cannot change the API.** `padStream({ role:
-"jogwheel" })` and `usePadStream()` already exist and hand over the raw atoms without
-decoding them, because nothing is known about what they mean. The answer fills that in.
-
-**How to run it:** install, drop `push-probe` on a track, press **scan**, then **jog?** and
-turn the wheel steadily one way for about four seconds. Press **jog?** again to release.
-Then **touch?** and run a finger slowly up the strip. The verdict is the last few lines in
-the device's log and in the Max console.
+What is left is one question, and it is not scheduled: **where the strip's real position
+lives.** `get_control_names` lists `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elements` and
+nobody has read either. `probe_other <name> 1` in `push-probe` grabs any control by name,
+dumps its atoms and says whether the trace looks like a delta or a position.
 
 ### 2b. Colour names are photographs
 

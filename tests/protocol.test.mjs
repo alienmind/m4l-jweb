@@ -330,6 +330,27 @@ test("no [node.script] in the default template", () => {
   expect(wrapper).not.toContain("node.script");
 });
 
+/**
+ * A release BUNDLE must name devices that exist.
+ *
+ * A typo here produces a zip missing the very thing it is named after, and nothing says
+ * so until somebody downloads it - which for a standalone game is the worst possible
+ * moment to find out.
+ */
+test("every release bundle names devices the manifest declares", async () => {
+  const mod = await import(pathToFileURL(path.join(root, "patcher/devices.mjs")).href);
+  const known = new Set(allDevices.map((d) => d.name));
+  for (const bundle of mod.bundles ?? []) {
+    expect(bundle.devices?.length, `bundle "${bundle.name}" names no devices`).toBeGreaterThan(0);
+    for (const d of bundle.devices) {
+      expect(known, `bundle "${bundle.name}" names device "${d}", which the manifest does not declare`).toContain(d);
+    }
+    if (bundle.readme) {
+      expect(existsSync(path.join(root, bundle.readme)), `bundle "${bundle.name}" readme ${bundle.readme} is not there`).toBe(true);
+    }
+  }
+});
+
 test("no device ships a UI that is not its own", () => {
   // Every device extracts its payload into the SAME folder (next to the .amxd), so
   // a shared payload name would mean two devices overwriting each other's UI on
