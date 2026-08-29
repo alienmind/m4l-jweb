@@ -80,14 +80,16 @@ a page is 437 KB.
 
 Snake on the 8x8 grid. The border ring is the scoreboard: a 20-cell length gauge filled
 from the bottom-left upwards, three lives at the bottom right spent right to left, and
-two turn pads at the bottom left.
+three pads at the bottom left - turn left, hold to sprint, turn right. All three start a
+game while one is stopped, and the sprint pad goes white while you hold it.
 
 A crash costs a life and restarts the snake. Filling the gauge wins and paints a green
 smiley. Losing all three lives paints a red frown. Either blinks three times and stays
 until you start another game.
 
 It draws the same grid in the device view, so you can play it with no Push in the room -
-click the pads or use the arrow keys.
+click the pads, or use the arrow keys and hold Up to sprint. A **?** button opens a help
+panel with the pad layout, the HUD colours and the rules.
 
 The main tune plays as a welcome when the device loads, and the pads scroll **SNAKE** as a
 banner until you start a game.

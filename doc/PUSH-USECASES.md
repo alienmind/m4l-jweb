@@ -250,8 +250,9 @@ and Web Audio.
  3  G . . @ * . . G      o  fruit   @ head   * body
  2  G . . * * . . G
  1  G . . . . . . G
- 0  < > # # # V V V      <  turn anticlockwise / START   > clockwise / START
-     x=0 1 2 3 4 5 6 7   V  three LIVES, green until spent, RIGHTMOST first
+ 0  < ^ > # # V V V      <  turn anticlockwise    ^  HOLD to sprint
+     x=0 1 2 3 4 5 6 7   >  turn clockwise. All three START while stopped
+                         V  three LIVES, green until spent, RIGHTMOST first
 ```
 
 **THE BORDER IS THE HUD, and that is why the arena is only 6x6.** A Push user cannot see
@@ -286,22 +287,28 @@ and the pad beside it - so they cost nothing playable:
 
 | Pad | Does |
 |---|---|
-| `(0, 0)` | rotate **anticlockwise** - or START, while stopped |
-| `(1, 0)` | rotate **clockwise** - or START, while stopped |
+| `(0, 0)` | rotate **anticlockwise** |
+| `(1, 0)` | **hold to sprint** - 2.5x, and only while held |
+| `(2, 0)` | rotate **clockwise** |
 
-**While the game is stopped both pads are GREEN and both mean START.** That is not a
-convenience. The two turn pads are the only control this device has on the hardware, so
-they have to be enough to play it: begin a run, steer it, begin another after a crash. A
-Push user cannot reach the `start` button, which is in a device view on a laptop behind
-them.
+All three START a game while one is stopped.
+
+**While the game is stopped all three pads are GREEN and all three mean START.** That is not a
+convenience. These three pads are the only control this device has on the hardware, so they have to be
+enough to play it: begin a run, steer it, sprint, begin another after a crash. A Push user
+cannot reach the `start` button, which is in a device view on a laptop behind them.
 
 Pressing one while stopped does not also turn. A fresh snake points up by definition, so
 a turn before the first tick would mean nothing and read as a lost press.
 
-Every other pad is inert. Two buttons is what the game needs and no more. A direction per
-pad would want four, and an absolute-heading grid would want the arena. Both make the
-wall harder to read. The two are lit in different colours (`ocean` and `sky`), so which
-is which is readable from the hardware alone.
+Every other pad is inert. Three buttons is what the game needs and no more. A direction
+per pad would want four, and an absolute-heading grid would want the arena. Both make the
+wall harder to read. The three are lit in different colours - `ocean`, `amber`, `sky` -
+so which is which is readable from the hardware alone, and the sprint pad goes `white`
+while it is held.
+
+**The sprint is HELD, not toggled.** It is a risk you commit to and let go of. A toggle
+would turn that into a mode you can forget you are in.
 
 The snake moves one cell per tick and speeds up as it grows. Fruit appears on a random
 free arena cell in a random colour, and eating it grows the snake by one. Hitting the
