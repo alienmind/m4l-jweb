@@ -309,6 +309,46 @@ export const CONTROLS_OUT = {
 export const padSelector = (key: string): string => `${CONTROLS_IN.pad}${key}`;
 
 /**
+ * Open a URL in the user's real web browser.
+ *
+ * A page inside `[jweb]` cannot do this itself. It is a `file://` document, and an
+ * ordinary `<a target="_blank">` either does nothing or navigates the device view - which
+ * replaces your UI with a web page inside a 169 px box, with no way back.
+ *
+ * So the page asks Max, and Max asks the shell: `; max launchbrowser <url>`. That message
+ * is measured to REACH the shell (doc/MAX-FACTS.md - a wrong `file://` path raised a real
+ * "cannot find the file" dialog naming it). What it cannot do is reveal a FOLDER, which is
+ * a different intent and is why `copyPath()` exists; opening an `http(s)` URL is the thing
+ * `launchbrowser` is actually for.
+ */
+export const SHELL_OUT = {
+  /** UI -> wrapper: `open_url <url>` - hand it to the default browser. */
+  open_url: "open_url",
+} as const;
+
+/**
+ * Open `url` in the user's browser - in Live, and in the dev harness.
+ *
+ * MAX SPLITS A MESSAGE ON WHITESPACE, and treats `,` and `;` as message separators, so a
+ * URL containing any of them arrives at the wrapper in pieces. Rather than guess at an
+ * escaping the receiving end would have to undo, this refuses such a URL and says so - a
+ * link that silently opened the wrong page would be worse than one that did not open.
+ */
+export function openUrl(url: string): boolean {
+  if (/[\s,;]/.test(url)) {
+    console.warn(`[m4l-jweb] openUrl: "${url}" contains whitespace, a comma or a semicolon, which Max would split the message on`);
+    return false;
+  }
+  // In a browser there is no Max to ask, and a new tab is the same intent.
+  if (!inJweb) {
+    window.open(url, "_blank", "noopener");
+    return true;
+  }
+  outlet(SHELL_OUT.open_url, url);
+  return true;
+}
+
+/**
  * Selectors the WRAPPER handles for a device that declares `state` in its surface.
  *
  * THE SLOT ID IS AN ARGUMENT, NOT PART OF THE SELECTOR. `sync_state <id> <json>`,
@@ -452,10 +492,7 @@ export const PARAM_IN = {
  *         behaviour, and is worth it only where a unit readout on the dial beats
  *         automation and macros on it.
  */
-export function describeParam(
-  id: string,
-  desc: { name?: string; unit?: string; range?: [number, number]; widenRange?: boolean },
-): void {
+export function describeParam(id: string, desc: { name?: string; unit?: string; range?: [number, number]; widenRange?: boolean }): void {
   if (desc.name) outlet(PARAM_OUT.param_label, id, desc.name);
   if (desc.unit) outlet(PARAM_OUT.param_unit, id, desc.unit);
   if (desc.widenRange && desc.range && desc.range[1] > desc.range[0]) {
@@ -747,8 +784,6 @@ export function onDeviceFolder(fn: (folder: string) => void): () => void {
   };
 }
 
-
-
 /* ------------------------------------------------------------------ *
  * Remote - the `remote` chain (live.remote~ modulation)
  * ------------------------------------------------------------------ */
@@ -883,7 +918,13 @@ function bindClipRead(): void {
     clearTimeout(p.timer);
     // The wrapper says WHY: "no_clip" (track has none) or "no_selection" (highlighted
     // slot is empty). Either way there is nothing to read.
-    p.reject(new Error(String(reason) === "no_selection" ? "no clip in the highlighted slot - click a clip first" : "no clip on this track - create or play a MIDI clip first"));
+    p.reject(
+      new Error(
+        String(reason) === "no_selection"
+          ? "no clip in the highlighted slot - click a clip first"
+          : "no clip on this track - create or play a MIDI clip first",
+      ),
+    );
   });
 }
 

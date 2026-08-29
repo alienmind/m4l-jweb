@@ -590,6 +590,15 @@ Live in both forms:
 So the mechanism works and the intent does not, which is why no amount of quoting or
 encoding fixes it. Nor is there a second object that reveals a path.
 
+**Opening an `http(s)` URL is a different intent, and it is the one `launchbrowser` is
+for.** `openUrl()` in `@m4l-jweb/bridge` and `open_url` in the wrapper use it that way -
+`push-snake` credits its soundtrack with a link. It refuses anything that is not `http` or
+`https`, because a `file://` path is the case measured above to do nothing. **Unverified in
+Live**: the folder case is measured, this one is inferred from the same message reaching
+the shell. A page cannot open a link itself - it is a `file://` document, and an ordinary
+`<a target="_blank">` either does nothing or navigates the device view, replacing the whole
+UI with a web page in a 169 px box with no way back.
+
 The consequence is the clipboard, and the clipboard inside `[jweb~]` lies:
 `document.execCommand("copy")` RETURNS TRUE while copying nothing, and the page cannot
 detect it, because `navigator.clipboard.readText()` needs a secure context a `file://`

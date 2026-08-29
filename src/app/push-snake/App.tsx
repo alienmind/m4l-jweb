@@ -26,6 +26,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Frame } from "../shared/Frame";
 import { useDevice } from "../shared/device";
+import { openUrl } from "@m4l-jweb/bridge";
 import { PALETTE_CSS, type PadColour } from "@m4l-jweb/surface";
 import { useParam, usePadGrid, usePadsHeld, usePadsReason, useStateSync } from "@m4l-jweb/surface/react";
 import GameWorker from "./worker.ts?worker&inline";
@@ -41,6 +42,16 @@ import surface from "./surface";
  * around eleven, which is fast and still readable. Hard ends around seventeen.
  */
 const DIFFICULTY_HZ: Record<string, number> = { Easy: 2.5, Normal: 4, Hard: 6 };
+
+/**
+ * The soundtrack, and where to hear the whole thing.
+ *
+ * The canonical URL, without the `si` and `utm_*` parameters the share button appends:
+ * Max treats `,` and `;` as message separators and splits on whitespace, so the fewer
+ * moving parts in a URL crossing the bridge the better - and a share token is not
+ * something to bake into a device anyway.
+ */
+const MUSIC_URL = "https://soundcloud.com/alienmindzzz/next-wave-nextpoint-ost";
 
 /** The two reserved pads, IN the wall, bottom-left - so they cost no playable cell. */
 const TURN_CCW = { x: 0, y: 0 };
@@ -319,6 +330,24 @@ export default function App() {
             {/* The two turn pads are the bottom-left CORNER of the grid above, and of
                 the Push. If they are drawn at the top, the y flip is wrong. */}
             {running ? "turn" : "start"}: the two lit pads bottom-left, or <kbd>&larr;</kbd> <kbd>&rarr;</kbd>
+          </div>
+
+          <div style={{ fontSize: 9, color: "var(--muted)" }}>
+            Music by AlienMind ·{" "}
+            {/* NOT an <a>. A page in [jweb] is a file:// document, and a real link either
+                does nothing or navigates the device view - which replaces the whole UI
+                with a web page in a 169 px box, with no way back. openUrl() asks Max to
+                hand the URL to the real browser. */}
+            <span
+              role="link"
+              tabIndex={0}
+              onClick={() => openUrl(MUSIC_URL)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openUrl(MUSIC_URL)}
+              style={{ color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}
+              title={MUSIC_URL}
+            >
+              hear the original track
+            </span>
           </div>
 
           <div style={{ fontSize: 9 }}>
