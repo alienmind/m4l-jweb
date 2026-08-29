@@ -1,7 +1,11 @@
 # PUSH-USECASES.md - what the programmable pads are FOR
 
-Three devices, in detail, written against the pad-takeover API. **This file is design.
-It is not a schedule and not evidence.**
+**Devices that are NOT built, written against the pad-takeover API.** This file is design.
+It is not a schedule and not evidence.
+
+The one device that WAS built is `push-snake`, and it is not described here - a game
+described in two places is a game described differently in two places. Its one
+description is [SNAKE.md](SNAKE.md).
 
 - **The schedule** is [TODO.md](TODO.md): what is built, in what order, and what is
   still gated. One backlog, and this is not it.
@@ -9,12 +13,13 @@ It is not a schedule and not evidence.**
   control is really grabbed, painted and read, measured on hardware. Nothing here repeats
   a mechanism. Where a use case leans on one, it links.
 
-**Only the first was built.** `push-snake` is the device that proves the surface works,
-and it exists. The other two are **design pressure on the API**: an API shaped around one
-game is an API that fits one game, and the cheapest guard against that was two more
-devices that want incompatible things. They did their job - the `padStream()` shape and
-the rule that a non-matrix control may be claimed without the grid are both here because
-use case 2 asked for them. Do not build them.
+**Only the first was built.** The other two are **design pressure on the API**: an API
+shaped around one game is an API that fits one game, and the cheapest guard against that
+was two more devices that want incompatible things.
+
+They did their job before either was written. `padStream()`, and the rule that a
+non-matrix control may be claimed without claiming the grid, are both in the shipped
+library because use case 2 asked for them. Do not build them.
 
 ## Why the pads
 
@@ -61,325 +66,67 @@ redrawn, and why the scale explorer is harder than it looks.
 
 ## The API
 
-**BUILT.** The sketch below is what was designed; three names moved on the way in, and
-the shipped shape is in [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control surface
-you program", with the reference in `packages/surface/src/controls.ts`:
-
-- `button({ role })` is **`padButton({ role })`** - `button()` already belongs to
-  `defineSurface`, as the `live.text` parameter, and a device declaring both would
-  import two different things under one word. There is a third shape too,
-  `padStream()`, for a jog wheel or a touch strip.
-- The declaration is passed to **`defineSurface({ controls })`** rather than standing
-  beside it, because it CONTRIBUTES the two parameters below - and a parameter has to
-  be in the surface for the codegen to emit its object, for Push to page it, and for
-  `useParam` to bind it.
-- The colours are **names the palette can actually point at**. `dark_grey`,
-  `red_red` and `yellow_highlight` are not among them: the table is read off
-  photographs and no grey was identified.
-
-The use cases were written against it before it existed, which is the point: a use case
-that cannot be expressed here is a hole in the API, found on paper instead of in Live.
-The two below are still design pressure and still not scheduled.
-
-### Declaring what a device claims
-
-The fourth sibling of `defineSurface`, `defineWatch` and `defineFiles` - one thing a
-device does, declared once, checks throwing at declaration time so `pnpm build` fails
-rather than the hardware going quiet.
+**Built and shipped.** How it works is [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a
+control surface you program", and the reference is
+`packages/surface/src/controls.ts`. The short version, so the two devices below can be
+read without leaving this file:
 
 ```ts
 // src/app/<device>/controls.ts
-import { defineControls, grid, button } from "@m4l-jweb/surface";
-
 export default defineControls({
-  surface: "push",                                   // push | move
-  controls: {
-    pads:   grid({ role: "matrix", rows: 8, cols: 8 }),
-    scenes: grid({ role: "scene_launch", rows: 8, cols: 1 }),
-    shift:  button({ role: "shift" }),
-    play:   button({ role: "play" }),
-  },
+  surface: "push",
+  controls: { pads: grid({ role: "matrix", rows: 8, cols: 8 }) },
 });
 ```
 
-**`role`, never a Max name.** The library owns the role -> name table per generation
-and resolves it at runtime against `get_control_names`, then **reports a role it could
-not resolve** instead of grabbing nothing. Push 1/2/3 appear to share names (measured - see [MAX-FACTS.md](MAX-FACTS.md));
-Move does not; and [CLAUDE.md](../CLAUDE.md)'s first hard rule is that a wrong name
-Max looks up is not an error, it is a feature that silently does nothing.
-
-Checks that throw at declaration time: a role outside the vocabulary; a grid whose
-dimensions do not match its role; two declarations claiming one role; a key with
-whitespace (it becomes a selector); and a role the library refuses - the encoders,
-for the reason in the opening.
-
-### Paint
-
 ```tsx
-const pads = usePadGrid(controls, "pads");    // 8 x 8
-
-pads.draw((f) => {
-  f.clear("black");
-  f.set(3, 4, "green");
-  f.row(0, "dark_grey");
-  f.rect(0, 6, 4, 2, "ocean");
-});
+const pads = usePadGrid(controls, "pads");
+pads.draw((f) => { f.clear("black"); f.set(3, 4, "green"); });   // y is BOTTOM-up
+useEffect(() => pads.onPad((e) => e.down && turn(e.x, e.y)), [pads]);
 ```
 
-`draw` takes a **frame**, not a pad. You describe the whole grid every time and the
-library works out what changed. The callback fills an off-screen 64-byte buffer, that
-buffer is diffed against the last one sent, and only the changed cells reach the
-hardware.
+You name a **role**, never a Max control name, and the library resolves it at runtime
+against the connected hardware. `draw` takes a whole FRAME and the library works out what
+changed. The declaration adds `takeover` and `focus` as real Live parameters, off by
+default.
 
-This is the contract, not an optimisation you can ignore. Sixty-four messages a frame
-across the bridge is a data plane, and [TODO.md](TODO.md)'s first rule is that `[js]` is a
-control plane.
+Three names moved between the design and the build, and the reasons are worth keeping:
 
-So a device redraws as often as it likes - every animation frame, every tick, every state
-change - and pays only for the pads that moved. A blinking cursor costs one cell per
-blink.
-
-Colours are **names**, resolved to hardware palette indices by the library. A device
-that writes `36` is a device nobody can read, and the index is not portable across
-generations until [MAX-FACTS.md](MAX-FACTS.md) says it is.
-
-### Read
-
-```tsx
-pads.onPad((e) => {
-  // e: { x, y, value, down }
-  if (!e.down) return;
-  turn();
-});
-```
-
-`x` is 0-7 left to right, `y` is 0-7 **bottom to top** - the Push's own orientation, and
-the one every layout in the use cases below is written in. `value` is the raw value from the
-hardware (velocity on a press, 0 on release); `down` is `value > 0`, precomputed
-because that is the check nine handlers in ten want.
-
-**Claiming the MATRIX stops the pads being an instrument.** Measured: while
-`Button_Matrix` is grabbed the pads emit only this - no MIDI notes, and no MPE
-expression even on a device that declares `is_mpe` and receives a full stream when
-ungrabbed. So `pads: grid({ role: "matrix" })` means this device's pads cannot also
-play notes, and a device wanting both has to grab and release around the moments it
-needs each, the way the surveyed device's mode subpatchers do.
-
-**It is the pads specifically, not grabbing in general.** Holding
-`Scene_Launch_Buttons` leaves the note and MPE stream untouched, so a declaration that
-claims the scene column, the transport or the mode buttons costs nothing on the note
-path. A device may own part of the surface and stay playable - which is what makes a
-mixed declaration worth allowing rather than refusing.
-
-Buttons are the degenerate case:
-
-```tsx
-const shift = usePadButton(controls, "shift");   // boolean, live
-if (shift) { ... }
-```
-
-### Turning it on, and when it applies
-
-`defineControls` generates two parameters into the device's Surface:
-
-```ts
-takeover: toggle({ default: false, short: "Takeovr" }),
-focus:    menu({ options: ["Device", "Track", "Always"], default: "Track", short: "Focus" }),
-```
-
-Both are real Live parameters, so the user can switch takeover off, automate it, put it
-on an encoder, and see it in the device view. **Default off**, and `focus` decides when
-an enabled device actually holds the grid:
-
-| | The device grabs while |
-|---|---|
-| `Device` | it is the selected device |
-| `Track` | its track is the selected track |
-| `Always` | the set is open |
-
-The app is told either way:
-
-```tsx
-const held = usePadsHeld(controls);   // boolean: do we own the grid right now?
-```
-
-Two of these devices in one set is the normal case, not the edge, and [MAX-FACTS.md](MAX-FACTS.md) records how the
-surveyed device handles the handover.
-
-### The loop belongs in the Worker
-
-The device view is usually not visible, because a Push user is looking at the Push.
-Chromium throttles timers on a hidden page, so a game or sequencer clocked off
-`requestAnimationFrame` will stutter or stop exactly when it matters. Dedicated Workers
-are exempt, which is why [ARCHITECTURE.md](ARCHITECTURE.md) makes them pattern 2.
-
-So the shape of every device in the use cases below is the same:
-
-```
-  Worker            owns the state and the clock, emits a 64-cell frame
-    |  postMessage
-    v
-  React page        pads.draw(frame)     -> the hardware
-                    pads.onPad(...)      -> postMessage into the worker
-                    Web Audio            -> the track, via the `webaudio` chain
-```
-
-The page is a thin shell: it moves frames out and events in, and it makes the noise.
+- `button({ role })` is **`padButton({ role })`**, because `button()` already belongs to
+  `defineSurface` as the `live.text` parameter. There is a third shape too, `padStream()`,
+  for a jog wheel or a touch strip.
+- The declaration is passed to **`defineSurface({ controls })`** rather than standing
+  beside it, because it contributes those two parameters - and a parameter has to be in
+  the surface for the codegen to emit its object, for Push to page it, and for `useParam`
+  to bind it.
+- The colours are **names the palette can actually point at**. `dark_grey`, `red_red` and
+  `yellow_highlight` are not among them: the table is read off photographs and no grey was
+  identified. See [TODO.md](TODO.md), the colour item.
 
 ---
 
 # Use case 1 - `push-snake`, the one that was built
 
-**This is the scope of the work, and it shipped.** Everything after it is a sketch of
-what the same API could carry later and is explicitly **not** being implemented. What
-remains for this one is nothing: it runs on a Push 3 and the checklist has been run.
+**It shipped, and it runs on a Push 3.** It is not described here, because a game
+described in two places is a game described differently in two places. The one
+description is [SNAKE.md](SNAKE.md): the rules, the layout, the HUD, the soundtrack and
+the parameters, written for somebody playing it.
 
-Snake, on the 8x8, in TypeScript, sounding through the track. Chosen because its bugs
-are visible from across the room, its rules fit in a paragraph, and it exercises every
-part of the API at once: a frame per tick, a press handler, a worker clock, parameters,
-and Web Audio.
+What it was for, and what it proved:
 
-### 1 The rules and the layout
+- **a frame per tick survives the diff.** The whole grid is redrawn on every move, and
+  what crosses the bridge is one message per changed frame, not sixty-four per frame.
+- **a press reaches the app fast enough to steer**, through a `[live.observer]` with no
+  `[js]` in the way.
+- **the worker clock survives a hidden page**, which is the normal case: a Push user is
+  not looking at the device view.
+- **the parameters drive the game from Live's side** - `Run` from an encoder, `Diff` from
+  an automation lane.
+- **two instances in one set take turns**, which is what `focus` is for.
+- **takeover off does nothing to the Push**, which is what makes it shippable.
 
-```
- y
- 7  G G G G G G G G      G  LENGTH GAUGE - 7 + 6 + 7 = 20 cells. One green per
- 6  G . . . . . . G         segment, filled UP the left, ACROSS the top, DOWN
- 5  G . . . . . . G         the right. Full is the WIN.
- 4  G . . . o . . G      .  arena - the 6x6 the snake lives in
- 3  G . . @ * . . G      o  fruit   @ head   * body
- 2  G . . * * . . G
- 1  G . . . . . . G
- 0  < ^ > # # V V V      <  turn anticlockwise    ^  HOLD to sprint
-     x=0 1 2 3 4 5 6 7   >  turn clockwise. All three START while stopped
-                         V  three LIVES, green until spent, RIGHTMOST first
-```
-
-**THE BORDER IS THE HUD, and that is why the arena is only 6x6.** A Push user cannot see
-the device view - it is on a laptop behind them - so every number the game has must be on
-the grid. The ring was already being spent on a visible wall. Carrying the score and the
-lives costs nothing more, and the whole state of a run becomes readable from across the
-room.
-
-The bottom row is the one edge NOT in the gauge. It belongs to the controls and the
-lives. A gauge running through the turn pads would light them for a reason that has
-nothing to do with what they do.
-
-**The border is a wall.** Row 0, row 7, column 0 and column 7 are drawn, permanently,
-and the snake dies on contact. The arena is the inner 6x6 - thirty-six cells - and a
-lit border is worth more than the six cells it costs: on a grid with no edge you cannot
-see, "I hit a wall" and "the device stopped responding" look identical.
-
-**A crash costs a LIFE, not the run.** There are three, spent bottom-right first, and the
-snake starts over at length two each time. That is what makes twenty hard.
-
-When the third goes red the game is over and the arena paints a RED frowning face.
-Filling the gauge paints a GREEN smiling one. Either one blinks three times and then
-STAYS, until somebody presses a turn pad - a result nobody was in the room for is a result
-they never saw.
-
-Each segment earned adds ten percent of the base rate to the speed, linearly, so the last
-few are the hard ones. The base rate itself is the `difficulty` parameter: Easy, Normal or
-Hard.
-
-**Two reserved pads turn the snake**, and they sit *in* the wall - bottom-left corner
-and the pad beside it - so they cost nothing playable:
-
-| Pad | Does |
-|---|---|
-| `(0, 0)` | rotate **anticlockwise** |
-| `(1, 0)` | **hold to sprint** - 2.5x, and only while held |
-| `(2, 0)` | rotate **clockwise** |
-
-All three START a game while one is stopped.
-
-**While the game is stopped all three pads are GREEN and all three mean START.** That is not a
-convenience. These three pads are the only control this device has on the hardware, so they have to be
-enough to play it: begin a run, steer it, sprint, begin another after a crash. A Push user
-cannot reach the `start` button, which is in a device view on a laptop behind them.
-
-Pressing one while stopped does not also turn. A fresh snake points up by definition, so
-a turn before the first tick would mean nothing and read as a lost press.
-
-Every other pad is inert. Three buttons is what the game needs and no more. A direction
-per pad would want four, and an absolute-heading grid would want the arena. Both make the
-wall harder to read. The three are lit in different colours - `ocean`, `amber`, `sky` -
-so which is which is readable from the hardware alone, and the sprint pad goes `white`
-while it is held.
-
-**The sprint is HELD, not toggled.** It is a risk you commit to and let go of. A toggle
-would turn that into a mode you can forget you are in.
-
-The snake moves one cell per tick and speeds up as it grows. Fruit appears on a random
-free arena cell in a random colour, and eating it grows the snake by one. Hitting the
-wall or itself costs a life.
-
-### 2 The device, and where the code is
-
-```js
-// patcher/devices.mjs
-{ name: "push-snake", type: "instrument", chains: ["webaudio"], unmatchedTo: "js" }
-```
-
-`webaudio` compiles the device page to `[jweb~]` and sums its L/R into the device's
-audio path, so the same page that owns the grid owns the sound. No window, no second
-bundle. The `takeover` chain is **not listed** - it is derived from the `controls`
-declaration, the way `download` is derived from a `files.ts`.
-
-**It is built, and the code is the documentation.** Rather than a second copy that
-drifts:
-
-| | |
-|---|---|
-| what it claims | [`src/app/push-snake/controls.ts`](../src/app/push-snake/controls.ts) |
-| its parameters and state slot | [`src/app/push-snake/surface.ts`](../src/app/push-snake/surface.ts) |
-| the game and the clock | [`src/app/push-snake/worker.ts`](../src/app/push-snake/worker.ts) |
-| the soundtrack | [`src/app/push-snake/music.ts`](../src/app/push-snake/music.ts), and [`music/README.md`](../src/app/push-snake/music/README.md) for what to render |
-| frames out, presses in, the sound | [`src/app/push-snake/App.tsx`](../src/app/push-snake/App.tsx) |
-
-**The soundtrack is four loop layers and a main tune.** The layers go sparsest to densest,
-climbing one level every three segments and holding on the densest. A change is booked for
-the next BAR rather than run on the spot, because a fruit is eaten mid-bar and swapping the
-arrangement there sounds like a mistake. The bar comes from the loop length: 18.823537 s is
-8 bars of 4/4 at 102.0000 BPM exactly.
-
-All four are 18.823537 s at 22.05 kHz - the same length to the sample. They are decoded
-and started at the same moment and play in sync, and a level change crossfades their GAINS
-rather than restarting anything. That is what makes every transition sample-accurate, and
-why they must be the same length.
-
-`theme.ogg` is 88.2 s at 48 kHz. It is a different piece, not a denser mix of the same one,
-so it cannot share their clock. It plays once, on its own bus, twice in a session: as a
-welcome when the device loads, and again when the gauge fills. A loss gets silence.
-
-**While idle the pads scroll SNAKE**, in a 4x5 font - three columns cannot draw an N
-without it reading as an H. The bottom row keeps the HUD.
-
-Two things the shipped version does that the sketch above does not, both of them the
-API telling the truth about the hardware:
-
-- **The wall is `tan`, not `dark_grey`.** No grey was identified in the palette
-  photographs, and `PUSH_PALETTE` names nothing it cannot point at. An index invented by
-  analogy with the Push 2 velocity palette would be a guess wearing a name.
-- **`speed` became `difficulty`.** A dial in hertz was wrong three ways: the number on
-  Push stopped agreeing with the grid once the snake grew, nobody thinks about a game in
-  hertz, and most of the range was unplayable. Three named settings say what the control
-  is for.
-- **The device view tells "takeover off" apart from "another device has the grid".** On
-  the hardware those two look the same - a dark Push - and the second one is what a
-  second instance in the same set produces.
-- **The device view draws the grid too.** The same frame the worker emits goes to
-  `pads.draw()` and to React, so the two surfaces cannot disagree about the game - and
-  the device is playable with no Push connected, from the two lit pads or the arrow
-  keys. The pads are 12 px: eight rows and their gaps come to 110 px, and the device
-  view is a fixed ~169 px that clips silently rather than scrolling.
-
-### 3 What it has to prove
-
-Not "Snake works". These, because they are what the next device inherits - and none of
-them could be checked without a Push in the room, because **a rejected LiveAPI call
-reports nothing**. They have been: `push-snake` runs on a Push 3, grid, HUD, sprint,
-music and state.
+It also ships as its own release zip - one `.amxd` and a README, for somebody who wants a
+game and has never heard of this library. See `bundles` in `patcher/devices.mjs`.
 
 ---
 
@@ -446,28 +193,45 @@ frame like any other - the frame API's `draw` with a glyph table.
 of use case 3's scale explorer, and it is why this example and that one pull the API in
 different directions.
 
-### 2 The crossfader is the touch strip
+### 2 The crossfader is NOT the touch strip - measured
 
-```tsx
-strip.onValue((v) => setCrossfade(v * 2 - 1));   // 0..1 -> -1..+1
+This section wanted `strip.onValue((v) => setCrossfade(v * 2 - 1))`. It cannot have it.
+
+**Measured on a Push 3** ([MAX-FACTS.md](MAX-FACTS.md)): grabbed,
+`Touch_Strip_Control` streams continuously, and its `value` is a byte counting in steps
+of 64 and wrapping. Four distinct values over 180 events:
+
+```
+-128, -64, 0, 64          as unsigned bytes: 0, 64, 128, 192
 ```
 
-One control, continuous, exactly where a fader belongs on the hardware, and it writes
-the **real `xfader` parameter** - so the strip, the on-screen fader, an encoder and an
-automation lane are all moving the same value. That is the whole reason the Surface
-stays the Surface (see the opening).
+The direction of travel is recoverable from the wrapped difference between events. The
+position is not - it repeats every four. That is a relative control, not the ~64-step
+fader a crossfade needs, and a crossfade you cannot put at a known position is not a
+crossfade.
 
-The old eight-cell row is gone. It could only ever have been eight taps, and a
-crossfade that jumps in eighths is not a crossfade.
+So the crossfader falls back to the `xfader` **encoder**, and it still writes the real
+Live parameter, which was always the point: the encoder, the on-screen fader and an
+automation lane all move the same value.
 
-### 3 The platter is the jog wheel
+**What would answer it properly** is `Nav_Select_Touch` or `Mpe_Pitch_Bend_Elements`.
+`get_control_names` lists both and nobody has read either. `probe_other <name> 1` in
+`push-probe` grabs any control by name and says whether its trace is a delta or a
+position.
+
+### 3 The platter is the jog wheel - measured, and it works
 
 ```tsx
 jog.onDelta((d) => scrub(selectedDeck, d));
 ```
 
-`Jogwheel` is a real encoder-style control, so a scrub is its delta rather than an
-angle inferred from which pad is under a finger. `Jogwheel_Left_nudge` and
+**Measured on a Push 3**: grabbed, `Jogwheel` streams continuously and reports a DELTA of
+one detent as a signed 7-bit step - `1` clockwise, `127` for -1. One event per detent, and
+turning faster sends them faster rather than sending a bigger number. There is no
+acceleration in the value and no position at all, which is correct for a continuous
+rotary: a device integrates the steps and owns the result.
+
+So a scrub is its delta rather than an angle inferred from which pad is under a finger. `Jogwheel_Left_nudge` and
 `Jogwheel_Right_nudge` are beat nudges without any inference at all, and
 `Jogwheel_Press` is the natural "scratch vs pitch-bend" modifier.
 
@@ -505,22 +269,23 @@ are a control panel, not both. A `shift`-held layer, or the numerals shrinking t
 corners once a set is running, are the obvious ways out. Decide it against a
 performance, not against a diagram.
 
-### 6 THE SPIKE THIS ALL DEPENDS ON
+### 6 The spike this depended on - run, and answered
 
-Two questions, both one button press in `push-probe`'s `probe_other`, which grabs any
-control by name and dumps the atoms its `value` carries:
+Two questions, both one button press in `push-probe`'s `probe_other`. Both were run on a
+Push 3 on 2026-08-29, and the answers are in [MAX-FACTS.md](MAX-FACTS.md):
 
-| # | Question | Why it decides the section |
+| # | Question | Answer |
 |---|---|---|
-| J1 | Does `Jogwheel` emit a continuous stream under a grab, and is it a DELTA or an absolute position? | the jog wheel section is the platter. A delta scrubs directly; an absolute wraps and needs unwrapping; nothing at all and there is no platter. |
-| J2 | Does `Touch_Strip_Control` emit a continuous position under a grab, and at what resolution? | the crossfader section is the crossfader. Anything under ~64 steps reads as a stepped fader and is worse than the on-screen one. |
+| J1 | Does `Jogwheel` emit a continuous stream under a grab, and is it a DELTA or an absolute position? | **A delta**, one detent per event, signed 7-bit. The platter lives. |
+| J2 | Does `Touch_Strip_Control` emit a continuous position, and at what resolution? | **No position.** A byte counting in 64s and wrapping - four values. The crossfader falls back to the encoder. |
 
-Nice to have, same cost: `Jogwheel_Press`, `Jogwheel_Tap`, `Jogwheel_Left_nudge`,
-`Jogwheel_Right_nudge`, `Touch_Strip_Tap`.
+So this section survives, one control poorer, and it survives on the half that mattered:
+there is no other continuous rotary on the hardware, and a DJ deck without a platter is a
+playlist.
 
-**If J1 fails, this section dies** - there is no other continuous rotary on the
-hardware, and a DJ deck without a platter is a playlist. **If J2 fails**, the crossfader section falls
-back to the `xfader` encoder and the section survives, poorer.
+Still unread, same cost each: `Jogwheel_Press`, `Jogwheel_Tap`, `Jogwheel_Left_nudge`,
+`Jogwheel_Right_nudge`, `Touch_Strip_Tap`, and the two controls that might carry the
+strip's real position.
 
 ### 7 Where this sits in the order
 
@@ -529,18 +294,19 @@ spike, and the memory question in its stage 2 (a decoded 10-minute FLAC is ~210 
 the AudioContext; two decks plus a preload is over half a gigabyte inside a Chromium
 context inside Live). **Pads on a mixer that has never made a sound are decoration.**
 
-What this section is worth today is still mostly negative, and the negative has
-changed shape. It used to be "nothing in `defineControls` should assume the grid
-belongs to a sequencer". After the spike it is sharper:
+**It already paid for itself, before being built.** Every demand this section made of the
+API is in the shipped `defineControls`, and none of them came from Snake:
 
-- a declaration must be able to claim **non-matrix** controls - a jog wheel, a touch
-  strip, the scene column - **without** claiming the grid, because those cost nothing
-  on the note path and the grid costs everything;
-- a control is not necessarily a grid or a button. A jog wheel is a **stream**, and
-  `defineControls` needs a third shape or it will have to grow one later;
-- and use case 3 pulls the other way, wanting the pads while keeping notes playable - which
-  it now cannot have. Two examples, two incompatible demands, which is exactly what
-  they are here for.
+- a declaration can claim **non-matrix** controls - a jog wheel, a touch strip, the scene
+  column - **without** claiming the grid, because those cost nothing on the note path and
+  the grid costs everything;
+- a control is not necessarily a grid or a button. A jog wheel is a **stream**, so
+  `padStream()` and `usePadStream()` exist, and they hand over raw atoms without decoding
+  them - which is exactly right, now that the measurement says the two streams mean two
+  different things;
+- and use case 3 pulls the other way, wanting the pads while keeping notes playable, which
+  it cannot have. Two examples, two incompatible demands, which is what they are here
+  for.
 
 ---
 

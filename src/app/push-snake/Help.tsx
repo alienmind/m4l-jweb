@@ -1,5 +1,14 @@
 /**
- * Help.tsx (push-snake) - everything the pads mean, in one place.
+ * Help.tsx (push-snake) - how to play, in the device view.
+ *
+ * NOT the same document as `doc/SNAKE.md`, and the split is deliberate. That one is the
+ * README in the release zip: install, credits, links, the parameter table, read before
+ * you have the thing running. This one is read WHILE playing, in a box about 169 px tall,
+ * by somebody who has already installed it - so it is the pads, the colours and the
+ * rules, drawn rather than described, and it says nothing about installing.
+ *
+ * They overlap on the rules, and that is the one place to keep an eye on: if the game
+ * changes, both say so. The facts live in `worker.ts`; these are two descriptions of it.
  *
  * IT IS NOT A WINDOW, and that is the whole design. A declared `window()` is a second
  * page: its own bundle, its own Chromium context, its own copy of React, and no shared
