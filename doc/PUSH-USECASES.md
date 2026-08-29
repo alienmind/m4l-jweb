@@ -232,7 +232,7 @@ The page is a thin shell: it moves frames out and events in, and it makes the no
 
 **This is the scope of the work, and it shipped.** Everything after it is a sketch of
 what the same API could carry later and is explicitly **not** being implemented. What
-remains for this one is hardware verification, not code - [TODO.md](TODO.md) item 2b.
+remains for this one is nothing: it runs on a Push 3 and the checklist has been run.
 
 Snake, on the 8x8, in TypeScript, sounding through the track. Chosen because its bugs
 are visible from across the room, its rules fit in a paragraph, and it exercises every
@@ -376,10 +376,10 @@ API telling the truth about the hardware:
 
 ### 3 What it has to prove
 
-Not "Snake works". These, because they are what the next device inherits - and none
-of them can be checked without a Push in the room, because **a rejected LiveAPI call
-reports nothing**. The checklist lives with the rest of the open work, in
-[TODO.md](TODO.md) item 2b.
+Not "Snake works". These, because they are what the next device inherits - and none of
+them could be checked without a Push in the room, because **a rejected LiveAPI call
+reports nothing**. They have been: `push-snake` runs on a Push 3, grid, HUD, sprint,
+music and state.
 
 ---
 

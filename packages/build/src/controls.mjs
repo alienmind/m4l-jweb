@@ -9,7 +9,7 @@
  * ------------------------------------------------------------------------------
  * WHERE THE WORK LIVES, and why it is split where it is.
  *
- * doc/TODO.md item 2c asks for discovery, grab, release and the value observer in
+ * doc/TODO.md asked for discovery, grab, release and the value observer in
  * the chain, with the frame diff and `send_value` in the wrapper. The line moved,
  * and it moved for one reason: EVERY MEASURED FACT ABOUT THIS API WAS MEASURED
  * THROUGH `[js]`. `push-probe` resolved the surface, grabbed by name, painted and
