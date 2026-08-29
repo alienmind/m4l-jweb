@@ -51,10 +51,17 @@ function bang(): void {
   setupTempoObserver(); // liveapi.ts
   startTickPoll(); // liveapi.ts
   setupWatches(); // watch.ts - the device's declared defineWatch() observers
+  setupControls(); // controls.ts - the device's declared defineControls() takeover
   followWindowSizes(); // a resized window resizes its page
   // A device's own wrapper/device.ts hooks in here: this is the ONLY safe place
   // to create LiveAPI objects (see the loadbang trap above).
   if (typeof onDeviceReady === "function") onDeviceReady();
+  // ...and a HEADLESS device's own logic hooks in HERE, under a name of its own.
+  // `wrapper/device.ts` is repo-wide and already owns `onDeviceReady`; everything is
+  // concatenated into one [js] script, so a headless device defining the same function
+  // would not extend that hook, it would REPLACE it - silently, and for every device in
+  // the repo that shares the script. Two hooks, two names, no collision.
+  if (typeof onHeadlessReady === "function") onHeadlessReady();
 }
 
 /** Patcher loaded. File work is safe here; LiveAPI is NOT. */
@@ -71,6 +78,7 @@ function reload(): void {
   setupTempoObserver();
   startTickPoll();
   setupWatches(); // watch.ts
+  setupControls(); // controls.ts
 }
 
 /**
@@ -126,6 +134,7 @@ function ui_ready(): void {
   resendWatches(); // watch.ts - the current value of every declared watch, for a late page
   sendDeviceFolder(); // where this device's files land, for a device that declares any
   sendTrackKind(); // liveapi.ts - audio | midi | none, which decides what clips it can make
+  resendControls(); // controls.ts - which declared roles resolved, and do we hold them
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
@@ -544,7 +553,23 @@ function window(id: string): void {
  * real file next to the .amxd on first load and point jweb at that file:// URL.
  * ------------------------------------------------------------------ */
 
+/**
+ * Is this a HEADLESS device - no [jweb], no page, no payload?
+ *
+ * The build injects `HEADLESS` for a device whose manifest says `target: "headless"`.
+ * Everything else about the wrapper is unchanged; what changes is that there is
+ * nothing on outlet 0 that wants a URL, and nothing on disk to extract for it.
+ */
+function headless(): boolean {
+  return typeof HEADLESS !== "undefined" && !!HEADLESS;
+}
+
 function loadWebview(): void {
+  // Nothing to point at a page that is not in the patcher. Outlet 0 still carries the
+  // app's messages under this target - it is [js] talking to the routes the chains and
+  // the Surface put there - so sending a `url` down it would be a message the device's
+  // own logic has to learn to ignore, for a browser it does not have.
+  if (headless()) return;
   try {
     var url = resolveUiUrl();
     if (!url) return;
@@ -645,6 +670,7 @@ var resizeTask: Task | null = null;
 var appliedSize: { [id: string]: string } = {};
 
 function followWindowSizes(): void {
+  if (headless()) return; // no windows without a browser to put one in
   var ids = listWindowIds();
   if (!ids.length) return;
   if (resizeTask) resizeTask.cancel();

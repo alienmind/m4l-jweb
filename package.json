@@ -1,7 +1,7 @@
 {
 	"name": "m4l-jweb",
 	"private": true,
-	"version": "1.3.1",
+	"version": "1.6.0",
 	"type": "module",
 	"packageManager": "pnpm@10.29.3",
 	"description": "Build Ableton Live (.amxd) devices from a TypeScript repo - React UI, LiveAPI glue, CI builds, no Max editor.",
@@ -17,6 +17,7 @@
 		"dev:hello-state": "node scripts/dev.mjs hello-state",
 		"dev:hello-window": "node scripts/dev.mjs hello-window",
 		"dev:push-probe": "node scripts/dev.mjs push-probe",
+		"dev:push-snake": "node scripts/dev.mjs push-snake",
 		"build": "tsc -b && node scripts/build-ui.mjs && m4l-jweb build",
 		"build:wrapper": "m4l-jweb wrapper",
 		"build:patchers": "m4l-jweb patchers",

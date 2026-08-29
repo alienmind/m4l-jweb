@@ -16,10 +16,17 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AMXD_TYPES, assertES5, buildAmxd, extraPayloadsJs, payloadJs } from "./amxd.mjs";
-import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, resetLayout } from "./chains.mjs";
+import { CHAINS, assertUniqueBoxIds, closeAudio, openAudio, registerChain, resetLayout } from "./chains.mjs";
+import { CONTROLS_CHAIN, controlsSpecBanner, takeoverChain, withControlsChain } from "./controls.mjs";
+import { deviceTarget, isHeadless, openApp } from "./target.mjs";
 import { applySurface, applyWindows, applyPersistence, loadSurface, parameterRegistry, surfaceContext } from "./surface.mjs";
 import { effectiveChains, filesSpecBanner, loadFiles } from "./files.mjs";
 import { loadWatch, watchSpecsBanner } from "./watch.mjs";
+
+// The takeover chain lives in controls.mjs beside the rest of defineControls()'s
+// build half, and joins the vocabulary here rather than in chains.mjs - which it
+// imports for box()/line()/fanParamInto(), and which must not import it back.
+registerChain(CONTROLS_CHAIN, takeoverChain);
 
 const require = createRequire(import.meta.url);
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -111,6 +118,76 @@ export function buildWrapper(root) {
 
   console.log(`m4l-jweb: wrapper.js (${js.length} bytes, ES5 verified, from ${files.length} sources)`);
   return out;
+}
+
+/**
+ * Compile ONE headless device's own `[js]` logic to ES5.
+ *
+ * `src/app/<device>/headless.ts` is what `App.tsx` is for a jweb device: the thing the
+ * device actually does. It is concatenated after the packaged wrapper, so it sees the
+ * wrapper's globals (`post`, `outlet`, `Task`, `LiveAPI`, `MODE`) and typechecks
+ * against them - which is why the wrapper sources are in the program even though only
+ * this file's output is kept.
+ *
+ * ONE PROGRAM PER DEVICE, deliberately. Compiling every device's headless source
+ * together would put them all in one global scope, where two devices could not both
+ * declare a `var step` - a constraint invented by the build, paid by the author, for
+ * nothing. A tsc run is about a second.
+ *
+ * The ES5 gate is the same one the wrapper passes and for the same reason: Max's [js]
+ * is an ES5-era interpreter, and this file runs inside it.
+ */
+export function buildHeadless(root, uiDir) {
+  const src = path.join(root, "src", "app", uiDir, "headless.ts");
+  if (!existsSync(src)) return null;
+
+  const { sources, types } = require("@m4l-jweb/wrapper/sources");
+  const deviceExt = path.join(root, "wrapper", "device.ts");
+  const context = [...sources, ...(existsSync(deviceExt) ? [deviceExt] : [])];
+
+  const tmp = path.join(root, "dist", `.headless-${uiDir}`);
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+
+  // Staged flat, like buildWrapper: tsc derives its output layout from the common root
+  // of its inputs, and the packaged sources live in node_modules while this one lives
+  // in the repo.
+  const staged = context.map((f, i) => {
+    const dest = path.join(tmp, `${String(i).padStart(2, "0")}-${path.basename(f)}`);
+    writeFileSync(dest, readFileSync(f, "utf8"));
+    return dest;
+  });
+  const mine = path.join(tmp, "device-headless.ts");
+  writeFileSync(mine, readFileSync(src, "utf8"));
+  const stagedTypes = path.join(tmp, path.basename(types));
+  writeFileSync(stagedTypes, readFileSync(types, "utf8"));
+
+  const tsconfig = path.join(tmp, "tsconfig.json");
+  writeFileSync(
+    tsconfig,
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES5",
+        lib: ["ES5"],
+        module: "none",
+        outDir: tmp,
+        strict: true,
+        noImplicitThis: false,
+        alwaysStrict: false,
+        noImplicitAny: false,
+        skipLibCheck: true,
+        types: [],
+      },
+      files: [stagedTypes, ...staged, mine],
+    }),
+  );
+  execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", tsconfig], { stdio: "inherit" });
+
+  const js = readFileSync(mine.replace(/\.ts$/, ".js"), "utf8");
+  assertES5(js, `headless logic for ${uiDir}`);
+  rmSync(tmp, { recursive: true, force: true });
+  console.log(`m4l-jweb: headless logic for ${uiDir} (${js.length} bytes, ES5 verified)`);
+  return js;
 }
 
 /* ------------------------------------------------------------------ *
@@ -217,7 +294,14 @@ export function composePatcher(base, d, surface, files = null) {
    *
    * Unset keeps the object's default. jweb~ clamps to 3x the minimum.
    */
-  if (d.latency != null) boxes.find((b) => b.box.id === "obj-jweb").box.latency = d.latency;
+  if (d.latency != null) {
+    // A headless device has no [jweb~] to buffer, and a `latency` on one is a setting
+    // for a thing that is not there - worth saying, not ignoring.
+    if (isHeadless(d)) {
+      throw new Error(`device "${d.name}" is target "headless" and sets \`latency\` - there is no [jweb~] to give a ring buffer to.`);
+    }
+    boxes.find((b) => b.box.id === "obj-jweb").box.latency = d.latency;
+  }
 
   /**
    * `mpe: true` - ask Live to send this device MPE.
@@ -253,11 +337,21 @@ export function composePatcher(base, d, surface, files = null) {
   // voice abstraction). A chain pushes { name, data } here; generatePatchers writes
   // each next to the device patcher and packageDevices freezes it into the container.
   const extras = [];
-  const ctx = { boxes, lines, jwebId: "obj-jweb", unmatchedId, device: d, extras, ...surfaceContext(surface) };
+  const ctx = { boxes, lines, unmatchedId, device: d, extras, ...surfaceContext(surface) };
 
+  // WHERE THE LOGIC RUNS, decided once and before anything else touches the graph.
+  // It sets `ctx.appIn` / `ctx.appOut` - the endpoint every chain reaches "the app"
+  // through - and, for a headless device, deletes [jweb] and both of its cords. A
+  // chain claims a stage in a stream it did not create and must not know which target
+  // created it (target.mjs).
+  openApp(ctx);
   openAudio(ctx);
 
-  for (const name of effectiveChains(d.chains, files)) {
+  // A declared takeover contributes its chain the way a declared files.ts
+  // contributes `download`: derived from the declaration, never from the manifest
+  // remembering to ask. A device whose observers were missing would load, grab, and
+  // report every press to nobody.
+  for (const name of withControlsChain(effectiveChains(d.chains, files), surface)) {
     const chain = CHAINS[name];
     if (!chain) throw new Error(`unknown chain "${name}" for device "${d.name}" (known: ${Object.keys(CHAINS).join(", ")})`);
     chain(ctx);
@@ -320,8 +414,9 @@ export async function generatePatchers(root) {
     // The chains it was BUILT with, not the ones the manifest listed - a derived
     // `download` that never appeared in the log would be the same invisible wiring
     // this feature exists to end.
-    const chains = effectiveChains(d.chains, files).join(", ") || "none";
-    console.log(`m4l-jweb: ${d.name}.json (${d.type}, chains: ${chains}, params: ${params || "none"})`);
+    const chains = withControlsChain(effectiveChains(d.chains, files), surface).join(", ") || "none";
+    const target = deviceTarget(d);
+    console.log(`m4l-jweb: ${d.name}.json (${d.type}/${target}, chains: ${chains}, params: ${params || "none"})`);
   }
   return devices;
 }
@@ -406,15 +501,17 @@ export async function packageDevices(root) {
      * disk was stale. The symptom would be a device showing its sibling's
      * interface.
      */
+    const headless = isHeadless(d);
     const uiName = `${d.name}.html`;
-    const uiSrc = path.join(dist, "ui", d.ui ?? d.name, "index.html");
-    const legacy = path.join(dist, "index.html"); // single-UI repos (the starter template)
-    const uiFrom = existsSync(uiSrc) ? uiSrc : legacy;
-    if (!existsSync(uiFrom)) {
-      throw new Error(`no UI for "${d.name}" at ${uiSrc} - run \`pnpm build\` (scripts/build-ui.mjs) first`);
+    if (!headless) {
+      const uiSrc = path.join(dist, "ui", d.ui ?? d.name, "index.html");
+      const legacy = path.join(dist, "index.html"); // single-UI repos (the starter template)
+      const uiFrom = existsSync(uiSrc) ? uiSrc : legacy;
+      if (!existsSync(uiFrom)) {
+        throw new Error(`no UI for "${d.name}" at ${uiSrc} - run \`pnpm build\` (scripts/build-ui.mjs) first`);
+      }
+      await copyFile(uiFrom, path.join(outDir, uiName));
     }
-    const uiHtml = readFileSync(uiFrom);
-    await copyFile(uiFrom, path.join(outDir, uiName));
 
     /**
      * Payloads ride inside wrapper.js as base64 and are written to real files
@@ -428,19 +525,40 @@ export async function packageDevices(root) {
     // ...and so do its declared files: FILES_SPEC is what tells the packaged wrapper
     // this device writes to disk, and therefore to hand the page its device folder.
     const files = await loadFiles(root, d.ui ?? d.name);
+    // ...and its declared CONTROLS: CONTROLS_SPEC is the role table the packaged
+    // wrapper resolves against the connected hardware's own get_control_names.
+    const deviceSurface = await loadSurface(root, d.ui ?? d.name);
     let wrapperData =
-      banner + watchSpecsBanner(watch) + filesSpecBanner(files) + siteWindowsBanner(root, outDir, d, await loadSurface(root, d.ui ?? d.name)) + wrapperJs;
-    const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
+      banner +
+      // The one thing that tells the packaged wrapper there is no page: no [jweb] to
+      // point at a URL, no payload to extract, no window sizes to follow. Everything
+      // else about the wrapper is unchanged, which is the point of the target being a
+      // seam rather than a second wrapper.
+      (headless ? "var HEADLESS = 1;\n" : "") +
+      watchSpecsBanner(watch) +
+      filesSpecBanner(files) +
+      controlsSpecBanner(deviceSurface) +
+      siteWindowsBanner(root, outDir, d, deviceSurface) +
+      wrapperJs;
 
-    // Main UI payload
-    wrapperData += payloadJs("UI_PAYLOAD", uiName, readFileSync(path.join(dist, "ui", d.ui ?? d.name, "index.html")));
-
-    // Additional window payloads
-    const extraWindows = uiDirContent.filter((f) => f !== "index.html");
     const payloads = (d.payloads ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) }));
 
-    for (const winHtml of extraWindows) {
-      payloads.push({ name: `${d.name}_${winHtml}`, data: readFileSync(path.join(dist, "ui", d.ui ?? d.name, winHtml)) });
+    if (headless) {
+      // The device's OWN [js], where a jweb device would have had a bundle. Nothing
+      // else is appended: a headless .amxd contains a patcher and one script, and that
+      // is the whole claim the target makes.
+      const own = buildHeadless(root, d.ui ?? d.name);
+      if (own) wrapperData += "\n" + own;
+    } else {
+      const uiDirContent = readdirSync(path.join(dist, "ui", d.ui ?? d.name)).filter((f) => f.endsWith(".html"));
+
+      // Main UI payload
+      wrapperData += payloadJs("UI_PAYLOAD", uiName, readFileSync(path.join(dist, "ui", d.ui ?? d.name, "index.html")));
+
+      // Additional window payloads
+      for (const winHtml of uiDirContent.filter((f) => f !== "index.html")) {
+        payloads.push({ name: `${d.name}_${winHtml}`, data: readFileSync(path.join(dist, "ui", d.ui ?? d.name, winHtml)) });
+      }
     }
 
     if (payloads.length) wrapperData += extraPayloadsJs(payloads);
@@ -461,7 +579,7 @@ export async function packageDevices(root) {
       extras: [...(d.extraFiles ?? []).map((f) => ({ name: path.basename(f), data: readFileSync(path.join(root, f)) })), ...chainExtras],
     });
     writeFileSync(path.join(outDir, deviceName), amxd);
-    console.log(`m4l-jweb: ${deviceName} (${d.type}, ${amxd.length} bytes)`);
+    console.log(`m4l-jweb: ${deviceName} (${d.type}/${deviceTarget(d)}, ${amxd.length} bytes)`);
   }
 
   await copyFile(path.join(dist, "wrapper", "wrapper.js"), path.join(outDir, "wrapper.js"));
@@ -518,7 +636,10 @@ export async function packageDevices(root) {
     archive.pipe(output);
     const files = [
       ...devices.map((d) => `${d.name}.amxd`),
-      ...devices.map((d) => `${d.name}.html`), // each device's own UI, for inspection
+      // Each device's own UI, for inspection - a HEADLESS device has none, and there
+      // is nothing missing: the .amxd holds the patcher and one script, which is the
+      // whole of it.
+      ...devices.filter((d) => !isHeadless(d)).map((d) => `${d.name}.html`),
       ...loose.map((f) => path.basename(f)),
       ...presets,
       ...docs,

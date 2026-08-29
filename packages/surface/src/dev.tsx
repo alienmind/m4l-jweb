@@ -26,8 +26,8 @@
  * tests/bundle.test.mjs asserts HARNESS_MARKER is absent from the built ui.html.
  */
 import { useEffect, useRef, useState } from "react";
-import { simulate, tapMessages, type BridgeMessage } from "@m4l-jweb/bridge";
-import { BANK_SIZE, formatValue, type ParamSpec, type Surface } from "./index";
+import { CONTROLS_IN, CONTROLS_OUT, padSelector, simulate, tapMessages, type BridgeMessage } from "@m4l-jweb/bridge";
+import { BANK_SIZE, cssForPaletteIndex, formatValue, TAKEOVER_PARAM, type ControlSpec, type Controls, type ParamSpec, type Surface } from "./index";
 import { useSurface } from "./react";
 
 /**
@@ -113,6 +113,8 @@ export function DevHarness({ surface }: { surface?: AnySurface | null }) {
         </>
       )}
 
+      {surface?.controls && <PadMock surface={surface} controls={surface.controls} />}
+
       <section style={S.section}>
         <div style={S.row}>
           <h2 style={S.h2}>messages</h2>
@@ -191,6 +193,107 @@ function Params({ surface }: { surface: AnySurface }) {
             )}
 
             <span style={S.paramValue}>{formatValue(spec, value)}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/**
+ * THE PADS, MOCKED - the 8x8 grid, before there is any hardware in the room.
+ *
+ * WHY IT EXISTS AT ALL, and why it was built before the first real device: without
+ * it, every iteration on a grid device is a rebuild, a reinstall, a re-drag (Live
+ * embeds a COPY of a device in the set, so instances already on tracks do not
+ * update) and a squint at sixty-four LEDs to work out whether a cell is one column
+ * off. Here it is a browser tab.
+ *
+ * It is driven by the REAL contract, in both directions, and that is the whole
+ * point of putting it on the bridge tap rather than on the store:
+ *
+ *   paint   every `controls_frame <key> <64 indices>` the app sends is rendered,
+ *           palette index by palette index, in the same hardware order the wrapper
+ *           would receive - so a y flip that is wrong shows up here as an upside-down
+ *           picture, which is exactly what it would be on the hardware.
+ *   press   a click fakes `pad_<key> <velocity> <x> <yFromTop>` inbound, the shape a
+ *           `[live.observer]` actually emits, and a release on mouse-up.
+ *
+ * THE HONEST LIMIT is the usual one: it is the message-level contract, not the
+ * hardware. It cannot tell you about pad latency, about a grab Live rejected without
+ * saying so, or about what a palette index really looks like under a camera. Keep
+ * "look at the Push" for those.
+ *
+ * `controls_held` is driven from the `takeover` parameter alone. The real answer
+ * also depends on `focus` and on what Live has selected, which a mock has no way to
+ * know - so this deliberately answers the easy half and a device should still be
+ * tried with two instances in one set.
+ */
+function PadMock({ surface, controls }: { surface: AnySurface; controls: Controls }) {
+  const [values] = useSurface(surface);
+  const keys = controls.keys as readonly string[];
+  const specs = controls.controls as Record<string, ControlSpec>;
+  const [frames, setFrames] = useState<Record<string, number[]>>({});
+
+  // Every declared role "resolves" on a mock. Sent once, so a device that renders
+  // usePadRoles() shows the same thing it would with the hardware plugged in.
+  useEffect(() => {
+    for (const key of keys) simulate(CONTROLS_IN.controls_role, key, 1);
+    // The declaration does not change at runtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const held = Boolean(values[TAKEOVER_PARAM]);
+  // The reason travels with it, as it does from the wrapper - the mock only ever has
+  // the two easy answers, because it cannot know what Live has selected.
+  useEffect(() => simulate(CONTROLS_IN.controls_held, held ? 1 : 0, held ? "held" : "off"), [held]);
+
+  useEffect(
+    () =>
+      tapMessages((m) => {
+        if (m.direction !== "out") return;
+        if (m.selector === CONTROLS_OUT.controls_refresh) return setFrames({});
+        if (m.selector !== CONTROLS_OUT.controls_frame) return;
+        const [key, ...cells] = m.args;
+        setFrames((prev) => ({ ...prev, [String(key)]: cells.map(Number) }));
+      }),
+    [],
+  );
+
+  return (
+    <section style={S.section}>
+      <div style={S.row}>
+        <h2 style={S.h2}>pads (mocked)</h2>
+        <span style={S.bankName}>{held ? "held" : "released"}</span>
+      </div>
+      {keys.map((key) => {
+        const spec = specs[key];
+        const rows = spec.kind === "grid" ? spec.rows : 1;
+        const cols = spec.kind === "grid" ? spec.cols : 1;
+        const cells = frames[key] ?? [];
+        return (
+          <div key={key}>
+            <div style={S.padLabel}>
+              {key} · {spec.role}
+            </div>
+            <div style={{ ...S.padGrid, gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+              {Array.from({ length: rows * cols }, (_, i) => {
+                // Row 0 is the TOP, on the wire and here - the mock renders exactly
+                // what was sent, so a device that flipped y twice looks wrong.
+                const x = i % cols;
+                const y = Math.floor(i / cols);
+                return (
+                  <button
+                    key={i}
+                    title={`x ${x} y ${rows - 1 - y}`}
+                    style={{ ...S.pad, background: cssForPaletteIndex(cells[i] ?? 0), opacity: held ? 1 : 0.35 }}
+                    onMouseDown={() => simulate(padSelector(key), 100, x, y, 1)}
+                    onMouseUp={() => simulate(padSelector(key), 0, x, y, 1)}
+                    onMouseLeave={(e) => e.buttons === 1 && simulate(padSelector(key), 0, x, y, 1)}
+                  />
+                );
+              })}
+            </div>
           </div>
         );
       })}
@@ -308,6 +411,9 @@ const S: Record<string, React.CSSProperties> = {
   },
   bankName: { color: "#7d8694", marginLeft: "auto" },
   push: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 },
+  padLabel: { color: "#7d8694", margin: "4px 0 3px" },
+  padGrid: { display: "grid", gap: 3 },
+  pad: { aspectRatio: "1", border: "1px solid #262a31", borderRadius: 3, padding: 0, cursor: "pointer" },
   cell: { background: "#0e1013", border: "1px solid #262a31", borderRadius: 2, padding: "4px 5px", overflow: "hidden" },
   cellName: { color: "#7d8694", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   cellValue: { color: "#8fd0a4", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },

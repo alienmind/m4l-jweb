@@ -215,6 +215,99 @@ export const CHAIN_OUT = {
   save_end: "save_end",
 } as const;
 
+/* ------------------------------------------------------------------ *
+ * The CONTROL SURFACE contract - the pads, declared with defineControls()
+ *
+ * A device that claims a Push control gets three things across the bridge, and
+ * they are the whole vocabulary: pad events IN, a frame OUT, and a running answer
+ * to "do we actually hold it right now".
+ *
+ * THE KEY IS PART OF THE SELECTOR ON THE WAY IN AND AN ARGUMENT ON THE WAY OUT,
+ * for the same reason a state slot's id is: the BRIDGE dispatches on the selector,
+ * so one binding per declared control means the app never unpacks a key; MAX
+ * dispatches on the first word, so an id baked into an outbound selector goes
+ * looking for a handler no device has. `pad_<key>` in, `controls_frame <key> ...`
+ * out. Neither name is yours to type - the hooks derive both from the declaration.
+ *
+ * Y COUNTS FROM THE TOP ON THIS WIRE. The hardware numbers rows downward and
+ * `defineControls`' API numbers them upward (see PUSH-USECASES.md), and the flip
+ * happens in exactly ONE place - `usePadGrid` - so everything either side of it is
+ * in its own natural orientation. Get that wrong somewhere else and every device on
+ * the grid is mirrored vertically with nothing to report it.
+ * ------------------------------------------------------------------ */
+
+/** Selectors the TAKEOVER chain and the wrapper send to a device that declares controls. */
+export const CONTROLS_IN = {
+  /**
+   * chain -> UI: `pad_<key> <value> <x> <yFromTop> <unknown>` - one event off the
+   * grabbed control's `value`, straight out of a `[live.observer]` with no `[js]`
+   * between the hardware and the page.
+   *
+   * MEASURED on a Push 3 (doc/MAX-FACTS.md): the value is four atoms,
+   * `<velocity> <x> <y> <1>`, y from the TOP, and nothing arrives between a press
+   * and its release - no pressure, no slide. The fourth atom has been `1` on every
+   * event observed and is passed through unnamed rather than guessed at.
+   *
+   * `live.observer` also emits the property's CURRENT value the moment it is
+   * pointed at an object, which for a control that has never been touched is not a
+   * press: the arity is what tells them apart, and `usePadGrid` drops anything
+   * shorter than three atoms.
+   *
+   * A `stream` control (a jog wheel, a touch strip) uses the same selector with
+   * whatever atoms its own `value` carries.
+   */
+  pad: "pad_",
+  /**
+   * wrapper -> UI: `controls_role <key> <1 resolved | 0 not on this hardware>`.
+   *
+   * A Push 3 answers `get_control_names` with 176 names and they are NOT the Push 2
+   * set, so a role is resolved at runtime against that answer. A role that is not
+   * there is the one failure this API can actually report - say so, rather than
+   * grabbing nothing and looking grabbed.
+   */
+  controls_role: "controls_role",
+  /**
+   * wrapper -> UI: `controls_held <0|1> <reason>` - do we own the declared controls
+   * RIGHT NOW, and if not, why not?
+   *
+   * It is not the same question as "is `takeover` on": the `focus` parameter decides
+   * whether an enabled device holds the grid while another track is selected, and two
+   * of these devices in one set is the normal case. Resent on `ui_ready`.
+   *
+   * THE REASON IS THE POINT. `off`, `no_surface`, `unresolved` and `not_focused` are
+   * four different problems that look identical on the hardware - a dark Push - and
+   * Live will not tell anyone apart from them, because a rejected grab is a console
+   * line and a normal return. This is the wrapper reporting the decision it made,
+   * which is the only half that can be known in code.
+   */
+  controls_held: "controls_held",
+} as const;
+
+/** Selectors the wrapper RECEIVES from a device that declares controls. */
+export const CONTROLS_OUT = {
+  /**
+   * UI -> wrapper: `controls_frame <key> <c0> <c1> ... <c63>` - the WHOLE grid, as
+   * palette indices, row-major from the TOP-LEFT in hardware order.
+   *
+   * One message per frame, not one per cell: sixty-four messages a frame is a data
+   * plane and `[js]` is a control plane. The wrapper keeps the last frame it
+   * actually sent to the hardware and issues `send_value` only for the cells that
+   * changed, so a device redraws freely - every tick, every state change - and pays
+   * for the pads that moved. A blinking cursor costs one cell per blink.
+   */
+  controls_frame: "controls_frame",
+  /**
+   * UI -> wrapper: `controls_refresh` - forget the last frame and repaint everything.
+   *
+   * The page uses it after a re-grab, because Live repaints the matrix as it hands
+   * it over and the wrapper's idea of what is lit is then a lie.
+   */
+  controls_refresh: "controls_refresh",
+} as const;
+
+/** The inbound selector one declared control's events arrive on. */
+export const padSelector = (key: string): string => `${CONTROLS_IN.pad}${key}`;
+
 /**
  * Selectors the WRAPPER handles for a device that declares `state` in its surface.
  *

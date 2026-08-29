@@ -25,4 +25,5 @@ export const sources = [
 	src("core.ts"), // build stamp, lifecycle, the anything() guard, payload extraction
 	src("liveapi.ts"), // transport poll, tempo observer, clip I/O
 	src("watch.ts"), // defineWatch() observers - after liveapi, it calls observeProperty()
+	src("controls.ts"), // defineControls() - the Push takeover: discovery, the grab, the frame diff
 ];

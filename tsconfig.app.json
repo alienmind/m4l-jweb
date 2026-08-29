@@ -24,5 +24,13 @@
 		"noUnusedParameters": true,
 		"noFallthroughCasesInSwitch": true
 	},
-	"include": ["src"]
+	"include": ["src"],
+	/*
+	 * A HEADLESS device's `headless.ts` is NOT app code. It is a Max `[js]` script -
+	 * ES5, no modules, and its globals are `post`/`outlet`/`Task`/`LiveAPI` from the
+	 * wrapper's max.d.ts, none of which exist here. The build compiles it in its own
+	 * program (buildHeadless in @m4l-jweb/build), which is where it is typechecked;
+	 * leaving it in this one reports every Max global as an undefined name.
+	 */
+	"exclude": ["src/app/*/headless.ts"]
 }

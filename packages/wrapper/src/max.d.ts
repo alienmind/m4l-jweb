@@ -212,6 +212,44 @@ declare const WATCH_SPECS: { key: string; path: string; property: string }[] | u
 declare const FILES_SPEC: { saves: boolean; fetches: boolean; tellPage: boolean } | undefined;
 
 /**
+ * Injected by @m4l-jweb/build for a device whose manifest says `target: "headless"`.
+ *
+ * There is no [jweb] in the patcher, no HTML payload in the .amxd and no page to hand
+ * a URL to: the device's own logic is this script, appended after the wrapper from
+ * `src/app/<device>/headless.ts`. Undefined for every other device.
+ */
+declare const HEADLESS: number | undefined;
+
+/**
+ * A HEADLESS device's own entry point, from `src/app/<device>/headless.ts`.
+ *
+ * Called from `bang()` - live.thisdevice, the one moment a LiveAPI object is not born
+ * dead. It is a separate name from `onDeviceReady` on purpose: that one belongs to the
+ * repo-wide `wrapper/device.ts`, everything is concatenated into ONE [js] script, and
+ * a second definition of a function does not extend it, it replaces it.
+ */
+declare function onHeadlessReady(): void;
+
+/**
+ * Injected by @m4l-jweb/build from the device's `defineControls()`: what this
+ * device claims on the control surface.
+ *
+ * `names` is the CANDIDATE list for the role, in order - a Push 3 answers
+ * `get_control_names` with 176 names and they are not the Push 2 set, so the
+ * wrapper resolves against that answer rather than calling a name it hopes exists.
+ * Undefined for a device that declares no controls, which is also a device with no
+ * `takeover` chain and therefore no observers.
+ */
+declare const CONTROLS_SPEC:
+  | {
+      surface: string;
+      /** The declared `focus` default, as the menu index Max stores it as. */
+      focus: number;
+      controls: { key: string; kind: string; role: string; rows: number; cols: number; names: string[] }[];
+    }
+  | undefined;
+
+/**
  * Injected by @m4l-jweb/build for every window declared with `site:` - window id
  * -> the path of its index.html RELATIVE to the device folder.
  *

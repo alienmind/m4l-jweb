@@ -389,7 +389,7 @@ function kindBoxAttrs(spec) {
  * wrapper. Doing it last means no chain has to know the Surface exists.
  */
 export function applySurface(ctx) {
-  const { boxes, lines, surface, jwebId } = ctx;
+  const { boxes, lines, surface, jwebId, appIn } = ctx;
   if (!surface || surface.ids.length === 0) return;
 
   // Where the native dials go, if any were declared. `slots` is empty for a
@@ -403,7 +403,8 @@ export function applySurface(ctx) {
   // stays in one place when the app flips between the two views. It is excluded from
   // `computeNativeSlots` (it is not in `native.params`), so give it a rect here.
   const switchId = native?.switch;
-  const jwebBox = boxes.find((b) => b.box.id === jwebId)?.box;
+  // Null under the headless target: there is no page to lay out around.
+  const jwebBox = jwebId ? boxes.find((b) => b.box.id === jwebId)?.box : null;
   const [, , jpw] = jwebBox?.presentation_rect ?? [0, 0, 420, DEVICE_H];
   let switchRect = null;
   if (switchId) {
@@ -435,16 +436,19 @@ export function applySurface(ctx) {
       },
     });
     // Read direction: a knob turn reaches the app as `<id> <value>`. A parameter
-    // is just another inlet message.
+    // is just another inlet message - and under the headless target the app IS the
+    // wrapper, so the same cord lands on a `function <id>()` in [js] instead of on
+    // a `useParam()` in React.
     boxes.push(box(`obj-prepend-${id}`, `prepend ${id}`));
     lines.push(line(paramObject(id), 0, `obj-prepend-${id}`, 0));
-    lines.push(line(`obj-prepend-${id}`, 0, jwebId, 0));
+    lines.push(line(`obj-prepend-${id}`, 0, appIn, 0));
     x += 56;
   }
 
   // Position [jweb] for the native layout. WIDTH is preserved (React layouts were
   // built for 420 px). A surface with no native content leaves [jweb] where the
-  // template put it.
+  // template put it - and a HEADLESS device has no [jweb] at all, so the dials are
+  // the whole device view and nothing needs shifting out of their way.
   if ((nativeW > 0 || switchId) && jwebBox) {
     const [, py, pw, ph] = jwebBox.presentation_rect ?? [0, 0, 420, DEVICE_H];
     if (native.panel) {
@@ -723,6 +727,18 @@ export function applyWindows(ctx) {
   const { boxes, lines, surface, unmatchedId } = ctx;
   const windowIds = surface?.windows ? Object.keys(surface.windows) : [];
   if (windowIds.length === 0) return;
+
+  // A window IS a second page - its own [jweb] in a subpatcher, its own bundle. There
+  // is no page under the headless target, so this is not a thing that can be built
+  // quietly smaller: say so, at the declaration, rather than emit a subpatcher whose
+  // whole contents are a box that target does not have.
+  if (ctx.target === "headless") {
+    throw new Error(
+      `device "${ctx.device?.name}" is target "headless" and declares window(s) ${windowIds.join(", ")} in its surface.ts. ` +
+        `A window is a second [jweb] page, which that target has no browser for. ` +
+        `Use layout.native for a device view, or drop \`target: "headless"\`.`,
+    );
+  }
 
   const selectors = windowIds.flatMap((id) => [`window_${id}_open`, `window_${id}_close`]);
 

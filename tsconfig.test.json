@@ -19,11 +19,22 @@
 		"isolatedModules": true,
 		"moduleDetection": "force",
 		"noEmit": true,
+		// A test that RENDERS a component reaches a .tsx module, and tsc refuses to
+		// resolve one without a jsx setting even when the test itself is plain .ts.
+		// Matches tsconfig.app.json, and vitest.config.ts sets the same automatic
+		// runtime for its own esbuild pass.
+		"jsx": "react-jsx",
 		"strict": true
 	},
 	// `vitest.config.ts` is listed alongside the tests, and not only to check it: a
 	// project whose include matches nothing at all is a tsc ERROR (TS18003), and a
 	// freshly scaffolded repo has no tests yet. One file that always exists keeps the
 	// project valid from the first minute.
-	"include": ["tests/**/*.ts", "vitest.config.ts"]
+	// `src/vite-env.d.ts` is here for its `/// <reference types="vite/client" />`, not
+	// to be checked. A test that imports app code pulls that module into THIS program,
+	// and app code imports assets - `import track from "./x.ogg"` - whose ambient
+	// declarations live in vite's client types. Without them the test project reports
+	// "cannot find module ./x.ogg" for a file the app compiles fine, and only under
+	// `tsc -b`, which is the one that runs in CI.
+	"include": ["tests/**/*.ts", "vitest.config.ts", "src/vite-env.d.ts"]
 }

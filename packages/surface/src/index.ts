@@ -30,6 +30,16 @@
  * and Push shows every parameter.
  */
 
+import { FOCUS_OPTIONS, type Controls, type FocusPolicy } from "./controls";
+
+/**
+ * The CONTROL SURFACE declaration lives in its own file and is re-exported here, so
+ * a device imports `defineSurface` and `defineControls` from one place. See
+ * controls.ts - the hardware behaviour it is shaped around is measured, and five
+ * parts of it contradict the obvious guess.
+ */
+export * from "./controls";
+
 /* ------------------------------------------------------------------ *
  * Parameter kinds
  * ------------------------------------------------------------------ */
@@ -400,6 +410,17 @@ export interface SurfaceDef<
   state?: S;
   /** Which parameters render as native Max objects in the device view. */
   layout?: { native?: NativeLayout<Extract<keyof P, string>> };
+  /**
+   * What this device claims on the CONTROL SURFACE - `defineControls()`.
+   *
+   * It lives on the Surface rather than beside it because it CONTRIBUTES two real
+   * Live parameters (`takeover`, `focus`): the user must be able to switch a
+   * takeover off, automate it and see it on Push, and the only thing Push sees is a
+   * Live parameter. So the declaration that claims the pads and the declaration that
+   * generates the dials are one declaration, and the two parameters are typed into
+   * this surface exactly as if they had been written out by hand.
+   */
+  controls?: Controls;
 }
 
 export interface Surface<
@@ -409,6 +430,41 @@ export interface Surface<
 > extends SurfaceDef<P, S, W> {
   /** Declaration order. This is also the order Push falls back to without banks. */
   readonly ids: readonly Extract<keyof P, string>[];
+}
+
+/**
+ * The two parameters `defineControls()` adds to the Surface that carries it.
+ *
+ * `takeover` is off by default and `focus` decides WHEN an enabled device actually
+ * holds what it declared - see controls.ts. They are spelled out as a type so that
+ * `useParam(surface, "takeover")` is typed like any other declared parameter, with
+ * nothing to cast and nothing to remember.
+ */
+export interface ControlParams {
+  takeover: ToggleSpec;
+  focus: MenuSpec<FocusPolicy>;
+}
+
+/**
+ * `P` with the takeover pair folded in, FLATTENED.
+ *
+ * A plain `P & ControlParams` is an intersection, and an intersection of two object
+ * types has no index signature even when both halves would satisfy one - so
+ * `useParam(surface, ...)` fails to infer `P extends Record<string, ParamSpec>` and
+ * the device sees a wall of "index signature is missing". Mapping over the keys
+ * produces an ordinary object type again, which infers exactly as a hand-written
+ * params block does.
+ */
+export type WithControlParams<P extends Record<string, ParamSpec>> = {
+  [K in keyof (P & ControlParams)]: (P & ControlParams)[K];
+};
+
+/** The two parameter specs themselves, so the build and the app agree on one object. */
+export function controlParams(controls: Controls): ControlParams {
+  return {
+    takeover: toggle({ default: false, short: "Takeovr" }),
+    focus: menu({ options: FOCUS_OPTIONS, default: controls.defaultFocus, short: "Focus" }),
+  } as ControlParams;
 }
 
 /** Push has eight encoders per page. A ninth parameter in a bank is not an error in Max - it just never appears. */
@@ -430,7 +486,24 @@ export function defineSurface<
   const P extends Record<string, ParamSpec>,
   const S extends Record<string, StateSpec>,
   const W extends Record<string, WindowSpec>,
+>(def: SurfaceDef<P, S, W> & { controls: Controls }): Surface<WithControlParams<P>, S, W>;
+export function defineSurface<
+  const P extends Record<string, ParamSpec>,
+  const S extends Record<string, StateSpec>,
+  const W extends Record<string, WindowSpec>,
+>(def: SurfaceDef<P, S, W>): Surface<P, S, W>;
+export function defineSurface<
+  const P extends Record<string, ParamSpec>,
+  const S extends Record<string, StateSpec>,
+  const W extends Record<string, WindowSpec>,
 >(def: SurfaceDef<P, S, W>): Surface<P, S, W> {
+  // A declared takeover contributes two REAL Live parameters, and it does so HERE
+  // rather than in the build: they have to be in `ids` for the codegen to emit the
+  // objects, in `banks` for Push to page them, and in the app's store for
+  // `useParam(surface, "takeover")` to work. One merge, before every check below
+  // runs, so the generated pair is validated exactly like a hand-written one.
+  if (def.controls) def = mergeControlParams(def);
+
   const ids = Object.keys(def.params) as Extract<keyof P, string>[];
 
   for (const id of ids) {
@@ -501,6 +574,46 @@ export function defineSurface<
   }
 
   return { ...def, ids };
+}
+
+/**
+ * Fold `defineControls()`'s two parameters into the declaration.
+ *
+ * THE BANK MATTERS AS MUCH AS THE PARAMETER. Push shows a device eight encoders per
+ * page and nothing else, so a `takeover` toggle that exists but is in no bank is a
+ * switch the user can only reach by opening the device view - which is the one place
+ * a Push user is not looking. A surface that declares banks therefore gets the pair
+ * appended to the first page with room, and a page of its own only if every declared
+ * bank is full.
+ *
+ * A surface with NO banks is left alone: Live falls back to declaration order, and
+ * the two land at the end of it either way.
+ */
+function mergeControlParams<
+  P extends Record<string, ParamSpec>,
+  S extends Record<string, StateSpec>,
+  W extends Record<string, WindowSpec>,
+>(def: SurfaceDef<P, S, W>): SurfaceDef<P, S, W> {
+  const extra = controlParams(def.controls!) as unknown as P;
+  for (const id of Object.keys(extra)) {
+    if (def.params[id]) {
+      throw new Error(
+        `surface: "${id}" is generated by defineControls() - remove it from params, or the takeover would have two dials and one name`,
+      );
+    }
+  }
+
+  const params = { ...def.params, ...extra };
+  if (!def.banks?.length) return { ...def, params };
+
+  const ids = Object.keys(extra) as Extract<keyof P, string>[];
+  const banks = def.banks.map((b) => ({ name: b.name, params: [...b.params] as Extract<keyof P, string>[] }));
+  for (const id of ids) {
+    const room = banks.find((b) => b.params.length < BANK_SIZE);
+    if (room) room.params.push(id);
+    else banks.push({ name: "Takeover", params: [id] });
+  }
+  return { ...def, params, banks };
 }
 
 /**

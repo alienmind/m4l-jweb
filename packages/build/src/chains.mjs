@@ -100,7 +100,10 @@ export function claimAppMessages(ctx, routeId, unmatchedOutlet) {
 
   removeLine(ctx.lines, srcId, ctx.unmatchedId);
   ctx.lines.push(line(srcId, srcOutlet, routeId, 0));
-  ctx.lines.push(line(routeId, unmatchedOutlet, ctx.unmatchedId, 0));
+  // A HEADLESS device has nowhere to pass the tail on TO: `[js]` is already the far
+  // end of this stream, so the last route's unmatched outlet is left unconnected
+  // rather than wired back into the box the messages came from.
+  if (ctx.unmatchedId) ctx.lines.push(line(routeId, unmatchedOutlet, ctx.unmatchedId, 0));
   ctx.appOut = [routeId, unmatchedOutlet];
 }
 
@@ -232,7 +235,7 @@ export function assertUniqueBoxIds(boxes, deviceName, scope = "the patcher") {
  * Also CUTS the template's direct midiin -> midiout thru cord: a device that
  * transforms notes must not also leak the untransformed ones.
  */
-function midiInChain({ boxes, lines, jwebId }) {
+function midiInChain({ boxes, lines, appIn }) {
   removeLine(lines, "obj-midiin", "obj-midiout");
   boxes.push(
     box("obj-midiparse", "midiparse", {
@@ -244,7 +247,10 @@ function midiInChain({ boxes, lines, jwebId }) {
   boxes.push(box("obj-noteinmsg", "prepend notein"));
   lines.push(line("obj-midiin", 0, "obj-midiparse", 0));
   lines.push(line("obj-midiparse", 0, "obj-noteinmsg", 0)); // outlet 0 = note: pitch, velocity
-  lines.push(line("obj-noteinmsg", 0, jwebId, 0));
+  // The APP endpoint - `[jweb]` under the default target, `[js]` under headless. A
+  // played note reaches a React `onNote()` or a `function notein()` in [js], and this
+  // chain does not know or care which.
+  lines.push(line("obj-noteinmsg", 0, appIn, 0));
 }
 
 /**
@@ -854,6 +860,15 @@ function reverbChain(ctx) {
  */
 function webaudioChain(ctx) {
   const { boxes, lines, jwebId } = ctx;
+  // The signal comes out of the PAGE's own outlets. There is no page in a headless
+  // device, so this is not a stage that can be claimed - say so here rather than
+  // emit a cord from a box that is not in the patcher.
+  if (!jwebId) {
+    throw new Error(
+      `chain "webaudio" on device "${ctx.device?.name}" takes its signal from the page's [jweb~] outlets, ` +
+        `and target "headless" has no page. Write the audio in MSP (a chain), or drop \`target: "headless"\`.`,
+    );
+  }
 
   for (const ch of [0, 1]) {
     const [srcId, srcOut] = ctx.audioIn(ch);
