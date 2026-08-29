@@ -279,7 +279,6 @@ function finishConformance(): void {
   post("\n");
 }
 
-
 /* ==================================================================== *
  * push-probe - THE SPIKE BEHIND doc/PUSH-USECASES.md (and MAX-FACTS.md, "Grabbing a Push control").
  *
@@ -599,6 +598,10 @@ function probe_other(name: unknown, hold: unknown): void {
   if (Number(hold) !== 1) {
     probeSurface!.call("release_control", control);
     probeOtherObs = null;
+    // THE VERDICT ON RELEASE, not only when the dump fills. Sixty events is four seconds
+    // of a jog wheel and half a second of a touch strip, so waiting for the counter to
+    // reach zero meant the useful runs - a slow, deliberate turn - never printed one.
+    if (probeOtherValues.length) probeOtherVerdict(control);
     probeLog("released " + control);
     return;
   }
@@ -627,7 +630,13 @@ function probe_other(name: unknown, hold: unknown): void {
       probeLog(raw);
       // Keep the first atom of each event, so the verdict below can be computed rather
       // than eyeballed off forty console lines.
-      if (a.length >= 2) probeOtherValues.push(Number(a[1]));
+      //
+      // NUMBERS ONLY. Observing a property fires once immediately with `value bang`, and
+      // `Number("bang")` is NaN - which is not equal to itself, so it counted as its own
+      // distinct value AND made min/max NaN. The first run of this printed
+      // "range NaN..NaN, 5 distinct values" for a control that has four.
+      var v = Number(a[1]);
+      if (a.length >= 2 && v === v) probeOtherValues.push(v);
       if (probeRawLeft === 0) probeOtherVerdict(control);
     }, "id " + id);
     probeOtherObs.property = "value";
@@ -677,6 +686,10 @@ function probeOtherVerdict(control: string): void {
   probeLog(control + ": " + n + " events, range " + lo + ".." + hi + ", " + kinds + " distinct values, " + rising + " up / " + falling + " down");
   if (kinds <= 4) {
     probeLog(control + ": looks like a DELTA - it only ever reports " + kinds + " values, so it says CHANGE, not position");
+    // A relative encoder sends its step as a signed 7-bit number, so one detent
+    // anticlockwise arrives as 127 rather than -1. Saying so here saves the next person
+    // the twenty minutes it took to work out the first time.
+    if (distinct["127"] || distinct["1"]) probeLog(control + ": 1 and 127 are +1 and -1 - a signed 7-bit step, one per detent");
   } else if (kinds > n / 3) {
     probeLog(control + ": looks like an ABSOLUTE POSITION - " + kinds + " distinct values over a range of " + (hi - lo));
   } else {

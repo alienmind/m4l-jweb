@@ -44,3 +44,12 @@ jobs:
           name: devices
           path: dist/m4l-jweb/*.amxd
           if-no-files-found: error
+
+      # The standalone bundles - a zip per device that ships on its own, to its own
+      # audience (patcher/devices.mjs, `bundles`). push-snake is a game; somebody
+      # downloading it has never heard of this library and wants one .amxd and a README.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bundles
+          path: dist/push-snake.zip
+          if-no-files-found: error

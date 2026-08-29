@@ -220,6 +220,32 @@ async function readDocs(root) {
   return Array.isArray(mod.docs) ? mod.docs : [];
 }
 
+/**
+ * Release BUNDLES: a zip for one device, or a few, on its own.
+ *
+ * The repo zip is for somebody installing the whole library. A bundle is for somebody who
+ * wants ONE device and has never heard of the library - a game, an instrument, a thing
+ * with its own name and its own audience. They get a zip with that device in it and
+ * nothing else.
+ *
+ * Declared as a named export beside the manifest:
+ *
+ *   export const bundles = [
+ *     { name: "push-snake", title: "Snake for Push", devices: ["push-snake"], readme: "doc/SNAKE.md" }
+ *   ];
+ *
+ * `readme` is written into the zip as `README.md`, because that is the file a person
+ * opens. Everything the named devices need travels with them: their `looseFiles`, and the
+ * sidecar folder of any `site:` window. An `.amxd` that embeds its own assets - which is
+ * every device that does not declare those two things - needs nothing else at all.
+ */
+async function readBundles(root) {
+  const p = path.join(root, "patcher", "devices.mjs");
+  if (!existsSync(p)) return [];
+  const mod = await import(pathToFileURL(p).href);
+  return Array.isArray(mod.bundles) ? mod.bundles : [];
+}
+
 /** patcher/base.json in the device repo wins; otherwise the packaged template. */
 function readBase(root) {
   const local = path.join(root, "patcher", "base.json");
@@ -664,6 +690,79 @@ export async function packageDevices(root) {
 
   const { size } = await stat(zipPath);
   console.log(`m4l-jweb: dist/${name}.zip (${size} bytes)`);
+
+  await packageBundles(root, dist, outDir, devices);
+}
+
+/**
+ * One zip per declared bundle, beside the repo zip.
+ *
+ * A bundle names devices that must exist - a typo here would otherwise produce a zip that
+ * is missing the very thing it is named after, and nothing would say so until somebody
+ * downloaded it.
+ */
+async function packageBundles(root, dist, outDir, devices) {
+  const bundles = await readBundles(root);
+  const known = new Set(devices.map((d) => d.name));
+
+  for (const bundle of bundles) {
+    const named = bundle.devices ?? [];
+    for (const d of named) {
+      if (!known.has(d)) {
+        throw new Error(`bundle "${bundle.name}" lists device "${d}", which patcher/devices.mjs does not declare (${[...known].join(", ")}).`);
+      }
+    }
+    if (!named.length) throw new Error(`bundle "${bundle.name}" names no devices - a zip of nothing is not a release`);
+
+    const zipPath = path.join(dist, `${bundle.name}.zip`);
+    const entries = [];
+
+    await new Promise((resolve, reject) => {
+      const output = createWriteStream(zipPath);
+      const archive = archiver("zip", { zlib: { level: 9 } });
+      output.on("close", resolve);
+      archive.on("error", reject);
+      archive.pipe(output);
+
+      for (const d of named) {
+        const device = devices.find((x) => x.name === d);
+        archive.file(path.join(outDir, `${d}.amxd`), { name: `${bundle.name}/${d}.amxd` });
+        entries.push(`${d}.amxd`);
+
+        // Whatever that device cannot embed. A loose file is one a Max object resolves
+        // when it INSTANTIATES, before any code has run, so it has to be a real file next
+        // to the .amxd; a `site:` window's folder is too big to be a payload.
+        for (const f of device.looseFiles ?? []) {
+          archive.file(path.join(outDir, path.basename(f)), { name: `${bundle.name}/${path.basename(f)}` });
+          entries.push(path.basename(f));
+        }
+        const site = path.join(outDir, `${d}-site`);
+        if (existsSync(site)) {
+          archive.directory(site, `${bundle.name}/${d}-site`);
+          entries.push(`${d}-site/`);
+        }
+      }
+
+      // The file a person opens, under the name they will look for.
+      if (bundle.readme && existsSync(path.join(root, bundle.readme))) {
+        archive.file(path.join(root, bundle.readme), { name: `${bundle.name}/README.md` });
+        entries.push("README.md");
+      }
+      for (const f of bundle.docs ?? []) {
+        const from = path.join(root, f);
+        if (!existsSync(from)) {
+          console.warn(`m4l-jweb: bundle "${bundle.name}" doc ${f} is not there - skipped`);
+          continue;
+        }
+        archive.file(from, { name: `${bundle.name}/${path.basename(f)}` });
+        entries.push(path.basename(f));
+      }
+      archive.finalize();
+    });
+
+    const { size } = await stat(zipPath);
+    console.log(`m4l-jweb: dist/${bundle.name}.zip (${size} bytes: ${entries.join(", ")})`);
+  }
 }
 
 export async function buildAll(root) {

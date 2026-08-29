@@ -37,6 +37,27 @@
  * `parameters` field that had to be kept in step with surface.ts by hand; the
  * Surface codegen subsumed it.
  */
+/**
+ * RELEASE BUNDLES - a zip for one device, on its own.
+ *
+ * The repo zip is for somebody installing the library. A bundle is for somebody who wants
+ * one device and has never heard of the library. `push-snake` is a game with its own
+ * name and its own audience, so it ships as a game: one .amxd and a README, and nothing
+ * about chains or targets or TypeScript.
+ *
+ * It needs nothing else in the zip because the .amxd carries everything - the page, the
+ * soundtrack, all of it. A device with `looseFiles` or a `site:` window would have those
+ * added too; see packageBundles in @m4l-jweb/build.
+ */
+export const bundles = [
+  {
+    name: "push-snake",
+    title: "Snake for Push",
+    devices: ["push-snake"],
+    readme: "doc/SNAKE.md",
+  },
+];
+
 export default [
   {
     /**

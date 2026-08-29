@@ -96,7 +96,9 @@ jobs:
             echo "::endgroup::"
           done
 
-      # The devices, for people who want to drop an .amxd into Live and never touch npm.
+      # The devices, for people who want to drop an .amxd into Live and never touch npm -
+      # and the standalone bundles, for people who want one device and do not know or care
+      # that a library is involved (patcher/devices.mjs, `bundles`).
       - name: github release
         uses: softprops/action-gh-release@v2
         with:
@@ -104,3 +106,4 @@ jobs:
           files: |
             dist/m4l-jweb/*.amxd
             dist/m4l-jweb.zip
+            dist/push-snake.zip
