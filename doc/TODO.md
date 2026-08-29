@@ -1,26 +1,27 @@
 # M4L-JWEB: what is left to do
 
-The backlog for the library itself - things any device built on M4L-JWEB could use,
-not one device's business logic. **Only open work lives here.** What has shipped is
-recorded where it belongs: **what the library does** in [README.md](../README.md),
-**how and why (including everything measured in Live)** in
+The backlog for the library itself - things any device built on M4L-JWEB could use, not
+one device's business logic. **Only open work lives here.** Shipped work is recorded
+elsewhere: **what the library does** in [README.md](../README.md), **how and why** in
 [ARCHITECTURE.md](ARCHITECTURE.md), and **what was measured on hardware** in
 [MAX-FACTS.md](MAX-FACTS.md).
 
-Detailed device designs are NOT here. The pad use cases live in
-[PUSH-USECASES.md](PUSH-USECASES.md), and this file references them rather than
-repeating them.
+Device designs are not here either. The pad use cases live in
+[PUSH-USECASES.md](PUSH-USECASES.md), and this file links to them.
 
-The two rules everything here follows: **`[js]` is a control plane, not a data plane**
-(bulk data travels via disk, never through Max messages), and **gate every unknown
-behind a cheap spike that can fail in an afternoon rather than a week.**
+Two rules everything here follows:
 
-A third rule, learned the expensive way in 0.9.9: **re-verify a premise before designing
-around it.** The biggest item this file ever carried - "a page cannot put audio on a
-track, so we need a C++ external" - was false about the object we were actually using,
-and four routes were analysed and one fully built before anyone checked. That
-postmortem now lives in
-[ARCHITECTURE.md](ARCHITECTURE.md#the-native-audio-bridge-four-routes-and-the-object-that-made-all-four-moot),
+- **`[js]` is a control plane, not a data plane.** Bulk data travels via disk, never
+  through Max messages.
+- **Gate every unknown behind a cheap spike** that can fail in an afternoon rather than a
+  week.
+
+A third rule, learned the expensive way in 0.9.9: **re-check a premise before designing
+around it.** The biggest item this file ever carried was "a page cannot put audio on a
+track, so we need a C++ external". It was false about the object we were already using.
+Four routes were analysed and one was fully built before anyone checked. That postmortem
+now lives in
+[ARCHITECTURE.md](ARCHITECTURE.md#the-native-audio-bridge-four-routes-and-the-object-that-replaced-them),
 because it is settled history rather than work.
 
 ---
@@ -52,78 +53,99 @@ cannot travel back to the device view through Max messages to be saved there.
 
 ## 2. The pads as a surface you program
 
-Sixty-four RGB pads, the scene column, the transport - a device can neither read nor
-light any of it. Closing that is `grid.draw()` and `grid.onPad()` in TypeScript.
+**Built, and not yet verified on hardware.** `defineControls` ships: `grid.draw()` and
+`grid.onPad()` in TypeScript, a `takeover` chain that puts the observer between the pads
+and the page with no `[js]` in the way, the frame diff and `send_value` in the wrapper,
+the mocked 8x8 grid in the harness, and `push-snake` built on all of it.
 
-**The mechanism is measured and the gate is met.** Six unknowns were spiked on a Push 3
-with the `push-probe` device; the findings - addressing, the payload shape, the y
-direction, what a grab costs, the repaint budget, teardown safety - are in
-[MAX-FACTS.md](MAX-FACTS.md), "Grabbing a Push control". Read it before writing any of
-the below: it contradicts the obvious guess in five places.
+How it fits together, and why the seams are where they are, is in
+[ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control surface you program". The
+hardware behaviour it is shaped around is in [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a
+Push control".
 
-**The designs are in [PUSH-USECASES.md](PUSH-USECASES.md)** - the proposed API and three
-devices written against it. Only the first is being built.
+What is left is not code:
 
 ### 2a. The jog wheel and the touch strip - A SPIKE, and it gates use case 2
 
-Two questions, each one button press in `push-probe` (`probe_other` grabs any control by
-name and dumps the atoms its `value` carries):
+Two questions. Each is one button press in `push-probe`, whose `probe_other` grabs any
+control by name and dumps the atoms its `value` carries:
 
 | # | Question | If it fails |
 |---|---|---|
 | J1 | Does `Jogwheel` emit a continuous stream under a grab - a DELTA or an absolute position? | The DJ surface dies. There is no other continuous rotary on the hardware. |
 | J2 | Does `Touch_Strip_Control` emit a continuous position, and at what resolution? | Its crossfader falls back to an encoder. Under ~64 steps it reads as stepped and is worse than the on-screen fader. |
 
-Cheap, and it gates the most visible half of `../m4l-qobuz-dj`'s stage 5. Answer it
-before anyone designs around either.
+Cheap, and it gates the most visible half of `../m4l-qobuz-dj`'s stage 5. Answer it before
+anyone designs around either.
 
-### 2b. The mock 8x8 grid in the harness
+`defineControls` already has the third shape the answer would need. `padStream({ role:
+"jogwheel" })` and `usePadStream()` hand over the raw atoms without decoding them,
+because nothing is known about what they mean.
 
-`@m4l-jweb/surface/dev` renders a mocked Live beside the app. Add a grid of divs that
-paints from the outbound paint messages and sends pad events on click.
+### 2b. `push-snake` IN LIVE - the checklist nothing here can run
 
-**Before the first real device, not after.** Without it every iteration is a rebuild, a
-reinstall, a re-drag (Live embeds a copy of the device in the set, so instances already
-on tracks do not update) and a squint at sixty-four LEDs. Its honest limit is the usual
-one: the message-level contract, not pad latency.
+`pnpm test` proves the message contract. None of it proves the hardware, because **a
+rejected LiveAPI call reports nothing** and a grab is verified by looking at the Push or
+not at all. What to watch, in order:
 
-### 2c. `defineControls` + the takeover chain + the wrapper's frame diff
+| | Watch for |
+|---|---|
+| the roles resolve | the device view says "held", not "no matrix on the connected surface" |
+| the grid comes up at all | the wall is lit ~400 ms after `Takeovr` goes on - an immediate paint is overwritten by Live |
+| the y flip | the two turn pads are at the BOTTOM-left of the Push, not the top |
+| the turn pads steer | a turn taken one tick before the wall does not hit the wall |
+| the WIN | fill all twenty gauge cells - the border goes fully green and a green smiley blinks three times in the middle and stays lit. The only part of the game no test reaches: a snake of 20 in a 6x6 arena needs real play, and a bot greedy enough to write traps itself by segment eight |
+| the difficulty setting | Easy, Normal and Hard should all be playable at length 2 and all get hard by length 20 |
+| the pads can START it | with the game stopped both turn pads are GREEN, and either one begins a run - the only control a Push user has, since the `start` button is in a device view they are not looking at |
+| the worker clock survives a hidden page | close the device view mid-run; the snake keeps moving |
+| parameters drive it from Live's side | `running` from an encoder, `difficulty` from an automation lane |
+| a state slot outlives the set | save, close, reopen: `best` is still there |
+| audio reaches the track | Live's meters move on every blip |
+| **two instances in one set** | the second device does not steal the grid from the first, and `focus` decides which holds it |
+| **takeover off** | the device loads, shows its state, and does nothing to Push |
 
-The fourth sibling of `defineSurface`, `defineWatch` and `defineFiles`. The userland
-shape is in [PUSH-USECASES.md](PUSH-USECASES.md); what the measurements force on it:
+The last two are the ones people forget, and a second device in a real set will find them
+first.
 
-- **Grab and release BY NAME.** A bare LOM id is rejected; the two-atom `id <n>` works
-  and buys nothing over the name. The id is needed only to build the observer.
-- **A rejected call reports nothing** - not to `[js]`, not to `[live.object]`. There is
-  no success to branch on, so the chain cannot verify its own grab.
-- **Flip y in ONE place.** The hardware counts rows from the top and the API from the
-  bottom; get it wrong and every device on the grid is mirrored, silently.
-- **Defer the first frame.** Live repaints the matrix as it hands it over, so a paint
-  issued in the grab's own message turn is lost.
-- **Resolve roles at runtime** against `get_control_names`. A Push 3 returns 176 names
-  and they are not the Push 2 set, so the role table cannot be one table.
-- **Refuse the encoder roles**, for the stated reason: they are grabbable, and grabbing
-  one costs automation, MIDI mapping and its automation lane.
-- **Allow claiming non-matrix controls WITHOUT claiming the grid** - the scene column,
-  the jog wheel and the touch strip cost nothing on the note path; the grid costs all of
-  it.
-- **A control is not always a grid or a button.** A jog wheel is a STREAM; the API needs
-  a third shape, or it grows one badly later.
+### 2c. AN UNRELATED JWEB DEVICE BLOCKED THE TAKEOVER - unexplained
 
-Split: discovery, grab, release and the value observer in a generated **chain** (no
-`[js]` in the input path - a grabbed pad must not stop responding because a React render
-is slow); the frame diff and `send_value` in `packages/wrapper`, because sixty-four cells
-is a frame buffer and the patcher cannot diff without sixty-four `[change]` objects.
+Seen once, in a real set (2026-08-29). `push-snake` would not take the grid while
+`m4l-qobuz-dj` - a device that declares NO controls, on ANOTHER track - was loaded.
+Deleting that device and re-adding `push-snake` made the takeover work at once, and it
+has worked since.
 
-Selectors go in `CONTROLS_IN` / `CONTROLS_OUT` in `@m4l-jweb/bridge`, and an id travels
-as an ARGUMENT, never baked into a selector.
+**The boring explanation is probably right, and it is not a bug.** `focus` defaults to
+`Track`, so an instance whose track is not selected is *supposed* to wait, and deleting a
+device on another track changes what Live has selected. That session also carried the NaN
+bug, which made the focus test false for every instance in every set - so the two cannot
+be told apart from that evidence.
 
-### 2d. `push-snake` - the device that proves it
+It is written down anyway, because the other possibility is serious. Two `[jweb]` devices
+contending for something in `MxDCore`'s grabbed-controls bookkeeping is exactly the kind
+of thing that is invisible from inside `[js]`, and "it started working after I deleted
+something" is how that class of bug announces itself.
 
-Full design in [PUSH-USECASES.md](PUSH-USECASES.md), use case 1. A device rather than a
-demo because its bugs are visible from across the room. Two checklist items people
-forget: **two instances in one set**, and **takeover switched off** - it must load and
-behave with no hardware attached.
+**The cheap test, in this order:**
+
+1. Reproduce on the CURRENT build. The NaN bug is fixed, and the console now says
+   `controls not held (<reason>)` on every decision. If the reason is `not_focused`, the
+   focus policy is doing its job and this item closes.
+2. If it says `held` and the pads are still dark, Live refused the grab. Watch the Max
+   console for a `jsliveapi:` line - that is the only report there is.
+3. Set **Focus = Always** and repeat 1-2. That takes the focus policy out of the question.
+
+Until step 1 runs on the fixed build there is nothing here to design around.
+
+### 2d. Colour NAMES are photographs
+
+`PUSH_PALETTE` ships about 23 names, read off the two palette pages through a camera at
+one white balance. Index 0 = off is measured. Nothing else is. No grey is named because
+none was identified, which is why `push-snake`'s wall is `tan`.
+
+Sampling the photographs properly - or finding a source inside Live that states the
+palette - would turn a table that is good enough to pick a readable colour into one a
+device can trust. Whether an index means the same colour on a Push 2 is wide open, and
+decides whether the table is one table or three.
 
 ### 2e. `live.push` in `defineSurface` - independent, droppable
 
@@ -134,48 +156,40 @@ no protocol, no risk. Ship it separately, or not at all.
 
 ---
 
-## 3. A HEADLESS target: TypeScript in, `[js]` out, no browser
+## 3. THE RENAME to `m4l-patchboard`
 
-A device declares its interface in TypeScript exactly as it does today -
-`defineSurface`, `defineControls`, its protocol - and the build emits **only** the `[js]`
-wrapper and the patcher. No `[jweb]`, no `[jweb~]`, no Chromium.
+**The headless target shipped in 1.5.0**, which was the gate on this. `target: "headless"`
+emits only the `[js]` wrapper and the patcher - no `[jweb]`, no HTML payload, no Chromium
+- and `hello-headless` is the device that proves it. How the seam works is in
+[ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
 
-**Why it is suddenly worth having.** None of these is speculation:
+**The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
+was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
+interface in TypeScript and the build emits `[js]` and a patcher, with or without a
+Chromium page. So the name describes a COMPONENT rather than the project, and names one
+that `hello-headless` does not contain at all. `m4l-patchboard` says what it actually is:
+a generic Max for Live development framework in TypeScript.
 
-- **The pad takeover needs no browser at all.** The grab, the paint and the value
-  observer are `live.object` / `live.observer` in the patcher, and the surveyed
-  third-party device does the whole thing with no `[js]` in its input path
-  ([MAX-FACTS.md](MAX-FACTS.md)). A grid device's logic is a control plane, and `[js]`
-  plus `Task` is a *better* clock than a Chromium page nobody is looking at - the Worker
-  in use case 1 exists to dodge throttling only a hidden page suffers.
-- **Audio without `[jweb~]` is a path this repo has already walked.** The `renderplay`
-  and `samples` chains wrote bytes to disk and played them through `[buffer~]` /
-  `[groove~]`; "disk IS the audio transport" is in [MAX-FACTS.md](MAX-FACTS.md). They
-  were retired in 0.9.9 for ergonomics once `[jweb~]` could sound directly - not because
-  they failed. For `../m4l-qobuz-dj` the trade may invert: a decoded 10-minute FLAC is
-  ~210 MB in an AudioContext, two decks plus a preload is over half a gigabyte inside
-  Chromium inside Live, and `[buffer~]` reading from disk has no such problem while MSP
-  does EQ, filter and pitch natively.
-- **Push 3 Standalone runs a subset of Max for Live.** Which subset is unknown here and
-  untestable on a controller Push, but an embedded Chromium is a far less likely member
-  of that subset than `[js]` is. **Unverified - do not design around it.** It is a reason
-  the seam is worth having, not a requirement it must satisfy.
+Do it in one commit, and now rather than later. A rename is cheap while the reason for it
+is visible, and expensive to explain afterwards. What it touches, so nobody rediscovers it
+in the middle:
 
-**The shape is a `Target` seam in `packages/build`** - the same seam
-[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md) wants for a VST3 backend, viewed from
-the other side. Extract it while there is still only one target.
+- the four published packages (`@m4l-jweb/{bridge,surface,build,wrapper}`), which are on
+  npm. This is a new SCOPE and a major version, not a rename of existing packages. The old
+  scope stays up, deprecated, pointing at the new one.
+- the `m4l-jweb` CLI binary, and `m4l-jweb init`'s scaffold, which writes the scope into
+  every generated `package.json`.
+- the payload and window filename prefixes the wrapper extracts next to the `.amxd`. They
+  are per-device, but some device repos carry the library name in their path.
+- the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
+  `../m4l-qobuz-dj`.
 
-What a headless target gives up is real, and belongs in the API rather than in a
-surprise: no React device view (native `live.*` objects only, which `defineSurface`
-already generates), no Web Audio, no Workers, and ES5 in the emitted output.
-
-**Not started, and not urgent.** The argument is strong and the evidence is in; what is
-missing is a device that needs it badly enough to pay for the seam. `../m4l-qobuz-dj`
-may be that device - it now intends its web half to be OPTIONAL.
+The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
+about Max, not about this library, and they outlive both names.
 
 ---
 
-# The way forward: a VST3 backend, so a device runs outside Live
+# Next: a VST3 backend, so a device runs outside Live
 
 **Not a backlog item.** It is what this library could become NEXT, and it is written down
 here so the shape is not re-derived from scratch by whoever picks it up - possibly as a

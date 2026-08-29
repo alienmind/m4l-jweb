@@ -1,5 +1,97 @@
 # Changelog
 
+## 1.6.0 - the Push pads, and a device that can have no browser in it
+
+**`target: "headless"`.** The build emits only the `[js]` wrapper and the patcher. No
+`[jweb]`, no HTML payload, no Chromium. The device declares its interface the same way
+every other device does - `defineSurface`, `defineControls`, `defineWatch`. Its device
+view is the native `live.*` objects the codegen already made. Its logic is
+`src/app/<device>/headless.ts`, compiled to ES5 and appended after the wrapper.
+`hello-headless` is a MIDI arpeggiator that proves it: 167 KB, where the same device
+with a page is 437 KB.
+
+**A declared parameter is a function name.** The same generated boxes as always, with
+both ends in `[js]`: `[live.dial rate] -> [prepend rate] -> [js]` calls `function
+rate(v)`, and `outlet(0, "set_rate", v)` writes it back. No store, no handshake, no
+bridge. A headless device has no `protocol.ts`, because a protocol is a contract between
+two halves and this device is one half.
+
+**The seam is `ctx.appIn` / `ctx.appOut`.** Every chain that reached "the app" used to
+name `[jweb]`. It now names the app endpoint, which is `[jweb]` under one target and
+`[js]` under the other. That swap is the whole port. The chain vocabulary, the Surface
+codegen and the pad takeover are otherwise untouched.
+
+**What headless gives up is refused at build time**, not found in Live: the `webaudio`
+chain (its signal comes out of the page's own outlets), a declared window (a window is a
+second page), and a `latency` (there is no `[jweb~]` ring buffer to size).
+
+**`defineControls()`, `usePadGrid()` and the sixty-four pads.** A device claims the 8x8
+grid - or the scene column, or a button - by role. It paints with `draw()` using colour
+names and reads with `onPad()`: `x`, `y`, velocity and `down`. `x` runs left to right
+and `y` runs bottom to top. `push-snake` is Snake on the pads, clocked in a Worker so it
+keeps running with the device view closed, and sounding through `webaudio`.
+
+**A role, never a Max name, resolved at runtime.** A Push 3 answers `get_control_names`
+with 176 names, and they are not the Push 2 set. So the library keeps candidate names
+per role and uses the first one the connected hardware admits to having. That is also
+the only thing this API can report. A rejected LiveAPI call posts a console line and
+returns normally, so a role that is not there comes back as `controls_role <key> 0`
+instead of a grab that looks fine and holds nothing.
+
+**Takeover is a Live parameter, off by default.** `takeover` and `focus`
+(`Device`/`Track`/`Always`) are generated into the device's Surface. The pads can be
+handed back from an encoder, the device view or an automation lane, and two instances in
+one set take turns instead of fighting. Both are tapped straight off the `live.*` objects
+into `[js]`. A grid that died because its Chromium view was closed would fail exactly
+when the user is looking at the Push.
+
+**The input path has no `[js]` in it.** The generated `takeover` chain puts a
+`[live.observer]` between the hardware and `[jweb]`. Painting goes the other way and is
+diffed twice: once in the page, so an unchanged frame does not cross the bridge, and once
+in the wrapper, so only cells the hardware does not already show become a `send_value`.
+Live repaints the matrix as it hands it over, so those are two different questions.
+
+**The encoder roles are refused at declaration time.** They are grabbable, and grabbing
+them takes them: the dials stop moving their parameters at all. That costs automation,
+MIDI mapping and the automation lane.
+
+**A mocked 8x8 grid in the dev harness.** It paints from the real outbound frames in
+hardware order and sends real pad events on a click. A y flip in the wrong place shows up
+as an upside-down picture in a browser tab, instead of a rebuild, a reinstall, a re-drag
+and a squint at sixty-four LEDs.
+
+**`push-snake` has a soundtrack that follows the game.** Four mixes of one loop, sparsest
+to full. It climbs one level every two segments and holds on the full mix. All four play
+in sync from one start time, and a level change crossfades their gains - so every
+transition is sample-accurate, and a crash drops the arrangement back with the snake. The
+tracks are Ogg Vorbis, because MP3 carries encoder delay and padding that
+`decodeAudioData` turns into silence, so an MP3 loop gaps every time it wraps. They are
+inlined into the bundle as data URIs, so the device stays self-contained and never has to
+reach a filesystem a `file://` page cannot read. They ship as placeholders, and a layer
+that does not decode is silent.
+
+**`push-snake`'s border is a HUD.** The left column, the top row and the right column are
+a twenty-cell length gauge, filled from the bottom-left upwards. The bottom right carries
+three lives, spent rightmost first; a crash costs one and restarts the snake. Filling the
+gauge wins and paints a green smiley in the arena. Running out of lives paints a red
+frown. Either one blinks three times and then stays, until somebody starts another game.
+A Push user cannot see the device view, so every number the game has is on the grid.
+
+**The two turn pads start `push-snake`.** They are green while it is stopped and mean
+begin. They are two colours while it runs and mean two directions. A Push user cannot
+reach a button in a device view on the laptop behind them, so the pads have to be the
+whole instrument.
+
+**`push-snake` draws the same grid in the device view.** One frame from the worker goes
+to `pads.draw()` and to React, so the hardware and the screen cannot disagree about the
+game. The device is playable with no Push in the room, from the two lit pads or the arrow
+keys.
+
+**`controls_held` says why it is not held.** `off`, `no_surface`, `unresolved` and
+`not_focused` are four different problems that all look like a dark Push, and Live reports
+none of them - a rejected grab is a console line and a normal return. The wrapper now
+announces the decision it made, to the Max console and to the device view.
+
 ## 1.3.1 - a release can carry docs
 
 **`docs` beside the device manifest.** A named export listing files that ride along in the

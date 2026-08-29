@@ -1,29 +1,30 @@
 # PUSH-USECASES.md - what the programmable pads are FOR
 
-Four devices, in detail, written against the pad-takeover API. **This file is design,
-not schedule and not evidence.**
+Three devices, in detail, written against the pad-takeover API. **This file is design.
+It is not a schedule and not evidence.**
 
-- **The schedule** - what is built, in what order, and what is still gated - is
-  [TODO.md](TODO.md). One backlog, and this is not it.
-- **The evidence** - how a Push control is actually grabbed, painted and read, measured
-  on hardware - is [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a Push control". Nothing here
-  re-states a mechanism; where a use case leans on one, it links.
+- **The schedule** is [TODO.md](TODO.md): what is built, in what order, and what is
+  still gated. One backlog, and this is not it.
+- **The evidence** is [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a Push control": how a Push
+  control is really grabbed, painted and read, measured on hardware. Nothing here repeats
+  a mechanism. Where a use case leans on one, it links.
 
-**Only the first is being built.** `push-snake` is the device that proves the surface
-works. The other two exist as **design pressure on the API**: an API shaped around one
-game is an API that fits one game, and the cheapest guard against that is two more
-devices that want incompatible things. Read them before finalising `defineControls`;
-do not build them.
+**Only the first was built.** `push-snake` is the device that proves the surface works,
+and it exists. The other two are **design pressure on the API**: an API shaped around one
+game is an API that fits one game, and the cheapest guard against that was two more
+devices that want incompatible things. They did their job - the `padStream()` shape and
+the rule that a non-matrix control may be claimed without the grid are both here because
+use case 2 asked for them. Do not build them.
 
-## Why the pads at all
+## Why the pads
 
-M4L-JWEB already gives a device eight Push encoders: declare a parameter in
-`surface.ts` and it is on the hardware, labelled, banked, automatable, MIDI-mappable
+M4L-JWEB already gives a device eight Push encoders. Declare a parameter in
+`surface.ts` and it is on the hardware: labelled, banked, automatable, MIDI-mappable
 ([ARCHITECTURE.md](ARCHITECTURE.md), "Parameters: the Surface Push reads").
 
 **It gives you nothing on the 8x8 grid.** Sixty-four RGB pads, the scene column, the
-transport and mode buttons - the entire performance surface - are Live's, and a device
-can neither read them nor light them. Closing that is one line:
+transport and the mode buttons all belong to Live. A device can neither read them nor
+light them. Closing that is one line:
 
 > **`grid.draw()` and `grid.onPad()` in TypeScript, and sixty-four pads on the hardware
 > do what your device says.**
@@ -34,10 +35,9 @@ of ordinary TypeScript that happens to run on a piece of hardware instead of a s
 
 ### What it is not
 
-- **Not a replacement for the Surface.** Encoders stay Live parameters. Grabbing one
-  costs it automation, MIDI mapping and its automation lane - measured, they ARE
-  grabbable and taking them stops them moving anything. Grab the *grid*; leave the
-  knobs alone.
+- **Not a replacement for the Surface.** Encoders stay Live parameters. They ARE
+  grabbable, and grabbing one stops it moving anything - which costs automation, MIDI
+  mapping and its automation lane. Grab the grid; leave the knobs alone.
 - **Not `live.push`.** That object configures Push's own note mode and colours *notes,
   not pads*, so it cannot address a step grid. Worth shipping separately; it is its own
   [TODO.md](TODO.md) item.
@@ -45,26 +45,43 @@ of ordinary TypeScript that happens to run on a piece of hardware instead of a s
   off, with a focus policy beside it. A device that seizes the pads of every set it
   lands in is a device people uninstall.
 
-### The one constraint every use case here is shaped by
+### Claiming the matrix stops the pads playing notes
 
 **Claiming `Button_Matrix` takes the pads off the note path.** No MIDI notes and no MPE
-expression until it is released, and the grabbed control itself carries only press and
-release with a velocity - no pressure, no slide, no event when a finger moves across
-pads. Claiming a NON-matrix control (the scene column, the jog wheel, the touch strip)
-costs nothing on the note path.
+expression until it is released. The grabbed control carries only press and release, with
+a velocity: no pressure, no slide, and no event when a finger moves across pads.
 
-All measured; all in [MAX-FACTS.md](MAX-FACTS.md). It is why the DJ surface below was
-redrawn and why the scale explorer is harder than it looks.
+Claiming a non-matrix control - the scene column, the jog wheel, the touch strip - costs
+nothing on the note path.
+
+All measured, all in [MAX-FACTS.md](MAX-FACTS.md). It is why the DJ surface below was
+redrawn, and why the scale explorer is harder than it looks.
 
 ---
 
-## The API these are written against
+## The API
 
-Proposed, not built - it is [TODO.md](TODO.md)'s `defineControls` item. The use cases
-below are written against it, which is the point: a use case that cannot be expressed
-here is a hole in the API, found on paper instead of in Live.
+**BUILT.** The sketch below is what was designed; three names moved on the way in, and
+the shipped shape is in [ARCHITECTURE.md](ARCHITECTURE.md), "The pads: a control surface
+you program", with the reference in `packages/surface/src/controls.ts`:
 
-### Declare what the device claims
+- `button({ role })` is **`padButton({ role })`** - `button()` already belongs to
+  `defineSurface`, as the `live.text` parameter, and a device declaring both would
+  import two different things under one word. There is a third shape too,
+  `padStream()`, for a jog wheel or a touch strip.
+- The declaration is passed to **`defineSurface({ controls })`** rather than standing
+  beside it, because it CONTRIBUTES the two parameters below - and a parameter has to
+  be in the surface for the codegen to emit its object, for Push to page it, and for
+  `useParam` to bind it.
+- The colours are **names the palette can actually point at**. `dark_grey`,
+  `red_red` and `yellow_highlight` are not among them: the table is read off
+  photographs and no grey was identified.
+
+The use cases were written against it before it existed, which is the point: a use case
+that cannot be expressed here is a hole in the API, found on paper instead of in Live.
+The two below are still design pressure and still not scheduled.
+
+### Declaring what a device claims
 
 The fourth sibling of `defineSurface`, `defineWatch` and `defineFiles` - one thing a
 device does, declared once, checks throwing at declaration time so `pnpm build` fails
@@ -110,14 +127,17 @@ pads.draw((f) => {
 ```
 
 `draw` takes a **frame**, not a pad. You describe the whole grid every time and the
-library works out what changed: the callback fills an off-screen 64-byte buffer, the
-buffer is diffed against the last one actually sent, and only the changed cells reach
-the hardware. That is not an optimisation detail you can ignore - it is the contract.
-Sixty-four messages a frame across the bridge is a data plane, and
-[TODO.md](TODO.md)'s first rule is that `[js]` is a control plane.
+library works out what changed. The callback fills an off-screen 64-byte buffer, that
+buffer is diffed against the last one sent, and only the changed cells reach the
+hardware.
 
-So a device redraws freely - every animation frame, every tick, on every state change -
-and pays only for the pads that moved. A blinking cursor costs one cell per blink.
+This is the contract, not an optimisation you can ignore. Sixty-four messages a frame
+across the bridge is a data plane, and [TODO.md](TODO.md)'s first rule is that `[js]` is a
+control plane.
+
+So a device redraws as often as it likes - every animation frame, every tick, every state
+change - and pays only for the pads that moved. A blinking cursor costs one cell per
+blink.
 
 Colours are **names**, resolved to hardware palette indices by the library. A device
 that writes `36` is a device nobody can read, and the index is not portable across
@@ -158,7 +178,7 @@ const shift = usePadButton(controls, "shift");   // boolean, live
 if (shift) { ... }
 ```
 
-### Turn it on, and decide when it applies
+### Turning it on, and when it applies
 
 `defineControls` generates two parameters into the device's Surface:
 
@@ -188,8 +208,8 @@ surveyed device handles the handover.
 
 ### The loop belongs in the Worker
 
-The device view is *usually not visible* - a Push user is looking at the Push. Chromium
-throttles timers on a hidden page, and a game or sequencer clocked off
+The device view is usually not visible, because a Push user is looking at the Push.
+Chromium throttles timers on a hidden page, so a game or sequencer clocked off
 `requestAnimationFrame` will stutter or stop exactly when it matters. Dedicated Workers
 are exempt, which is why [ARCHITECTURE.md](ARCHITECTURE.md) makes them pattern 2.
 
@@ -208,316 +228,143 @@ The page is a thin shell: it moves frames out and events in, and it makes the no
 
 ---
 
-# Use case 1 - `push-snake`, the one being built
+# Use case 1 - `push-snake`, the one that was built
 
-
-**This is the scope of the work.** Everything after [TODO.md](TODO.md) is a sketch of what the same API
-could carry later and is explicitly **not** being implemented.
+**This is the scope of the work, and it shipped.** Everything after it is a sketch of
+what the same API could carry later and is explicitly **not** being implemented. What
+remains for this one is hardware verification, not code - [TODO.md](TODO.md) item 2b.
 
 Snake, on the 8x8, in TypeScript, sounding through the track. Chosen because its bugs
 are visible from across the room, its rules fit in a paragraph, and it exercises every
 part of the API at once: a frame per tick, a press handler, a worker clock, parameters,
 and Web Audio.
 
-### 1 The rules, and the layout they imply
+### 1 The rules and the layout
 
 ```
  y
- 7  # # # # # # # #      #  wall  - dark_grey, always lit, never enters play
- 6  # . . . . . . #      .  arena - the 6x6 the snake lives in
- 5  # . . . . . . #
- 4  # . . . o . . #      o  fruit - a random colour on a random free cell
- 3  # . . @ * . . #      @  head   * body
- 2  # . . * * . . #
- 1  # . . . . . . #
- 0  < > # # # # # #      <  turn anticlockwise    >  turn clockwise
-     x=0 1 2 3 4 5 6 7
+ 7  G G G G G G G G      G  LENGTH GAUGE - 7 + 6 + 7 = 20 cells. One green per
+ 6  G . . . . . . G         segment, filled UP the left, ACROSS the top, DOWN
+ 5  G . . . . . . G         the right. Full is the WIN.
+ 4  G . . . o . . G      .  arena - the 6x6 the snake lives in
+ 3  G . . @ * . . G      o  fruit   @ head   * body
+ 2  G . . * * . . G
+ 1  G . . . . . . G
+ 0  < > # # # V V V      <  turn anticlockwise / START   > clockwise / START
+     x=0 1 2 3 4 5 6 7   V  three LIVES, green until spent, RIGHTMOST first
 ```
+
+**THE BORDER IS THE HUD, and that is why the arena is only 6x6.** A Push user cannot see
+the device view - it is on a laptop behind them - so every number the game has must be on
+the grid. The ring was already being spent on a visible wall. Carrying the score and the
+lives costs nothing more, and the whole state of a run becomes readable from across the
+room.
+
+The bottom row is the one edge NOT in the gauge. It belongs to the controls and the
+lives. A gauge running through the turn pads would light them for a reason that has
+nothing to do with what they do.
 
 **The border is a wall.** Row 0, row 7, column 0 and column 7 are drawn, permanently,
 and the snake dies on contact. The arena is the inner 6x6 - thirty-six cells - and a
 lit border is worth more than the six cells it costs: on a grid with no edge you cannot
 see, "I hit a wall" and "the device stopped responding" look identical.
 
+**A crash costs a LIFE, not the run.** There are three, spent bottom-right first, and the
+snake starts over at length two each time. That is what makes twenty hard.
+
+When the third goes red the game is over and the arena paints a RED frowning face.
+Filling the gauge paints a GREEN smiling one. Either one blinks three times and then
+STAYS, until somebody presses a turn pad - a result nobody was in the room for is a result
+they never saw.
+
+Each segment earned adds ten percent of the base rate to the speed, linearly, so the last
+few are the hard ones. The base rate itself is the `difficulty` parameter: Easy, Normal or
+Hard.
+
 **Two reserved pads turn the snake**, and they sit *in* the wall - bottom-left corner
 and the pad beside it - so they cost nothing playable:
 
 | Pad | Does |
 |---|---|
-| `(0, 0)` | rotate **anticlockwise** |
-| `(1, 0)` | rotate **clockwise** |
+| `(0, 0)` | rotate **anticlockwise** - or START, while stopped |
+| `(1, 0)` | rotate **clockwise** - or START, while stopped |
 
-Every other pad is inert. Two buttons is what the game needs and no more: a direction
-per pad would want four, an absolute-heading grid would want the arena, and both make
-the wall harder to read. The two turn pads pulse on press, so the input is visible on
-the hardware even when the device view is closed.
+**While the game is stopped both pads are GREEN and both mean START.** That is not a
+convenience. The two turn pads are the only control this device has on the hardware, so
+they have to be enough to play it: begin a run, steer it, begin another after a crash. A
+Push user cannot reach the `start` button, which is in a device view on a laptop behind
+them.
+
+Pressing one while stopped does not also turn. A fresh snake points up by definition, so
+a turn before the first tick would mean nothing and read as a lost press.
+
+Every other pad is inert. Two buttons is what the game needs and no more. A direction per
+pad would want four, and an absolute-heading grid would want the arena. Both make the
+wall harder to read. The two are lit in different colours (`ocean` and `sky`), so which
+is which is readable from the hardware alone.
 
 The snake moves one cell per tick and speeds up as it grows. Fruit appears on a random
-free arena cell in a random colour; eating it grows the snake by one. Hitting the wall
-or itself ends the run.
+free arena cell in a random colour, and eating it grows the snake by one. Hitting the
+wall or itself costs a life.
 
-### 2 The device
+### 2 The device, and where the code is
 
 ```js
 // patcher/devices.mjs
-{
-  name: "push-snake",
-  type: "instrument",     // `webaudio` needs a signal path
-  chains: ["webaudio"],   // the page's AudioContext IS the track
-  unmatchedTo: "js",
-}
+{ name: "push-snake", type: "instrument", chains: ["webaudio"], unmatchedTo: "js" }
 ```
 
 `webaudio` compiles the device page to `[jweb~]` and sums its L/R into the device's
 audio path, so the same page that owns the grid owns the sound. No window, no second
-bundle.
+bundle. The `takeover` chain is **not listed** - it is derived from the `controls`
+declaration, the way `download` is derived from a `files.ts`.
 
-### 3 `controls.ts`
+**It is built, and the code is the documentation.** Rather than a second copy that
+drifts:
 
-```ts
-import { defineControls, grid } from "@m4l-jweb/surface";
-
-export default defineControls({
-  surface: "push",
-  controls: {
-    pads: grid({ role: "matrix", rows: 8, cols: 8 }),
-  },
-});
-```
-
-### 4 `surface.ts`
-
-```ts
-import { defineSurface, dial, toggle, state } from "@m4l-jweb/surface";
-
-export default defineSurface({
-  params: {
-    running: toggle({ default: false, short: "Run" }),
-    // Ticks per second at length 1. Real units, so the automation lane and the
-    // encoder both read Hz rather than a mystery 0-1.
-    speed: dial({ range: [1, 16], default: 4, unit: "Hz", short: "Speed" }),
-    volume: dial({ range: [0, 1], default: 0.6, format: (v) => `${Math.round(v * 100)}%`, short: "Volume" }),
-  },
-  banks: [{ name: "Snake", params: ["running", "speed", "volume"] }],
-  // The high score survives saving the set. A number Live must never automate is
-  // exactly what a state slot is for.
-  state: { best: state<number>({ default: 0 }) },
-});
-```
-
-`defineControls` adds `takeover` and `focus` to that Surface (see the takeover parameters above), so the bank shows
-five controls and the user can hand the pads back without deleting the device.
-
-### 5 `worker.ts` - the game
-
-Everything stateful lives here, so it keeps running with the device view closed.
-
-```ts
-// src/app/push-snake/worker.ts
-type Cell = [number, number];
-type Colour = "green" | "red_red" | "yellow_highlight" | "sky" | "purple";
-
-/** The arena is the inner 6x6; everything outside it is wall. */
-const MIN = 1, MAX = 6;
-const inArena = (c: Cell) => c[0] >= MIN && c[0] <= MAX && c[1] >= MIN && c[1] <= MAX;
-
-const FRUIT_COLOURS: Colour[] = ["red_red", "yellow_highlight", "sky", "purple"];
-// Clockwise from up. A turn steps one place around this ring, either way.
-const DIRS: Cell[] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
-
-let snake: Cell[] = [];
-let dir = 0;
-let fruit: Cell = [0, 0];
-let fruitColour: Colour = "red_red";
-let alive = false;
-let baseHz = 4;
-let timer: ReturnType<typeof setInterval> | null = null;
-
-const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
-const free = (c: Cell) => !snake.some((s) => same(s, c));
-
-function placeFruit(): void {
-  const open: Cell[] = [];
-  for (let x = MIN; x <= MAX; x++) for (let y = MIN; y <= MAX; y++) if (free([x, y])) open.push([x, y]);
-  if (!open.length) return;                       // arena full: you won
-  fruit = open[Math.floor(Math.random() * open.length)]!;
-  fruitColour = FRUIT_COLOURS[Math.floor(Math.random() * FRUIT_COLOURS.length)]!;
-}
-
-function reset(): void {
-  snake = [[3, 3], [3, 2]];
-  dir = 0;
-  alive = true;
-  placeFruit();
-  reschedule();
-  paint();
-}
-
-/** Speed rises with length, so the run gets harder as it gets longer. */
-function reschedule(): void {
-  if (timer) clearInterval(timer);
-  const hz = baseHz * (1 + (snake.length - 2) * 0.06);
-  timer = setInterval(step, 1000 / hz);
-}
-
-function step(): void {
-  if (!alive) return;
-  const [hx, hy] = snake[0]!;
-  const [dx, dy] = DIRS[dir]!;
-  const head: Cell = [hx + dx, hy + dy];
-
-  // The wall is the border ring, and there is no wrap.
-  if (!inArena(head) || !free(head)) {
-    alive = false;
-    if (timer) clearInterval(timer);
-    self.postMessage(["dead", snake.length]);
-    paint();
-    return;
-  }
-
-  snake.unshift(head);
-  if (same(head, fruit)) {
-    placeFruit();
-    reschedule();
-    self.postMessage(["ate", snake.length]);
-  } else {
-    snake.pop();
-    self.postMessage(["moved", snake.length]);
-  }
-  paint();
-}
-
-/**
- * One frame out per tick: a flat 64-cell array of colour NAMES, row-major from the
- * bottom-left. The page hands it straight to pads.draw(); the library works out which
- * cells actually changed.
- */
-function paint(): void {
-  const f: string[] = new Array(64).fill("dark_grey");     // the wall, everywhere
-  const at = (c: Cell) => c[1] * 8 + c[0];
-  for (let x = MIN; x <= MAX; x++) for (let y = MIN; y <= MAX; y++) f[at([x, y])] = "black";
-
-  f[at([0, 0])] = "ocean";                                  // turn anticlockwise
-  f[at([1, 0])] = "sky";                                    // turn clockwise
-
-  if (alive) f[at(fruit)] = fruitColour;
-  snake.forEach((c, i) => { f[at(c)] = i === 0 ? "white" : alive ? "green" : "red_red"; });
-  self.postMessage(["frame", f]);
-}
-
-self.onmessage = (e: MessageEvent) => {
-  const [type, arg] = e.data as [string, number];
-  if (type === "start") reset();
-  else if (type === "stop") { alive = false; if (timer) clearInterval(timer); }
-  // arg is +1 clockwise, -1 anticlockwise. A dead snake ignores both.
-  else if (type === "turn") { if (alive) dir = (dir + arg + 4) % 4; }
-  else if (type === "speed") { baseHz = arg; if (alive) reschedule(); }
-};
-```
-
-### 6 `App.tsx` - frames out, presses in, and the sound
-
-```tsx
-import { useEffect, useRef, useState } from "react";
-import { useDevice, Frame } from "../shared/device";
-import { useParam, useStateSync, usePadGrid, usePadsHeld } from "@m4l-jweb/surface/react";
-import GameWorker from "./worker.ts?worker&inline";
-import surface from "./surface";
-import controls from "./controls";
-
-/** The two reserved pads, in the wall, bottom-left. */
-const TURN_CCW = { x: 0, y: 0 };
-const TURN_CW = { x: 1, y: 0 };
-
-export default function App() {
-  const device = useDevice();
-  const pads = usePadGrid(controls, "pads");
-  const held = usePadsHeld(controls);
-  const [running, setRunning] = useParam(surface, "running");
-  const [speed] = useParam(surface, "speed");
-  const [volume] = useParam(surface, "volume");
-  const [best, setBest] = useStateSync(surface, "best");
-  const [length, setLength] = useState(2);
-
-  const worker = useRef<Worker | null>(null);
-  const audio = useRef<AudioContext | null>(null);
-
-  /** One blip. The whole sound design: pitch says what happened. */
-  const blip = (hz: number, ms: number, type: OscillatorType = "square") => {
-    const ctx = (audio.current ??= new AudioContext());
-    const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(hz, t);
-    gain.gain.setValueAtTime(volume * 0.25, t);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t);
-    osc.stop(t + ms / 1000);
-  };
-
-  useEffect(() => {
-    const w = new GameWorker();
-    w.onmessage = (e: MessageEvent) => {
-      const [type, arg] = e.data as [string, unknown];
-      if (type === "frame") {
-        // The whole grid, every tick. The diff is the library's problem.
-        pads.draw((f) => (arg as string[]).forEach((c, i) => f.set(i % 8, Math.floor(i / 8), c)));
-      } else if (type === "moved") {
-        setLength(arg as number);
-        blip(160, 25, "triangle");
-      } else if (type === "ate") {
-        const n = arg as number;
-        setLength(n);
-        blip(220 + n * 40, 90);              // rises as the snake grows
-        if (n > best) setBest(n);
-      } else if (type === "dead") {
-        blip(90, 400, "sawtooth");
-        setRunning(false);
-      }
-    };
-    worker.current = w;
-    return () => w.terminate();
-  }, []);
-
-  // The `running` toggle is the transport: it works from the device view, from an
-  // encoder, and from an automation lane, because it is a real Live parameter.
-  useEffect(() => { worker.current?.postMessage([running ? "start" : "stop"]); }, [running]);
-  useEffect(() => { worker.current?.postMessage(["speed", speed]); }, [speed]);
-
-  // TWO pads, and only on the way down. Everything else on the grid is inert.
-  useEffect(() => pads.onPad((e) => {
-    if (!e.down) return;
-    if (e.x === TURN_CCW.x && e.y === TURN_CCW.y) worker.current?.postMessage(["turn", -1]);
-    else if (e.x === TURN_CW.x && e.y === TURN_CW.y) worker.current?.postMessage(["turn", +1]);
-  }), [pads]);
-
-  return (
-    <Frame device={device} title="Snake">
-      <p>{held ? "Pads: held" : "Pads: released - turn Takeover on"}</p>
-      <p>length {length} · best {best}</p>
-    </Frame>
-  );
-}
-```
-
-### 7 What it has to prove
-
-Not "Snake works". These, because they are what the next device inherits:
-
-| | Checked by |
+| | |
 |---|---|
-| a full frame every tick survives the diff without flooding `[js]` | it plays smoothly at speed 16 with a long snake |
-| a press reaches the app fast enough to steer | a turn taken one tick before the wall does not hit the wall |
-| the worker clock survives a hidden page | close the device view mid-run; the snake keeps moving |
-| parameters drive the loop from Live's side | `running` from an encoder, `speed` from an automation lane |
-| a state slot outlives the set | save, close, reopen: `best` is still there |
-| audio reaches the track from the same page | Live's meters move on every blip |
-| **two instances in one set** | the second device does not steal the grid from the first |
-| **takeover off** | the device loads, shows its state, and does nothing to Push |
+| what it claims | [`src/app/push-snake/controls.ts`](../src/app/push-snake/controls.ts) |
+| its parameters and state slot | [`src/app/push-snake/surface.ts`](../src/app/push-snake/surface.ts) |
+| the game and the clock | [`src/app/push-snake/worker.ts`](../src/app/push-snake/worker.ts) |
+| the soundtrack | [`src/app/push-snake/music.ts`](../src/app/push-snake/music.ts), and [`music/README.md`](../src/app/push-snake/music/README.md) for what to render |
+| frames out, presses in, the sound | [`src/app/push-snake/App.tsx`](../src/app/push-snake/App.tsx) |
 
----
+**The soundtrack is four mixes of ONE loop**, sparsest to full. It climbs one level every
+two segments and holds on the full mix.
+
+All four are decoded and started at the same moment and play in sync. A level change
+crossfades their GAINS rather than restarting anything, which is what makes every
+transition sample-accurate - and why the four files must be the same length and tempo.
+
+They ship as zero-byte placeholders. A layer that does not decode is silent, and the game
+plays anyway.
+
+Two things the shipped version does that the sketch above does not, both of them the
+API telling the truth about the hardware:
+
+- **The wall is `tan`, not `dark_grey`.** No grey was identified in the palette
+  photographs, and `PUSH_PALETTE` names nothing it cannot point at. An index invented by
+  analogy with the Push 2 velocity palette would be a guess wearing a name.
+- **`speed` became `difficulty`.** A dial in hertz was wrong three ways: the number on
+  Push stopped agreeing with the grid once the snake grew, nobody thinks about a game in
+  hertz, and most of the range was unplayable. Three named settings say what the control
+  is for.
+- **The device view tells "takeover off" apart from "another device has the grid".** On
+  the hardware those two look the same - a dark Push - and the second one is what a
+  second instance in the same set produces.
+- **The device view draws the grid too.** The same frame the worker emits goes to
+  `pads.draw()` and to React, so the two surfaces cannot disagree about the game - and
+  the device is playable with no Push connected, from the two lit pads or the arrow
+  keys. The pads are 12 px: eight rows and their gaps come to 110 px, and the device
+  view is a fixed ~169 px that clips silently rather than scrolling.
+
+### 3 What it has to prove
+
+Not "Snake works". These, because they are what the next device inherits - and none
+of them can be checked without a Push in the room, because **a rejected LiveAPI call
+reports nothing**. The checklist lives with the rest of the open work, in
+[TODO.md](TODO.md) item 2b.
 
 ---
 

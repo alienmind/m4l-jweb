@@ -10,7 +10,7 @@ repo as it stands.
 
 ---
 
-## The one-sentence version
+## In one sentence
 
 > **JUCE is a plugin runtime you compile. m4l-jweb is a code generator that ships
 > text into a runtime the user already has installed.**
@@ -26,7 +26,7 @@ any host but Live.
 
 ---
 
-## They are not really competitors
+## They are not competitors
 
 It is worth saying plainly, because the framing decides everything else.
 
@@ -43,7 +43,7 @@ It is worth saying plainly, because the framing decides everything else.
 After Patchboard, this table gets less clean - because Patchboard's recommended
 runtime **is JUCE 8**. The relationship stops being "us vs. them" and becomes
 "what did we add on top of them." That question is answered in
-[After Patchboard](#after-patchboard-what-is-actually-left-that-is-ours).
+[After Patchboard](#after-patchboard-what-is-left-that-is-ours).
 
 ---
 
@@ -170,7 +170,7 @@ writing ten lines of C++.
 
 ---
 
-## The overlap, stated without flinching
+## What overlaps
 
 Patchboard's recommended runtime is **JUCE 8**, and not on vibes: JUCE 8 shipped
 exactly the primitives this architecture was already built on.
@@ -193,7 +193,7 @@ Anyone evaluating this project should know that, rather than discover it.
 
 ---
 
-## After Patchboard: what is actually left that is ours
+## After Patchboard: what is left that is ours
 
 If Patchboard lands, the VST3 runtime *is* JUCE. So the honest question is what
 Patchboard adds on top of a framework it now depends on. Three things:
@@ -253,7 +253,7 @@ does, JUCE does too - or will do underneath it.**
 ## Not covered here
 
 Other runtimes (nih-plug, iPlug2, the raw VST3 SDK) are surveyed in
-[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md#the-runtime-what-to-build-on), along with
+[FEAT-PATCHBOARD-VST3.md](FEAT-PATCHBOARD-VST3.md#the-runtime), along with
 the licensing question - **the VST3 SDK is GPLv3 or a Steinberg agreement, and this
 repo is MIT.** That does not compose silently, and it is a decision that belongs
 before any code is written, not after the plugin works.

@@ -96,6 +96,8 @@ M4L-JWEB handles the entire Max bridge so your React app feels like a native Abl
 - **Fetch to Disk:** `fetchToFile(url, path)` downloads straight to the filesystem through Max's `[maxurl]`, with progress. The bytes never cross the JS bridge, so a 40 MB sample pack is not a problem - and no `[node.script]` is involved.
 - **Sample Playback and Polyphony:** the `samples` chain (a named `[buffer~]` per slot, previewed through the track) and the `instrument` chain (a generated `[poly~]` voice patch, frozen into the device, playing a keymap of buffers via `playVoice()`). Buffer names are instance-scoped with Live's `---` prefix, so two copies of a sampler on two tracks keep their own sound.
 - **Pattern Modulation:** the `remote` chain puts one `live.remote~` per declared slot in the device. `resolveParamId()` + `bindRemote()` point a slot at any Live parameter by LOM id; `writeRemote()` streams values per tick, each ramped into a signal by a `[line~]` - continuous modulation with no automation written.
+- **A device with NO BROWSER:** put `target: "headless"` in the manifest and the build emits only the `[js]` wrapper and the patcher. No `[jweb]`, no HTML payload, no Chromium. The device declares its interface the same way any other does (`defineSurface`, `defineControls`, `defineWatch`), its device view is native `live.*` objects, and its logic is `src/app/<device>/headless.ts`, compiled to ES5. A declared parameter becomes a FUNCTION NAME, and Max's `Task` is the clock - which beats a Worker in a page nobody is looking at.
+- **The Push PADS, as a surface you program:** `defineControls()` claims the 8x8 grid by ROLE. `usePadGrid()` gives you `draw()`, a frame buffer you paint in colour names, and `onPad()`, an event stream with `x`, `y`, velocity and `down`. Roles resolve at runtime against the connected hardware's own control names. The takeover is a real Live parameter the user can switch off, and the input path has no `[js]` in it. `push-snake` is Snake on the pads.
 - **Push Banks:** `banks` in the surface declaration become real parameter banks in the patcher, so a Push page turn lands on the group you declared.
 - **Native Layout:** parameters can render as native `live.*` objects in the device view (`layout.native`), including the two-screen panel pattern (web UI or knob panel, flipped at runtime).
 - **Presets:** a repo's `presets/` folder (hand-saved `.adg`/`.adv`) ships next to the devices - in `dist/`, the release zip, and the installers.
@@ -484,6 +486,67 @@ The build injects the list and the packaged wrapper creates every observer from 
 device's `bang()` - the one moment a LiveAPI object is not born dead. You never write
 the observer, so you cannot write it in the one place (`loadbang`) that silently makes
 it watch nothing forever.
+
+To ship a device with **no browser in it at all**, say so in the manifest:
+
+```js
+// patcher/devices.mjs
+{ name: "hello-headless", type: "midi", target: "headless", chains: ["midiout"] }
+```
+
+```ts
+// src/app/hello-headless/headless.ts - ES5, running inside Max's [js]
+function rate(v: number): void {   // a declared parameter IS a function name
+  arpRate = Number(v);
+  arpReschedule();
+}
+function onHeadlessReady(): void {  // live.thisdevice fired; LiveAPI is safe here
+  post("no [jweb] in this device at all\n");
+}
+```
+
+The surface, the chains and the takeover do not change. A chain reaches "the app"
+through a seam that is `[jweb]` under the default target and `[js]` under this one.
+
+What you give up is real, and it is refused at BUILD time rather than found in Live: no
+Web Audio (`webaudio` is refused), no floating windows, no React view (`layout.native` is
+the device view), and ES5 in the emitted output.
+
+To claim the Push **pads**, declare what the device wants in
+`src/app/<device>/controls.ts` and hand it to the surface:
+
+```ts
+import { defineControls, grid } from "@m4l-jweb/surface";
+
+export default defineControls({
+  surface: "push",
+  controls: { pads: grid({ role: "matrix", rows: 8, cols: 8 }) },
+});
+```
+
+```tsx
+import { usePadGrid, usePadsHeld } from "@m4l-jweb/surface/react";
+import controls from "./controls";
+
+const pads = usePadGrid(controls, "pads");
+pads.draw((f) => {
+  f.clear("black");
+  f.set(3, 4, "green"); // x left-to-right, y BOTTOM-to-top
+});
+useEffect(() => pads.onPad((e) => e.down && turn(e.x, e.y)), [pads]);
+```
+
+You name a ROLE, never a Max control name. The library owns the per-generation table and
+resolves it against the connected hardware. A name Max looks up and does not recognise is
+not an error - it is a feature that silently does nothing.
+
+The declaration also adds two real Live parameters: `takeover` (**off by default**) and
+`focus`. So the pads can be handed back from an encoder, from the device view or from an
+automation lane. Two of these devices in one set is the normal case, not the edge.
+
+Redraw as often as you like. `draw()` takes the whole grid and the library works out what
+moved. An unchanged frame does not cross the bridge, and a changed one becomes
+`send_value` calls only for the pads that really differ.
 
 To *write files* - an export, a bounce, a downloaded sample - declare them in
 `src/app/<device>/files.ts`:
