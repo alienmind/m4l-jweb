@@ -264,6 +264,51 @@ export default [
   },
   {
     /**
+     * hello-headless - NO BROWSER. The device that makes the claim honest.
+     *
+     * `target: "headless"` and the build emits only the `[js]` wrapper and the patcher:
+     * no `[jweb]`, no HTML payload, no Chromium. Its interface is declared exactly as
+     * every other device's is - `defineSurface` - and its logic is
+     * `src/app/hello-headless/headless.ts`, compiled to ES5 and concatenated after the
+     * wrapper. There is no `App.tsx` and no `protocol.ts`, because there is no bridge
+     * to have a contract across: this device is one half.
+     *
+     * A MIDI arpeggiator, because it exercises what the target has to prove and nothing
+     * it does not: parameters in BOTH directions (a dial reaches `function rate()`,
+     * `outlet(0, "set_x", v)` goes back), a packaged CHAIN reached through the same
+     * `ctx.appIn` seam a page would use, a `Task` clock that beats a hidden page's
+     * Worker, and `layout.native` as the entire device view.
+     */
+    name: "hello-headless",
+    type: "midi",
+    target: "headless",
+    chains: ["midiout"],
+  },
+  {
+    /**
+     * push-snake - THE DEVICE THAT PROVES THE PADS, and the first thing built on
+     * `defineControls()`. Full design in doc/PUSH-USECASES.md, use case 1.
+     *
+     * A device rather than a demo because its bugs are visible from across the room:
+     * a y flip in the wrong place is an upside-down snake, and a frame diff that
+     * drops a cell is a trail that never rubs out.
+     *
+     * NO `takeover` CHAIN LISTED, and that is deliberate. The chain is derived from
+     * the `controls` declaration in src/app/push-snake/surface.ts, exactly as
+     * `download` is derived from a files.ts - a device whose observers were missing
+     * because the manifest forgot them would load, grab the grid, and report every
+     * press to nobody.
+     *
+     * `instrument` + `webaudio`: the page's AudioContext IS the track's audio, so the
+     * same page that owns the grid owns the sound. No window, no second bundle.
+     */
+    name: "push-snake",
+    type: "instrument",
+    chains: ["webaudio"],
+    unmatchedTo: "js",
+  },
+  {
+    /**
      * hello-window
      * Demonstrates the floating window API (`useWindow`): a second page, in a window
      * of its own, for a UI that does not fit in the device view's fixed ~169 px. The

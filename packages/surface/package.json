@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/surface",
-	"version": "1.3.1",
+	"version": "1.6.0",
 	"description": "m4l-jweb: declare a device's Live parameters as code - the surface Push actually sees - plus a mocked-Live dev harness.",
 	"type": "module",
 	"license": "MIT",
@@ -15,6 +15,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./store": "./src/store.ts",
+		"./pads": "./src/pads.ts",
 		"./react": "./src/react.tsx",
 		"./dev": "./src/dev.tsx"
 	},

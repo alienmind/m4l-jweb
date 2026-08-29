@@ -38,7 +38,19 @@ const chains = [require.resolve("@m4l-jweb/build/chains"), ...(existsSync(device
 
 const base = readFileSync(path.join(path.dirname(require.resolve("@m4l-jweb/build")), "..", "templates", "base.json"), "utf8");
 
-const devices = (await import(pathToFileURL(path.join(root, "patcher/devices.mjs")).href)).default;
+const allDevices = (await import(pathToFileURL(path.join(root, "patcher/devices.mjs")).href)).default;
+
+/**
+ * A HEADLESS device has NO BRIDGE, so it has no protocol to lint.
+ *
+ * That is not an exemption, it is the shape of the target: a protocol.ts is the
+ * contract between two halves of a device, and a `target: "headless"` device is one
+ * half - its logic is `[js]`, reached by the same generated boxes the parameters
+ * already use. Both ends of `<id>` / `set_<id>` are the wrapper, so there is nothing
+ * two sources of truth could drift apart about. It gets its own checks below instead.
+ */
+const devices = allDevices.filter((d) => d.target !== "headless");
+const headlessDevices = allDevices.filter((d) => d.target === "headless");
 
 /**
  * A device's parameters, from its own surface.ts - the one declaration the Max
@@ -48,7 +60,7 @@ const devices = (await import(pathToFileURL(path.join(root, "patcher/devices.mjs
  */
 const surfaces = Object.fromEntries(
   await Promise.all(
-    devices.map(async (d) => {
+    allDevices.map(async (d) => {
       const src = path.join(root, "src/app", d.ui ?? d.name, "surface.ts");
       if (!existsSync(src)) return [d.name, null];
       return [d.name, (await import(pathToFileURL(src).href)).default];
@@ -214,6 +226,35 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
   });
 
   /**
+   * ...and a declared CONTROL is an observer whose output must REACH the page.
+   *
+   * `pad_<key>` is generated, like `set_<id>`, so there is no literal to grep for in
+   * any source - the takeover chain builds the [prepend] from the declaration. What
+   * makes it worth checking is that the failure is doubly invisible: a missing
+   * [prepend] is a press that arrives as a bare list and dispatches to nothing, and
+   * a missing cord is a press that arrives nowhere at all. Neither raises an error,
+   * and the device looks exactly like a Push that was never grabbed.
+   */
+  const controlKeys = surface?.controls ? [...surface.controls.keys] : [];
+  test.skipIf(!controlKeys.length || !patcherText(name))("every declared control reaches the UI, and its id reaches the observer", () => {
+    const patcher = patcherText(name);
+    for (const key of controlKeys) {
+      expect(patcher, `control "${key}" never reaches ${name}'s UI - no [prepend pad_${key}]`).toContain(`prepend pad_${key}`);
+      expect(patcher, `control "${key}" has no [route ... tk_${key}] to point its observer at a control`).toMatch(
+        new RegExp(`route [^"']*\\btk_${key}\\b`),
+      );
+    }
+    expect(patcher, `${name} declares controls but has no [live.observer] to read them`).toContain("live.observer value");
+    // The takeover has to work with the page closed, so the parameters are tapped
+    // straight off the live.* objects into [js] rather than round-tripped through
+    // the app.
+    expect(patcher).toContain("prepend controls_takeover");
+    expect(patcher).toContain("prepend controls_focus");
+    expect(wrapper).toMatch(/function controls_frame\s*\(/);
+    expect(wrapper).toMatch(/function controls_takeover\s*\(/);
+  });
+
+  /**
    * ...and a declared STATE slot is a [dict] the wrapper addresses BY NAME
    * (`new Dict("obj-state-<id>")`), so the name in the patcher and the name in the
    * wrapper are one string in two languages. Nothing but this checks that they
@@ -234,6 +275,49 @@ describe.each(devices.map((d) => [d.name, d]))("%s", (name, d) => {
     // selector. `sync_state_<id>` would dispatch to nothing at all.
     expect(wrapper).toMatch(/function sync_state\s*\(/);
     expect(wrapper).toMatch(/function get_state\s*\(/);
+  });
+});
+
+/**
+ * ...and the headless devices get the check that IS meaningful for them: they must
+ * declare an interface and own their logic, and they must not carry the half of a
+ * device that only exists to talk to a browser.
+ */
+describe.each(headlessDevices.map((d) => [d.name, d]))("%s (headless)", (name, d) => {
+  const dir = path.join(root, "src/app", d.ui ?? d.name);
+
+  test("declares a surface and owns its [js] logic", () => {
+    expect(existsSync(path.join(dir, "surface.ts")), `${dir} has no surface.ts - a headless device's ONLY interface`).toBe(true);
+    expect(existsSync(path.join(dir, "headless.ts")), `${dir} has no headless.ts - a headless device with no logic does nothing`).toBe(true);
+  });
+
+  test("has no App.tsx and no protocol.ts, because it has no bridge", () => {
+    // Not tidiness: a page in the folder of a device that ships no browser is a page
+    // nothing builds, nothing bundles and nothing runs - and the next person to read
+    // the folder would reasonably believe it does.
+    expect(existsSync(path.join(dir, "App.tsx")), `${dir} has an App.tsx, but this device ships no browser to render it`).toBe(false);
+    expect(existsSync(path.join(dir, "protocol.ts")), `${dir} has a protocol.ts, but this device has no bridge to have a contract across`).toBe(
+      false,
+    );
+  });
+
+  test.skipIf(!patcherText(name))("the shipped patcher contains NO [jweb] at all", () => {
+    // The whole claim of the target, checked against the artifact rather than the
+    // intent: a [jweb] left in the patcher with nothing wired to it still loads
+    // Chromium, which is the entire cost this target exists to avoid.
+    const p = path.join(root, "dist", "patchers", `${name}.json`);
+    expect(readFileSync(p, "utf8")).not.toContain("jweb");
+  });
+
+  test.skipIf(!patcherText(name))("...and its parameters reach [js], in both directions", () => {
+    const patcher = patcherText(name);
+    const surface = surfaces[name];
+    for (const id of surface?.ids ?? []) {
+      expect(patcher, `parameter "${id}" never reaches ${name}'s logic - no [prepend ${id}]`).toContain(`prepend ${id}`);
+      expect(patcher, `parameter "${id}" cannot be written by ${name}'s logic - no [route ... set_${id}]`).toMatch(
+        new RegExp(`route [^"']*\\bset_${id}\\b`),
+      );
+    }
   });
 });
 

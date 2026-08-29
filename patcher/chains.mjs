@@ -56,7 +56,7 @@ export const REPO_CHAIN_IN = {
  * untransformed ones; this one transforms nothing and only listens, so cutting the
  * thru would make the probe silently eat the track's MIDI.
  */
-function mpeInChain({ boxes, lines, jwebId }) {
+function mpeInChain({ boxes, lines, appIn }) {
   boxes.push(
     box("obj-mpeparse", "mpeparse", {
       numinlets: 1,
@@ -65,7 +65,7 @@ function mpeInChain({ boxes, lines, jwebId }) {
     }),
   );
   lines.push(line("obj-midiin", 0, "obj-mpeparse", 0));
-  lines.push(line("obj-mpeparse", 9, jwebId, 0));
+  lines.push(line("obj-mpeparse", 9, appIn, 0));
 }
 
 registerChain("mpein", mpeInChain);

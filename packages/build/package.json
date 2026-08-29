@@ -1,6 +1,6 @@
 {
 	"name": "@m4l-jweb/build",
-	"version": "1.3.1",
+	"version": "1.6.0",
 	"description": "m4l-jweb: the CLI that builds and packages a device repo into installable Max for Live devices.",
 	"type": "module",
 	"license": "MIT",
@@ -18,6 +18,8 @@
 	"exports": {
 		".": "./src/index.mjs",
 		"./chains": "./src/chains.mjs",
+		"./controls": "./src/controls.mjs",
+		"./target": "./src/target.mjs",
 		"./surface": "./src/surface.mjs",
 		"./watch": "./src/watch.mjs",
 		"./files": "./src/files.mjs",

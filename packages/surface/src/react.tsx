@@ -18,8 +18,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { describeParam, onParamRange, outlet } from "@m4l-jweb/bridge";
-import type { ParamSpec, ParamValue, StateSpec, StateValue, Surface, Watch, WatchSpec, WatchValue, WindowSpec } from "./index";
+import type { ControlSpec, Controls, ParamSpec, ParamValue, StateSpec, StateValue, Surface, Watch, WatchSpec, WatchValue, WindowSpec } from "./index";
 import { JWEB_VARNAME } from "./index";
+import { padStore, type PadFrame, type PadHandler, type PadHoldReason } from "./pads";
 import { paramStore, stateStore, watchStore } from "./store";
 
 /**
@@ -157,6 +158,126 @@ export function useStateSync<
   const values = useSyncExternalStore(store.subscribe, store.get, store.get);
   const set = useCallback((value: StateValue<S[K]>) => store.write(id, value), [store, id]);
   return [values[id] as StateValue<S[K]>, set];
+}
+
+/* ------------------------------------------------------------------ *
+ * The control surface - the pads, declared with defineControls()
+ * ------------------------------------------------------------------ */
+
+/** One declared control, bound to React. */
+export interface PadGrid {
+  /** Rows of the control, as declared. */
+  rows: number;
+  /** Columns of the control, as declared. */
+  cols: number;
+  /**
+   * Paint the WHOLE control. Coordinates are bottom-up.
+   *
+   * Redraw as freely as you like - on every worker frame, on every state change.
+   * The frame is diffed against the last one sent and an unchanged grid crosses the
+   * bridge not at all, so the cost of a still picture is one array comparison.
+   */
+  draw: (fill: (f: PadFrame) => void) => void;
+  /**
+   * Handle presses and releases. Returns an unsubscribe function, so it is written
+   * as the body of an effect: `useEffect(() => pads.onPad(fn), [pads])`.
+   */
+  onPad: (fn: PadHandler) => () => void;
+  /** Repaint the hardware from scratch, discarding what we believe is lit. */
+  refresh: () => void;
+  /** Did this control's role resolve on the connected hardware? `false` until the wrapper has answered. */
+  resolved: boolean;
+}
+
+/**
+ * A declared control, as a frame buffer and an event stream.
+ *
+ * ```tsx
+ * const pads = usePadGrid(controls, "pads");
+ * pads.draw((f) => { f.clear("black"); f.set(3, 4, "green"); });
+ * useEffect(() => pads.onPad((e) => e.down && turn()), [pads]);
+ * ```
+ *
+ * `x` is 0..cols-1 left to right and `y` is 0..rows-1 BOTTOM to top, in both
+ * directions - the Push's own orientation and the one every layout in
+ * PUSH-USECASES.md is written in. The wire counts y from the top; the flip lives in
+ * pads.ts and nowhere else.
+ */
+export function usePadGrid<C extends Record<string, ControlSpec>, K extends Extract<keyof C, string>>(controls: Controls<C>, key: K): PadGrid {
+  const store = useMemo(() => padStore(controls), [controls]);
+  const roles = useSyncExternalStore(store.subscribe, store.roles, store.roles);
+  const spec = controls.controls[key] as ControlSpec;
+  const rows = spec.kind === "grid" ? spec.rows : 1;
+  const cols = spec.kind === "grid" ? spec.cols : 1;
+
+  const draw = useCallback((fill: (f: PadFrame) => void) => store.draw(key, fill), [store, key]);
+  const onPad = useCallback((fn: PadHandler) => store.onPad(key, fn), [store, key]);
+  const refresh = useCallback(() => store.refresh(), [store]);
+
+  return useMemo(() => ({ rows, cols, draw, onPad, refresh, resolved: roles[key] === true }), [rows, cols, draw, onPad, refresh, roles, key]);
+}
+
+/**
+ * A declared BUTTON, as a live boolean.
+ *
+ * The degenerate grid: one cell, so `usePadGrid` would work and read badly.
+ * UNMEASURED - the only control grabbed on hardware so far is `Button_Matrix`, and
+ * what a single button's `value` carries has not been read off a Push. The first
+ * atom is taken as the value, which is what the matrix does.
+ */
+export function usePadButton<C extends Record<string, ControlSpec>, K extends Extract<keyof C, string>>(controls: Controls<C>, key: K): boolean {
+  const store = useMemo(() => padStore(controls), [controls]);
+  const [down, setDown] = useState(false);
+  useEffect(() => store.onPad(key, (e) => setDown(e.down)), [store, key]);
+  return down;
+}
+
+/**
+ * A declared STREAM's raw atoms - the jog wheel, the touch strip.
+ *
+ * Deliberately not decoded. Whether either emits a continuous stream under a grab,
+ * and whether the jog wheel reports a DELTA or an absolute position, is doc/TODO.md
+ * item 2a and is unanswered: a hook that returned "the position" would be inventing
+ * the answer. It hands over what arrived.
+ */
+export function usePadStream<C extends Record<string, ControlSpec>, K extends Extract<keyof C, string>>(controls: Controls<C>, key: K): number[] {
+  const store = useMemo(() => padStore(controls), [controls]);
+  const [atoms, setAtoms] = useState<number[]>([]);
+  useEffect(() => store.onStream(key, setAtoms), [store, key]);
+  return atoms;
+}
+
+/**
+ * Do we own the declared controls RIGHT NOW?
+ *
+ * Not the same question as "is `takeover` on": `focus` decides whether an enabled
+ * device holds them while another track or device is selected, and two of these in
+ * one set is the normal case.
+ */
+export function usePadsHeld<C extends Record<string, ControlSpec>>(controls: Controls<C>): boolean {
+  const store = useMemo(() => padStore(controls), [controls]);
+  return useSyncExternalStore(store.subscribe, store.held, store.held);
+}
+
+/**
+ * ...and WHY NOT, when we do not.
+ *
+ * Worth rendering, because the hardware cannot show the difference: `takeover` off, no
+ * Push connected, a Push whose control names this role is not among, and another
+ * instance holding the grid are four different problems that all look like a dark
+ * Push. And they cannot be told apart by asking Live either - a rejected grab is a
+ * console line and a normal return - so this is the wrapper reporting what it DECIDED,
+ * which is the half it does know.
+ */
+export function usePadsReason<C extends Record<string, ControlSpec>>(controls: Controls<C>): PadHoldReason {
+  const store = useMemo(() => padStore(controls), [controls]);
+  return useSyncExternalStore(store.subscribe, store.reason, store.reason);
+}
+
+/** Which declared roles resolved on the connected hardware - the one failure this API can report. */
+export function usePadRoles<C extends Record<string, ControlSpec>>(controls: Controls<C>): Record<string, boolean> {
+  const store = useMemo(() => padStore(controls), [controls]);
+  return useSyncExternalStore(store.subscribe, store.roles, store.roles);
 }
 
 /* ------------------------------------------------------------------ *
