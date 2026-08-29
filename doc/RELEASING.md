@@ -6,7 +6,7 @@ is no `npm login` and no `pnpm release` from a laptop any more - and that is the
 what ships is what CI built from a clean checkout, not what happened to be in someone's
 working tree.
 
-## The one-time set-up: TRUSTED PUBLISHING (no token)
+## One-time set-up: trusted publishing (no token)
 
 Done once, by someone with admin on the repo and publish rights on the `@m4l-jweb` scope.
 
@@ -56,7 +56,7 @@ automatically (visible as a "Provenance" badge on the package page).
 
 4. Watch **Actions -> release**. It builds, tests, publishes, and cuts the Release.
 
-## The one thing you cannot undo
+## What you cannot undo
 
 **npm will not let you republish a version.** `0.7.0` can be published exactly once, ever
 - unpublishing is restricted and does not free the number. So a wrong version number is

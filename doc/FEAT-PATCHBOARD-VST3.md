@@ -9,7 +9,7 @@ describes and does not re-explain them.
 
 ---
 
-## Patchboard, in short
+## Patchboard in short
 
 **One declaration in TypeScript, patched through to whichever host you target.**
 `surface.ts`, `protocol.ts` and `App.tsx` describe the device; the target - Max for
@@ -41,7 +41,7 @@ names).
 
 ---
 
-## The verdict, up front
+## Verdict
 
 **Portable, and worth doing - as a second target, not a migration.** `surface.ts`,
 `protocol.ts`, `App.tsx`, the bridge, the dev harness and most of the test suite
@@ -86,7 +86,7 @@ self-extracting payload - exist purely because of Max, and both evaporate.
 
 ---
 
-## What ports, and why it is more than it looks
+## What ports
 
 ### The app, sometimes literally unchanged
 
@@ -244,7 +244,7 @@ toolchain, wait".
 
 ---
 
-## Licensing: read this before you write code
+## Licensing
 
 **The VST3 SDK is dual-licensed: GPLv3, or Steinberg's proprietary agreement.**
 This repo is MIT. Those do not compose silently - a VST3 you ship, built against the
@@ -263,7 +263,7 @@ deliberately.
 
 ---
 
-## The runtime: what to build on
+## The runtime
 
 | Option | Language | WebView UI | Formats | Notes |
 |---|---|---|---|---|
@@ -555,7 +555,7 @@ diff.
 
 ---
 
-## Effort, honestly
+## Effort
 
 | | |
 |---|---|

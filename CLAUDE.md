@@ -189,6 +189,57 @@ crossing that device's bridge. If you add a message:
 against its own Max side. That is deliberate: an unrouted selector is a message
 falling on the floor, and it produces no error at runtime.
 
+## Writing Markdown in this repo
+
+Every `.md` file here - `README.md`, everything in `doc/`, `CHANGELOG.md`, a README
+beside an asset folder - is written in **plain language**. This is the rule, and it
+applies to new files and to edits of old ones:
+
+> You rewrite Markdown prose into much simpler, plain language. Write the rewrite in the
+> same language as the file you are rewriting. Keep every fact, name, number, link, and
+> file path. Keep all Markdown structure - headings, lists, tables, and links. Do NOT
+> change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short
+> sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble,
+> labels, or commentary.
+
+What that rules out, since this repo has produced all of it: long sentences held
+together by dashes, a clause of drama after every fact, and the same point made twice in
+different words. Say the thing once, in the shortest words that are still exact.
+
+**A heading says what the section is about. Nothing else.** This repo grew a habit of
+headings that are a mood instead of a subject, and you cannot scan a document written
+that way - you have to read each section to find out what is in it. All of these were
+real, and all of them are wrong:
+
+| Was | Should be |
+|---|---|
+| "The one constraint every use case here is shaped by" | "Claiming the matrix stops the pads playing notes" |
+| "The API these are written against" | "The API" |
+| "The things that will bite" | "Common mistakes" |
+| "The verdict, up front" | "Verdict" |
+| "The overlap, stated without flinching" | "What overlaps" |
+| "What ports, and why it is more than it looks" | "What ports" |
+
+Rules of thumb: no "the one thing that", no "stated without", no "and why", no
+"up front", no "honestly", no promise about how the section will make the reader feel. If
+a heading needs a comma to hold two ideas, it is two sections or one shorter heading.
+
+The same goes for sentences. Prefer "Claiming the matrix takes the pads off the note
+path" over "The one constraint every use case here is shaped by is that claiming the
+matrix takes the pads off the note path." Start with the subject.
+
+**Keep every technical word that is a name.** `parameter_enable`, `[live.observer]`,
+`decodeAudioData`, `canonical_parent` and `ctx.appIn` are not jargon to be simplified -
+they are what the thing is called, and a reader who cannot search for them cannot use
+the document. Simplify the sentence around them.
+
+**Facts and numbers do not get softened.** "2.6 ms per full frame", "176 control names",
+"y counts from the TOP" - the whole value of `doc/MAX-FACTS.md` is that it is exact.
+Plain language means saying it in fewer, simpler words, not saying less.
+
+Code comments follow the same spirit but are not covered by this rule: they explain
+mechanism to somebody reading the code, and they may be as long as the mechanism needs.
+
 ## Pull request summaries
 
 Title: `<version> - <the areas that changed>`, plainly. "1.1.0 - better external windows

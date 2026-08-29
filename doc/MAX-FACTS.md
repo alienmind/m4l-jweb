@@ -1,9 +1,9 @@
 # What Max actually does: the measured facts
 
-This file is the **evidence log**. Every claim below was *measured in Live*, on
-hardware, by a spike device built for the purpose - not read in a manual and not
-inferred from a name. They are the ground this architecture stands on, and the next
-thing built on top of them needs them intact.
+This file is the **evidence log**. Every claim below was measured in Live, on hardware,
+by a spike device built for the purpose. None of it was read in a manual or guessed from
+a name. This architecture stands on these facts, and the next thing built on top of them
+needs them intact.
 
 Three documents, one subject, deliberately layered:
 
@@ -15,22 +15,23 @@ Three documents, one subject, deliberately layered:
   for the Max behaviour it relies on.
 
 The method is worth as much as the results: **gate every unknown behind a cheap spike
-that can fail early**. A wrong guess about `set` semantics, discovered after the
-Surface codegen was written, would have cost a week; discovered in a spike, it cost an
-afternoon and would have cost a fallback design. Run it in Live, one thing at a time,
-and *look* - never predict an answer from an attribute's name.
+that can fail early**. A wrong guess about `set` semantics would have cost a week if it
+was found after the Surface codegen was written. Found in a spike, it cost an afternoon.
+Run it in Live, one thing at a time, and look. Never predict an answer from an
+attribute's name.
 
 ---
 
-## Never invent a name Max is going to look up
+## Never invent a name Max will look up
 
 This is the invariant the last two features were built in violation of, and both of
 them cost weeks. It deserves to be stated once, on its own:
 
-**Max does not validate the names you give it. It ignores what it does not
-recognise.** So a wrong name is not an error - it is a feature that does nothing, in a
-patcher that loads, keeps every patch cord, and reports nothing anywhere. There are
-three flavours, and this repo has now hit all three:
+**Max does not check the names you give it. It ignores what it does not recognise.** So a
+wrong name is not an error. It is a feature that does nothing, in a patcher that loads,
+keeps every patch cord, and reports nothing anywhere.
+
+There are three kinds, and this repo has hit all three:
 
 | The name | What was written | What it is | What happened |
 |---|---|---|---|
@@ -51,11 +52,10 @@ it). `pattr.maxhelp` states the `parameter_enable` rule in one sentence, and
 `Max DelayTaps.amxd` demonstrates it. **Read the refpage. Grep the factory patchers.**
 It is five minutes against, twice now, several weeks.
 
-The corollary, and the reason this is architecture rather than advice: **the build is
-where the check belongs.** `assertUniqueBoxIds()` (which now recurses into
-subpatchers, because the window codegen hid a duplicate id inside one) and the protocol
-lint exist precisely because Max will not tell you. Every trap in this document that
-*can* be a test now is one.
+That is why this is architecture and not advice: **the build is where the check
+belongs.** `assertUniqueBoxIds()` and the protocol lint exist because Max will not tell
+you. (`assertUniqueBoxIds()` now recurses into subpatchers, because the window codegen
+hid a duplicate id inside one.) Every trap in this document that can be a test is one.
 
 ---
 
@@ -605,8 +605,8 @@ rounds. No Push 2 was reachable, so every number here is Push 3 and the plan's c
 that the generations share this behaviour is still unmeasured.
 
 The spike exists because §3 of that plan was read off a shipping third-party device's
-patcher rather than run. Four of its statements are wrong on this hardware, and each
-one fails in the way this file exists to catch: silently.
+patcher instead of being run. Four of its statements are wrong on this hardware, and each
+one fails the way this file exists to catch: silently.
 
 ### An id must be spelled `id <n>`, and a rejected call is only a console line
 
@@ -635,7 +635,7 @@ control it never held - and did it again two rounds later on the encoders, print
 patcher-level design in §3.5 inherits this exactly: `[live.object]` has no error
 outlet either.
 
-### The value observer: five atoms, `<velocity> <x> <y>`, and y counts from the TOP
+### The value observer: five atoms, and y counts from the top
 
 §3.1 says three atoms, `<x> <y> <value>`. Both halves are wrong:
 
@@ -659,7 +659,7 @@ Atom `[4]` is `1` on every event observed, press and release alike. Unexplained.
 Observing `value` fires **once immediately with `value bang`** - two atoms, no
 coordinates. Forwarded blindly it is a press at `(undefined, undefined)`.
 
-### Press and release only. Velocity yes; aftertouch and slide no
+### Press and release only - velocity yes, aftertouch and slide no
 
 Velocities are real and vary with the strike (32, 35, 42, 45, 48, 52, 54, 57, 66, 67,
 73, 127 across the runs). But **nothing arrives between the press and the release**:
@@ -672,7 +672,7 @@ answered in the negative, and §7.2's "the slide within the pad gives the fine
 position" crossfader cannot be built on this path. Whatever carries Push 3's
 aftertouch and MPE, it is not the grabbed `Button_Matrix`'s `value`.
 
-### The grab gates OUTPUT too, and Live repaints over your first frame
+### The grab gates output too, and Live repaints your first frame
 
 `send_value` on the proxy with no grab held lights nothing: painting is not an
 independent capability. And the first paint *immediately* after a successful grab
@@ -705,7 +705,7 @@ full 8x8 repaint is ~2.6 ms, so Snake at 8 fps spends 2% of its budget painting 
 §2.2 stays worth having for the bridge traffic it removes, but it is not what makes
 the grid usable.
 
-### What is on a Push 3, and what is not
+### What is on a Push 3
 
 `get_control_names` returns **176 controls**, as a Max-formatted reply - the selector,
 the count, then `control <name>` pairs, then `done` - so a parser has to skip the
@@ -720,7 +720,7 @@ next to it. `Button_Matrix` itself resolves, which is what §3.2 could only infe
 against the answer, per §2.1 - a name from the Push 2 script is a guess on this
 hardware.
 
-### The palette: 0 is off, and an index is locatable
+### The palette: 0 is off, and every index is locatable
 
 Painting `y*8 + x` and then `64 + y*8 + x` across the grid photographs the whole
 128-index palette in two frames, with every index at a known pad (y from the top, as
@@ -730,7 +730,7 @@ Colour NAMES for `defineControls` are still to be read off those photographs. An
 whether an index means the same colour on a Push 2 remains open, which is why §2.2's
 names are library data resolved per generation rather than a number a device writes.
 
-### Giving it back is safe, by three different routes
+### Giving it back is safe, three ways
 
 The question that decides whether any of this is shippable - does a device leave Push
 broken? - answers cleanly. All three observed on the hardware:
@@ -747,7 +747,7 @@ replaced mid-session. That is what makes the takeover safe to ship at all, and i
 means a device does not have to be trusted to release: only to release when it stops
 wanting the grid.
 
-### The encoders ARE grabbable, which is why the library must refuse them
+### The encoders are grabbable, which is why the library refuses them
 
 `grab_control "Track_Controls"` is accepted, and so is the matching release - no
 console rejection either way. (The run before it passed the bare id `-4` and was
@@ -769,7 +769,7 @@ accepted", which is exactly what this API will not tell you. And a device with n
 parameters shows "No parameters mapped" on Push whether or not its encoders are
 grabbed - the two are indistinguishable until the device declares a dial.
 
-### The grab can be made on the CONTROL, with no arguments
+### The grab can be made on the control, with no arguments
 
 `grab_control "Button_Matrix"` on the SURFACE is measured to work and is what the
 spike uses. It is not the only shape, and not the one a shipping device uses.
@@ -805,7 +805,7 @@ the comment *"Wait with grabbing to give another instance time to release."*, a
 `[route id]` -> `[!= 0]` -> `[change]` guard so a control that did not resolve never
 reaches the grab, and `[route none]` -> `release_control` so a "none" target releases.
 
-### The donor's control names are NOT one generation's
+### The donor's control names span generations
 
 The takeover addresses: `Button_Matrix`, `Pads`, `Display`, `Scene_Launch_Buttons`,
 `Track_State_Buttons`, `Step_Buttons`, `Shift_Button`, `Select_Button`,
@@ -822,7 +822,7 @@ device covering several generations therefore carries a superset and resolves wh
 is actually there - which is the same conclusion the 176-name dump forced, arrived
 at from the other direction.
 
-### MPE is a different door, and the donor holds it open
+### MPE is a separate path
 
 Devices that advertise MPE in Live (the badge top right of the device title bar) set a
 **patcher** attribute, `is_mpe` - read off Max's own reference on disk,
@@ -884,6 +884,64 @@ at all - Push's design, nothing to do with this API. So `mpeevent` arriving is n
 evidence that a grab succeeded or failed, and a device cannot assume expression is
 there: the user may simply be looking at a different page of their instrument.
 
+### What `defineControls` takes from the reference, not from hardware
+
+Everything above came off the hardware through `[js]`. The shipped takeover moves the
+INPUT PATH into the patcher: `[live.observer value]` -> `[prepend pad_<key>]` ->
+`[jweb]`, so a press reaches the page without going through `[js]`. That one step rests
+on the reference, not on a Push:
+
+- **`live.observer`'s left outlet carries the VALUE and nothing else.**
+  `refpages/m4l-ref/live.observer.maxref.xml`: *"The left outlet is reserved for value
+  messages, all other output is sent to the right outlet."* So the page is written
+  against `<velocity> <x> <y> <1>`, not the `["value", ...]` a `[js]` callback gets. The
+  two shapes are five and four atoms of the same numbers in the same order, so a wrong
+  reading here is off by one atom: the page would see a velocity where it expects an x.
+- **It fires once when it is pointed at an object**, with the property's current value:
+  *"In response to the id message, the current value of the property, if a property was
+  already selected, is sent out the left outlet"*. That is the patcher twin of the
+  `value bang` the `[js]` observer sends on attach, and it is not a press. `padStore`
+  drops anything shorter than three atoms.
+- **The id goes in the RIGHT inlet as `id <n>`** - the same convention `[live.object]`
+  uses, and the one the donor device's takeover subpatcher uses.
+
+All three are unverified on hardware. If the payload is off by an atom, `push-snake`
+reports presses at the wrong pad and nothing says why. That is what the device-view
+readout and the mocked grid in the harness are for.
+
+### An observer callback splits an object-valued property into two atoms
+
+A `[js]` property observer is handed `[<property>, ...value]`. For a scalar that is two
+atoms, and `a[1]` is the value. For an OBJECT-valued property - `selected_track`,
+`selected_device`, anything the LOM answers with an id - the value is the two atoms
+`id <n>`. So the callback is:
+
+```
+["selected_track", "id", 5]
+```
+
+`a[1]` is the SYMBOL `id`, not a number. Reading it gives `Number("id")` = **NaN**. NaN
+is not equal to anything, including itself, so a focus test written as
+`myTrackId === selectedTrackId` is false forever.
+
+The takeover shipped that way. The `Takeovr` toggle went on, the wrapper decided not to
+hold, and nothing said so, because comparing two numbers is not an error. Take the LAST
+atom, which is the id in both shapes.
+
+It is the same trap as `get_control`'s reply, for the same reason: the LOM's
+object-argument convention is `id <n>`, everywhere, in both directions.
+
+### `this_device canonical_parent` is the Chain inside a Rack
+
+Not the Track. A device on a bare track resolves to the track in one hop. A device in an
+Instrument or Audio Effect Rack resolves to the Chain it sits in, and that Chain's id
+equals no `selected_track` Live will ever report. So a focus policy comparing the two
+holds the grid on a bare track and never on a racked one, silently.
+
+`ownTrack()` in `liveapi.ts` already climbed the chain for clip I/O, where the same
+mistake produced "invalid property name" once a second. The takeover reuses it instead
+of working it out again. That is the point of it being one function.
+
 ### Still open
 
 - Whether `Mpe_Pitch_Bend_Elements` - listed by `get_control_names` next to
@@ -899,5 +957,15 @@ there: the user may simply be looking at a different page of their instrument.
   loaded: `get: no valid object set` and `The Max function "SendMessage" returned
   with error 2: Bad parameter value`. They arrive between the payload extraction and
   `bang`, before any probe code runs, and nothing observable follows from them.
+- What a NON-MATRIX control's `value` carries, and what its `send_value` wants.
+  `Scene_Launch_Buttons` was grabbed and released during the spike - that is how the
+  note path was shown to survive it - but nothing read its payload. `defineControls`
+  lets you declare one and reports whether the role resolved. It does not claim to know
+  the shape.
+- Whether `Play_Button`, `Up_Arrow` and `Down_Arrow` exist on a Push 3. They are in
+  `defineControls`' candidate table, and they were NOT in the 176-name dump that was
+  read. A candidate the hardware does not list is never called, so a wrong guess costs a
+  `controls_role <key> 0` rather than a silent no-op. The table is still a guess until
+  the dump is read against it.
 
 Live's UI did **not** stutter during the 50-frame repaint burst.

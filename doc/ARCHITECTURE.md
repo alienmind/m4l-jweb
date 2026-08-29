@@ -167,7 +167,7 @@ cannot be moved, or moves but never reports, and neither raises an error. The li
 also fails if a parameter is *re-declared by hand* in `protocol.ts` - two sources
 of truth for one string is the drift the Surface exists to delete.
 
-### Reading from Live (events in)
+### Reading from Live
 
 | You want | The M4L-JWEB way |
 |---|---|
@@ -177,7 +177,7 @@ of truth for one string is the drift the Surface exists to delete.
 | Things with no observer | Poll with a `Task` and push a message only on change. |
 | Device lifecycle | `live.thisdevice` fires a bang when the device is fully loaded. Do all LiveAPI bootstrapping there, never in `loadbang` (see `CLAUDE.md`). |
 
-### Acting on Live (events out)
+### Acting on Live
 
 | You want | The M4L-JWEB way |
 |---|---|
@@ -349,7 +349,7 @@ automation *while the user is dragging* cannot yank the control out from under
 them. (The device does not echo our own writes back: the patcher writes with
 `set`. This is the defence against the other case.)
 
-### What that actually looks like in Max
+### What it looks like in Max
 
 `hello-audio`, opened in the Max editor. **Nobody drew any of this** - it is the
 patcher the build emits from a few lines of `surface.ts`, and the only reason to
@@ -402,6 +402,229 @@ shape read off devices Max itself saved. The same registry carries every paramet
 `[longname, shortname, type]` (see [MAX-FACTS.md](MAX-FACTS.md) for what Live does -
 and does not - read from it).
 
+## Targets: where a device's logic runs
+
+Until 1.5.0 there was one answer, and it was wired into everything. The logic was a React
+app inside `[jweb]`, so the patcher had a `[jweb]`, the `.amxd` carried a base64 HTML
+payload, and every chain that wanted "the app" sent to that box. A device could not opt
+out, and the library was named after the assumption.
+
+A **target** makes that assumption explicit and gives it a second value:
+
+```js
+// patcher/devices.mjs
+{ name: "hello-headless", type: "midi", target: "headless", chains: ["midiout"] }
+```
+
+| | `jweb` (the default) | `headless` |
+|---|---|---|
+| the logic is | `src/app/<device>/App.tsx`, React, in Chromium | `src/app/<device>/headless.ts`, ES5, in `[js]` |
+| the device view is | the page, plus optional native dials | native `live.*` objects only |
+| the `.amxd` carries | the patcher, the wrapper, an HTML payload | the patcher and one script |
+| you get | Web Audio, Workers, canvas, floating windows | Max's scheduler, and no browser at all |
+
+`defineSurface`, `defineControls`, `defineWatch` and the chain vocabulary do not change.
+A parameter is still automatable, MIDI-mappable and on Push. A chain is still a chain.
+
+### The seam is two fields
+
+Every chain that reached "the app" used to name `[jweb]`. Now it names the **app
+endpoint**, which is `[jweb]` under one target and `[js]` under the other:
+
+```
+  ctx.appIn    where a message TO the device's logic goes
+  ctx.appOut   the head of the stream of messages FROM it
+```
+
+That swap is the whole port. `[prepend notein] -> ctx.appIn` feeds a React `onNote()` or
+a `function notein()` in `[js]`. `claimAppMessages()` splices a `[route]` into
+`ctx.appOut` either way. Nothing else in the chain vocabulary had to know, which is why
+`openApp()` in `packages/build/src/target.mjs` is about forty lines.
+
+Headless has one more difference worth naming: **the last route's unmatched outlet goes
+nowhere.** In a jweb device the tail of the route chain runs on to `[js]`, which is the
+far end. Under headless, `[js]` is where the messages came *from*, so wiring it back
+would be a loop feeding `anything()`.
+
+### What a parameter looks like with no page
+
+The same generated boxes, with both ends in `[js]`:
+
+```
+  [live.dial rate] -> [prepend rate] -> [js]      function rate(v) { ... }
+  [js] -> [route ... set_rate] -> [prepend set] -> [live.dial rate]
+```
+
+So **a declared parameter is a function name.** That is the whole binding. No `useParam`,
+no store, no handshake. Max calls the function when the knob moves, when an automation
+lane plays it, and when a Push encoder is turned. `outlet(0, "set_rate", v)` writes it
+back.
+
+The device's entry point is `onHeadlessReady()`, called from `bang()` - the one moment a
+LiveAPI object is not born dead. It has a different name from the repo-wide
+`wrapper/device.ts`'s `onDeviceReady()` on purpose. Everything is concatenated into one
+`[js]` script, so a second definition of a function does not extend it. It replaces it.
+
+### Why it is worth having
+
+- **The pad takeover never needed a browser.** The grab, the paint and the value observer
+  are `live.object` / `live.observer` and `[js]`. The page was only ever the thing reading
+  the events. A grid device's logic is a control plane, and `[js]` plus `Task` is a better
+  clock than a Chromium page nobody is looking at. The Worker in `push-snake` exists to
+  dodge throttling that only a hidden page suffers.
+- **Audio without `[jweb~]` is a path this repo has already walked**: bytes to disk, played
+  through `[buffer~]` / `[groove~]`. It was retired in 0.9.9 for ergonomics, not because it
+  failed. For a device holding two decoded FLACs the trade flips, because half a gigabyte
+  inside Chromium inside Live is not a problem `[buffer~]` has.
+- Push 3 Standalone runs *some* subset of Max for Live, and an embedded Chromium is far
+  less likely to be in it than `[js]` is. **This is unverified, and nothing is designed
+  around it.** It is a reason the seam is worth having, not a requirement it meets.
+
+### What it gives up
+
+No React device view, no Web Audio, no Workers, no floating windows, and ES5 in the
+emitted output.
+
+Three of those are refused at **build** time rather than found in Live: the `webaudio`
+chain, because its signal comes out of the page's own outlets; a declared `window`,
+because a window is a second page; and a `latency`, because there is no `[jweb~]` ring
+buffer to size. `tests/headless.test.mjs` pins each refusal. A target that quietly built a
+smaller broken device would be worse than no target.
+
+**The honest limit on the claim.** A headless `.amxd` has no `[jweb]` object and no HTML
+payload. Both are checked against the shipped file, not the intent. It does *not* have a
+wrapper with the browser code stripped out: there is one wrapper per repo, and it still
+carries `loadWebview` and the window plumbing, inert, for the devices that do have a page.
+What matters is that nothing starts Chromium, and that is a property of the patcher and
+the payload. `hello-headless` is 167 KB where the same device with a page is 437 KB.
+
+## The pads: a control surface you program
+
+`defineSurface` gives a device the eight Push encoders. It gives it **nothing** on the 8x8
+grid - sixty-four RGB pads a device could neither read nor light. `defineControls` closes
+that, and the whole API is two calls:
+
+```ts
+// src/app/<device>/controls.ts
+import { defineControls, grid } from "@m4l-jweb/surface";
+export default defineControls({
+  surface: "push",
+  controls: { pads: grid({ role: "matrix", rows: 8, cols: 8 }) },
+});
+```
+
+```tsx
+const pads = usePadGrid(controls, "pads");
+pads.draw((f) => { f.clear("black"); f.set(3, 4, "green"); });
+useEffect(() => pads.onPad((e) => e.down && turn(e.x, e.y)), [pads]);
+```
+
+The declaration is passed to `defineSurface({ controls })` rather than living beside it,
+because it **adds two real Live parameters**: `takeover` (off by default) and `focus`
+(`Device` | `Track` | `Always`). The only thing Push can see is a Live parameter, so the
+switch that hands the pads back has to be one. It is then automatable, MIDI-mappable and
+on an encoder like any other. Declared banks get the pair appended to the first page with
+room.
+
+### A role, not a Max name
+
+A device names a ROLE: `matrix`, `scene_launch`, `shift`, `jogwheel`. The library owns the
+role-to-name table and resolves it **at runtime** against the connected hardware's own
+`get_control_names`, trying candidates in order.
+
+That is not indirection for its own sake. A Push 3 answers with 176 names and they are not
+the Push 2 set. And a name Max looks up and does not recognise is not an error - it is a
+feature that silently does nothing.
+
+Checking the answer first is also the only way this API can report anything at all,
+because **a rejected LiveAPI call reports nothing**. It posts a console line and returns
+normally, so a `try/catch` catches nothing and there is no success to branch on. A role
+that is not on the connected hardware comes back as `controls_role <key> 0`, and
+`usePadRoles()` shows it.
+
+The encoder roles are **refused at declaration time**. They are perfectly grabbable, and
+that is the problem: grabbing `Track_Controls` stops the dials moving their parameters at
+all, which costs automation, MIDI mapping and the automation lane.
+
+### The two diffs
+
+`draw()` takes a FRAME, not a pad. The device describes the whole grid every time and the
+library works out what moved. That happens twice, and the two are not the same question:
+
+| | Where | Asks |
+|---|---|---|
+| the app's | `pads.ts` | did the DEVICE change its mind? An identical frame does not cross the bridge at all. |
+| the wrapper's | `controls.ts` | does the PAD already show this? Only changed cells become a `send_value`. |
+
+They are separate because after a grab the hardware's state is unknown even though the
+app's frame has not changed - Live repaints the matrix as it hands it over. One message
+per frame crosses the bridge (`controls_frame <key> <64 indices>`), never sixty-four:
+`[js]` is a control plane.
+
+The repaint budget is not the reason. A full 8x8 frame measures ~2.6 ms and stays flat
+across fifty frames in a row ([MAX-FACTS.md](MAX-FACTS.md)). The diff exists for the
+messages it does not send.
+
+### The y flip lives in one place
+
+The hardware counts rows from the **top**. The API counts them from the **bottom**, which
+is what a person reading a layout expects. Both directions are converted in `padStore` and
+nowhere else. Do it twice and it cancels. Do it in a device and every OTHER device on the
+grid is mirrored, with nothing to report it.
+
+### Where the work is split
+
+```
+  Push  --value-->  [live.observer] --> [prepend pad_pads] --> [jweb]      the chain
+                                                                 |
+  Push  <--send_value--  [js] <-- controls_frame <key> <64> -----+         the wrapper
+```
+
+**The input path has no `[js]` in it.** A press reaches the page through a
+`[live.observer]` the `takeover` chain generates, so the one thing that must never queue
+behind anything else does not.
+
+`live.observer`'s left outlet carries the value and nothing else. That is read off
+`refpages/m4l-ref/live.observer.maxref.xml`, and it is not the shape `[js]` sees - a
+`[js]` callback is handed `["value", ...]`. It also fires once on attach with the
+property's current value, which is not a press. The page drops it on arity.
+
+Everything else is in `packages/wrapper`: walking `live_app`'s `control_surfaces` to find
+the Push, resolving each role, the grab and release (by name - a bare id is rejected), the
+focus policy's observers, the frame buffer and `send_value`. [TODO.md](TODO.md) originally
+asked for discovery, grab and release in the chain too. They stayed in `[js]` because every
+measured fact about this API was measured through `[js]`, and because resolving a role
+against 176 runtime names is a loop - which in a patcher is `[uzi]` + `[zl]` that nothing
+can test without the hardware in the room.
+
+### The two parameters come straight off the objects
+
+`takeover` and `focus` reach `[js]` from the `live.*` objects, not from the page. A device
+whose grid died because its Chromium view was closed would fail exactly when the user is
+looking at the Push instead of the screen.
+
+`fanParamInto` wires **both** of each parameter's sources: the object's own outlet (a knob
+turn, an automation lane, Push) and the route outlet carrying what the app wrote. The
+app's write reaches the object as `set`, which updates it without producing output.
+
+### What it costs
+
+Claiming `Button_Matrix` takes the pads **off the note path**: no MIDI notes and no MPE
+expression until it is released, even on a device that declares `mpe`. Claiming a
+non-matrix control - the scene column, the jog wheel - costs nothing there. That is why a
+mixed declaration is allowed rather than refused.
+
+Giving a control back is safe by three measured routes: an explicit release, deleting the
+device without one, and reinstalling the `.amxd` mid-session. So a device only has to
+release when it stops *wanting* the grid.
+
+The colour names (`PUSH_PALETTE`) are read off photographs of the two palette pages, and
+say so. Index 0 = off is the one entry that is measured. No grey is named, because none
+was identified - a device that wants a dim, always-lit border uses `tan`.
+
+`push-snake` is the device built on all of it: Snake on the 8x8, clocked in a Worker so it
+keeps running with the device view closed, sounding through `webaudio`.
+
 ## Native layout: dials in the device view, and the two-screen panel
 
 The same declaration that puts a parameter on Push can also make it VISIBLE in the
@@ -421,7 +644,7 @@ untouched. A native dial is the same parameter with the same graph, now drawn by
 The `button` kind (`live.text`, toggle mode) belongs here too: a labelled button where a
 `live.toggle` is a mute square. Same 0/1 value; `text`/`texton` carries the label.
 
-### Why it is TWO SCREENS, not a reflow
+### Why it is two screens, not a reflow
 
 The obvious design - a narrow `[jweb]` beside always-visible dials, dials appearing and
 disappearing and repacking with the device state - **is not buildable**, because a frozen
@@ -467,7 +690,7 @@ and reopening the set, and each instance of the device keeps its own.
 `applyPersistence()`. The dict is where the JSON lives while the set is open; the
 pattr is what saves.
 
-### Why `parameter_enable` is what makes it persist
+### Why `parameter_enable` makes it persist
 
 A pattr, by itself, persists in a **patcher**. A Max for Live device is never saved as
 a patcher - **Live saves the set** - so a plain pattr in a device saves nothing at all.
@@ -574,7 +797,7 @@ state. They talk to each other through Max, exactly as two devices would.
 
 ---
 
-## Never invent a name Max is going to look up
+## Never invent a name Max will look up
 
 Max does not validate the names you give it - a wrong `maxclass`, dictionary key or
 attribute is ignored, not rejected, so it does nothing in a patcher that loads and
@@ -625,6 +848,15 @@ app:
   hardware-in-the-loop discovery; here it is a browser tab.
 - **A message log**, off `tapMessages` - every selector crossing the bridge, both
   directions. The best debugging tool in the stack, and nearly free.
+- **A mocked 8x8 grid**, for a device that declares `controls`. It paints from the real
+  outbound `controls_frame` messages, index by index, in the same hardware order the
+  wrapper would get. So a y flip in the wrong place shows up as an upside-down picture,
+  which is what it would be on the Push. A click fakes `pad_<key> <velocity> <x>
+  <yFromTop>` inbound, the shape a `[live.observer]` really emits. It was built before
+  the first grid device on purpose: without it, every iteration is a rebuild, a
+  reinstall, a re-drag and a squint at sixty-four LEDs. `controls_held` follows the
+  `takeover` parameter alone, since a mock cannot know what Live has selected - so a
+  device still wants trying with two instances in one set.
 
 (`format` is the one part of a declaration that does not reach Max: it is a
 *function*, and functions do not serialize into a patcher. It survives the build's
@@ -635,16 +867,16 @@ The device keeps its **real 169 px box** in the harness, deliberately: a UI that
 clips in Live must clip here too, or the harness is lying about the one
 constraint that is cheapest to catch early.
 
-**It must never ship.** `src/main.tsx` imports it behind `import.meta.env.DEV`,
-which a production build replaces with the literal `false`, so rollup drops the
-branch and the module with it. `tests/bundle.test.mjs` asserts the drop actually
-happened - a harness shipped inside someone's `.amxd` would throw no error, it
-would just sit there, in Live, in their device.
+**It must never ship.** `src/main.tsx` imports it behind `import.meta.env.DEV`. A
+production build replaces that with the literal `false`, so rollup drops the branch and
+the module with it. `tests/bundle.test.mjs` checks the drop really happened. A harness
+shipped inside someone's `.amxd` would throw no error - it would just sit there, in
+Live, in their device.
 
-**The honest limit.** A mock is a mock. It cannot tell you about MIDI jitter,
-real DSP, or LiveAPI's behaviour on a loaded set. What it gives you is the whole
-*message-level* contract, exercised without Live - the part that is tedious to
-test and easy to get wrong. Keep "load it in Live" for what genuinely needs Live.
+**The limit.** A mock is a mock. It cannot tell you about MIDI jitter, real DSP, or how
+LiveAPI behaves on a loaded set. What it gives you is the whole message-level contract,
+exercised without Live - the part that is tedious to test and easy to get wrong. Keep
+"load it in Live" for what really needs Live.
 
 ## The packages
 
@@ -775,7 +1007,7 @@ small function that adds boxes and cords. Shipped today:
 | `lowpass` | A `onepole~` in the signal path, with a Cutoff parameter in Hz (the 40 Hz - 18 kHz range and its curve live on the *parameter*). Audible: sweep it and the top end goes. |
 | `drive` | An `overdrive~` in the signal path, with a Drive parameter (1 = clean, 10 = filthy). The chain whose *place in the list* you can hear - see below. |
 
-### An audio chain claims a stage; it does not own the signal path
+### An audio chain claims a stage, not the signal path
 
 `plugin~` and `plugout~` are created **once, by the build**, for any device whose
 type is `audio` or `instrument`. A chain inserts itself between them the way a
@@ -827,7 +1059,7 @@ Add your own next to them, either in the library or in your repo's
 owns a selector, put its name in `CHAIN_IN`/`CHAIN_OUT` so devices spread it in
 rather than retyping it.
 
-### saveToFile - bytes from the page to disk
+### `saveToFile` - bytes from the page to disk
 
 The inverse of `fetchToFile`: `saveToFile(path, bytes)` hands the UI's bytes to `[js]`
 base64 in slices, which `writebytes` them to a `<dest>.part` and then places the `.part`
@@ -854,7 +1086,7 @@ Two hard-won facts, both still binding:
 > not put audio on the track; `[jweb~]` can, so the page plays its own audio and the
 > `webaudio` chain carries it. `saveToFile` is the only piece of that era still shipping.
 
-### The native audio bridge: four routes, and the object that made all four moot
+### The native audio bridge: four routes, and the object that replaced them
 
 This was the biggest open item in the backlog for most of the library's life, and it is
 recorded here rather than in TODO.md because it is settled. It read: *"`[jweb]` has no
@@ -949,7 +1181,7 @@ parameter simply never appears; a shipped harness just sits there; a device
 wearing its sibling's UI looks like a mystery, not a build bug. Those are exactly
 the bugs worth spending a test on.
 
-### What the tests cannot catch, and the one thing that can
+### What the tests cannot catch
 
 Invariant 9 tests **us**. It cannot test **Max** - and the difference is the reason
 this repo keeps getting surprised.
@@ -977,7 +1209,7 @@ A test suite that quietly redefines the world it is testing is worse than no sui
 because it converts an outage into a green tick. The button is the price of not having
 that.
 
-## The pattern, and where it goes next
+## The pattern, and what comes next
 
 Notice what the Surface actually is. It is not really a parameters feature - it is
 one instance of a rule this project keeps rediscovering:
