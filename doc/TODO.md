@@ -146,6 +146,9 @@ in the middle:
   are per-device, but some device repos carry the library name in their path.
 - the repo, its docs, and the two device repos that use it - `../m4l-gugelhupf` and
   `../m4l-qobuz-dj`.
+- as part of this process, we will carve out the mini game, "push-snake", under its own separate,
+  m4l-patchboard compatible-scaffolded separate project, under ../m4l-push-games. This will be a new
+  separately buildable project with separate pipeline just for push based minigames
 
 The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
 about Max, not about this library, and they outlive both names.
