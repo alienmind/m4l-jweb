@@ -124,5 +124,5 @@ jobs:
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             dist/m4l-jweb/*.amxd
-            dist/m4l-jweb.zip
-            dist/push-snake.zip
+            dist/m4l-jweb-*.zip
+            dist/push-snake-*.zip

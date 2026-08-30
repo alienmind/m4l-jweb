@@ -653,7 +653,10 @@ export async function packageDevices(root) {
   const installers = ["install-windows.ps1", "install-mac.sh"];
   for (const f of installers) await copyFile(path.join(templates, f), path.join(dist, f));
 
-  const zipPath = path.join(dist, `${name}.zip`);
+  // VERSIONED, because a download outlives the page it came from. `m4l-jweb.zip` in
+  // somebody's Downloads folder is unidentifiable a month later, and two of them are
+  // indistinguishable. The release workflow globs `<name>-*.zip` to match.
+  const zipPath = path.join(dist, `${name}-${version}.zip`);
   await new Promise((resolve, reject) => {
     const output = createWriteStream(zipPath);
     const archive = archiver("zip", { zlib: { level: 9 } });
@@ -689,9 +692,9 @@ export async function packageDevices(root) {
   });
 
   const { size } = await stat(zipPath);
-  console.log(`m4l-jweb: dist/${name}.zip (${size} bytes)`);
+  console.log(`m4l-jweb: dist/${name}-${version}.zip (${size} bytes)`);
 
-  await packageBundles(root, dist, outDir, devices);
+  await packageBundles(root, dist, outDir, devices, version);
 }
 
 /**
@@ -701,7 +704,7 @@ export async function packageDevices(root) {
  * is missing the very thing it is named after, and nothing would say so until somebody
  * downloaded it.
  */
-async function packageBundles(root, dist, outDir, devices) {
+async function packageBundles(root, dist, outDir, devices, version) {
   const bundles = await readBundles(root);
   const known = new Set(devices.map((d) => d.name));
 
@@ -714,7 +717,7 @@ async function packageBundles(root, dist, outDir, devices) {
     }
     if (!named.length) throw new Error(`bundle "${bundle.name}" names no devices - a zip of nothing is not a release`);
 
-    const zipPath = path.join(dist, `${bundle.name}.zip`);
+    const zipPath = path.join(dist, `${bundle.name}-${version}.zip`);
     const entries = [];
 
     await new Promise((resolve, reject) => {
@@ -761,7 +764,7 @@ async function packageBundles(root, dist, outDir, devices) {
     });
 
     const { size } = await stat(zipPath);
-    console.log(`m4l-jweb: dist/${bundle.name}.zip (${size} bytes: ${entries.join(", ")})`);
+    console.log(`m4l-jweb: dist/${bundle.name}-${version}.zip (${size} bytes: ${entries.join(", ")})`);
   }
 }
 

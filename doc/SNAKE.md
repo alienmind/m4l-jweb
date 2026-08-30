@@ -7,7 +7,7 @@ screen.
 Music by **AlienMind**:
 [Next Wave / Nextpoint OST](https://soundcloud.com/alienmindzzz/next-wave-nextpoint-ost).
 
-> **What this file is.** It ships inside `push-snake.zip` as the README - what somebody
+> **What this file is.** It ships inside `push-snake-<version>.zip` as the README - what somebody
 > reads *before* they have installed the game, or after, on GitHub. It is also the one
 > written description of the game: the design notes that used to be in
 > [PUSH-USECASES.md](PUSH-USECASES.md) were merged into it, because a game described in
