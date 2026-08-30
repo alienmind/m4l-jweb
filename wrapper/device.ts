@@ -648,7 +648,21 @@ function probe_other(name: unknown, hold: unknown): void {
   // second. Sixty is about four seconds of slow turning.
   probeOtherLeft[control] = 60;
   probeOtherValues[control] = [];
-  delete probeOtherObs[control];
+
+  // ONE OBSERVER PER CONTROL, EVER. Not one per grab.
+  //
+  // An observer outlives the release that was supposed to end it (see MAX-FACTS.md,
+  // "`release_control` does not stop the observer"), so a fresh `new LiveAPI` on every
+  // grab leaves the previous ones attached to the same id and firing. Three grabs of one
+  // control means three live callbacks pushing into the same array, and the verdict then
+  // counts every event three times - a trace that looks three times as dense as the
+  // hardware actually is. Reusing the object is what makes a second grab a fresh
+  // measurement rather than an accumulating one.
+  if (probeOtherObs[control]) {
+    probeLog("observing " + control + " again - now MOVE it");
+    return;
+  }
+
   try {
     probeOtherObs[control] = new LiveAPI(function (a: unknown[]) {
       // `> 0` and not `<= 0`: an undefined budget must stop the callback, and
