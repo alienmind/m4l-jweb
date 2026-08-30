@@ -1136,6 +1136,12 @@ its own state having been torn down**: note that `undefined <= 0` is `false`, so
 written that way keeps running exactly when the entry it needs has gone. `!(n > 0)` is the
 one that stops.
 
+A third follows from the first: **make one observer per control and reuse it, not one per
+grab.** Because the old one is still attached, a fresh `new LiveAPI` on each grab leaves
+every previous observer firing on the same id. Three grabs of one control means three live
+callbacks appending to one array, and the verdict counts every event three times - a trace
+that looks three times denser than the hardware is.
+
 ### A probe that shares state across controls invents readings (2026-08-30)
 
 `probe_other` held its observer, its captured values and its event budget in three single
