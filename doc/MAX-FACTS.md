@@ -1091,9 +1091,25 @@ wrapping byte is not the ~64 clean steps a crossfader needs, it is four values i
 A device can use it as a relative control - integrate the wrapped differences - and cannot
 use it as a fader.
 
-Not chased further, because the DJ surface is not scheduled work. What would answer it is
-`Nav_Select_Touch` or `Mpe_Pitch_Bend_Elements`, both of which `get_control_names` lists
-and neither of which anyone has read.
+**And nothing else on the Push carries it either (2026-08-30).** The two names
+`get_control_names` lists beside it were the last candidates, and both were grabbed, held
+and slid, one at a time, on a Push 3 in note mode:
+
+| control | id | while a finger slid the strip |
+|---|---|---|
+| `Nav_Select_Touch` | -5 | NO events - the attach notification and nothing after it |
+| `Mpe_Pitch_Bend_Elements` | -6 | NO events - the attach notification and nothing after it |
+| `Touch_Strip_Control` | -4 | 59 events, range -128..64, 4 distinct values, 38 up / 20 down |
+
+Both resolve to ids, so they exist; they simply report nothing. The strip's four values
+and 2:1 up-to-down ratio are what an ascending count that wraps every fourth event looks
+like, which is the same wrapping byte as above and not a finer reading of it.
+
+So the touch strip has no absolute position anywhere in the LOM. A device gets direction
+and gets nothing else, and a crossfader has to be an encoder. Three earlier attempts at
+this measurement were thrown away because the probe was lying - see the two sections
+below - which is the reason the run above was done one control at a time on a freshly
+dragged device.
 
 ### `probe_other`'s first verdict was wrong, and the bug is worth keeping
 

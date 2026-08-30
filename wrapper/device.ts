@@ -608,6 +608,7 @@ function probe_other(name: unknown, hold: unknown): void {
   var control = String(name);
   if (Number(hold) !== 1) {
     probeSurface!.call("release_control", control);
+    var exhausted = probeOtherLeft[control];
     // ZEROING THE BUDGET IS WHAT STOPS IT, not releasing the control and not dropping the
     // reference. `release_control` hands the control back and the observer KEEPS FIRING;
     // the old single-variable code got away with `probeOtherObs = null` only because that
@@ -625,8 +626,12 @@ function probe_other(name: unknown, hold: unknown): void {
     // SILENCE IS A RESULT. A control that emitted nothing while you moved says so, rather
     // than borrowing whatever the last one reported.
     var seen = probeOtherValues[control];
-    if (seen && seen.length) probeOtherVerdict(control, seen);
-    else probeLog(control + ": NO events while held - it reports nothing, or nothing moved it");
+    // ONLY IF IT HAS NOT ALREADY PRINTED. The verdict fires from two places - when the
+    // budget runs out mid-run, and here - and a full run reaches both, so a 60-event trace
+    // printed its three lines twice.
+    if (seen && seen.length) {
+      if (exhausted > 0) probeOtherVerdict(control, seen);
+    } else probeLog(control + ": NO events while held - it reports nothing, or nothing moved it");
     // The state STAYS, keyed by name. A grab resets it; a release must not delete what a
     // still-attached callback is holding a reference to.
     probeOtherValues[control] = [];
