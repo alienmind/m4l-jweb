@@ -154,10 +154,12 @@ controls move to the hardware that has them, the pads do what they are good at
 (discrete, velocity-sensitive triggers), and the encoders stay Live parameters as this file's opening
 insists. That is a better instrument than the original layout AND a simpler one.
 
-**CONDITIONAL. Everything below assumes the use case 2's spike spike passes.** Whether `Jogwheel`
-and `Touch_Strip_Control` emit a usable continuous stream under a grab is unmeasured,
-and it is the whole load-bearing assumption. Written optimistically so the work can be
-scoped; not to be started before the spike answers.
+**MEASURED, and it lands half and half.** `Jogwheel` streams a clean delta of one detent,
+so the platter is buildable. `Touch_Strip_Control` gives four values on a loop - direction
+and no position - and neither `Nav_Select_Touch` nor `Mpe_Pitch_Bend_Elements` reports
+anything at all, so the strip is not a fader and no other control is. The crossfader is
+the `xfader` ENCODER, as section 2 already says. See [MAX-FACTS.md](MAX-FACTS.md), "The
+touch strip reports a WRAPPING BYTE, not a position".
 
 ### 1 The layout: two decks, chosen not mixed
 
@@ -284,8 +286,8 @@ there is no other continuous rotary on the hardware, and a DJ deck without a pla
 playlist.
 
 Still unread, same cost each: `Jogwheel_Press`, `Jogwheel_Tap`, `Jogwheel_Left_nudge`,
-`Jogwheel_Right_nudge`, `Touch_Strip_Tap`, and the two controls that might carry the
-strip's real position.
+`Jogwheel_Right_nudge` and `Touch_Strip_Tap`. The two controls that might have carried the
+strip's real position have now been read, and they carry nothing.
 
 ### 7 Where this sits in the order
 

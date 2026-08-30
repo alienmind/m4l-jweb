@@ -16,7 +16,8 @@ Two rules everything here follows:
 - **Gate every unknown behind a cheap spike** that can fail in an afternoon rather than a
   week.
 
-**The order is priority order.** Item 1 is the next thing to do.
+**The order is priority order.** Item 1 is the next thing to do, and right now it is the
+only open item.
 
 A third rule, learned the expensive way in 0.9.9: **re-check a premise before designing
 around it.** The biggest item this file ever carried was "a page cannot put audio on a
@@ -28,52 +29,15 @@ because it is settled history rather than work.
 
 ---
 
-## 1. The touch strip has no readable position
-
-**This is the only thing left in the pad work, and it is what blocks a release.**
-
-Everything else about the takeover ships and is confirmed on a Push 3 in Live:
-`defineControls`, `push-snake` end to end, the grid, the HUD, the music, the jog wheel,
-and now the colours. How it fits together is in [ARCHITECTURE.md](ARCHITECTURE.md), "The
-pads: a control surface you program"; what was measured is in
-[MAX-FACTS.md](MAX-FACTS.md), "Grabbing a Push control".
-
-**What is wrong.** `Touch_Strip_Control` streams while grabbed, but its `value` is a byte
-counting in steps of 64 and wrapping - four distinct values over 180 events. You can
-recover the DIRECTION of travel from the wrapped difference. You cannot recover WHERE the
-finger is. So a device can be told the strip moved up, and never told to what.
-
-That is a relative control. The DJ crossfader in [PUSH-USECASES.md](PUSH-USECASES.md)
-needs an absolute one - a ~64-step fader - and cannot be built on this.
-
-For contrast, the jog wheel is fine and needs nothing: `Jogwheel` reports a delta of one
-detent as a signed 7-bit step (1 clockwise, 127 anticlockwise, one event per detent) and
-a device integrates them itself. Both are measured in [MAX-FACTS.md](MAX-FACTS.md).
-
-**What to do, in order:**
-
-1. **`probe_other Nav_Select_Touch 1`** in `push-probe`, slide a finger up the strip, read
-   the log. It says whether the trace looks like a delta or a position.
-2. **`probe_other Mpe_Pitch_Bend_Elements 1`**, same. This is the other name
-   `get_control_names` lists that nobody has read.
-3. If neither carries a position, **say so in [MAX-FACTS.md](MAX-FACTS.md) and delete the
-   crossfader from [PUSH-USECASES.md](PUSH-USECASES.md).** A use case that cannot be built
-   is worse than no use case, and the strip is then a two-way switch: a device reads
-   direction and nothing more.
-
-One button press per candidate, and the machinery is already built and shipped. Nothing
-else in [PUSH-USECASES.md](PUSH-USECASES.md) is waiting on it.
-
-## 2. Rename the project to `m4l-patchboard`
+## 1. Rename the project to `m4l-patchboard`
 
 **Nothing blocks this any more.** The headless target was the gate, and it shipped in
 1.6.0: `target: "headless"` emits only the `[js]` wrapper and the patcher - no `[jweb]`, no
 HTML payload, no Chromium - and `hello-headless` is the device that proves it. How the seam
 works is in [ARCHITECTURE.md](ARCHITECTURE.md), "Targets: where a device's logic runs".
 
-It waits behind item 1 by choice, not by need: item 1 is two button presses and a note,
-and a rename in the middle of them would make those commits harder to read. Merge 1.6.0,
-answer the touch strip, then rename.
+The pad work that was ahead of it is finished, so this is the next thing to do. Merge
+1.6.0, then rename.
 
 **The name is now wrong, and measurably so.** `m4l-jweb` says what the library was when it
 was one thing: a bridge to `[jweb]`. The web half is now optional - a device declares its
@@ -154,3 +118,14 @@ so its consumer would be a device that KEEPS Push's note path and restyles it, w
 opposite of takeover. Its own refpage says the note-to-pad positions move with the user's
 layout and octave buttons, so the colours are not pinned to pads anyway. The disclaimer
 worth keeping is already in [PUSH-USECASES.md](PUSH-USECASES.md) under "What it is not".
+
+**The touch strip as a fader.** The DJ crossfader in
+[PUSH-USECASES.md](PUSH-USECASES.md) wanted an absolute ~64-step position off the strip.
+There is not one, anywhere. `Touch_Strip_Control` reports four values on a loop - a byte
+counting in 64s and wrapping - which gives direction and no position, and the two controls
+that might have carried the real reading, `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elements`,
+both resolve to ids and report nothing at all while a finger slides the strip. Measured one
+control at a time on a Push 3 in note mode; written up in [MAX-FACTS.md](MAX-FACTS.md),
+"The touch strip reports a WRAPPING BYTE, not a position". The crossfader is the `xfader`
+encoder, and PUSH-USECASES says so. The jog wheel, which was the other half of that
+question, works and needs nothing.
