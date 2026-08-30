@@ -739,6 +739,52 @@ Colour NAMES for `defineControls` are still to be read off those photographs. An
 whether an index means the same colour on a Push 2 remains open, which is why §2.2's
 names are library data resolved per generation rather than a number a device writes.
 
+The Push 2 scheme does not describe a Push 3, so those photographs are the only source.
+See the next section.
+
+### The Push 2 colour scheme does not describe a Push 3 (2026-08-30)
+
+A published Push 2 scheme states the palette as a structure rather than a list: four
+greys at 0-3, then fourteen hues every four indices from 5, so 14 hues x 4 brightnesses.
+If it held, the name table would be a formula instead of a list. It does not hold.
+
+Seventeen indices were painted on a Push 3 in one frame and photographed. The frame
+carries an L-shaped marker of three pads in the top-left corner, because an L is unique
+under all eight symmetries of a square: a photograph of it cannot be read a row or a
+corner out, which is the one error that would fake this result.
+
+| pads | indices | Push 2 says | the Push 3 showed |
+|---|---|---|---|
+| the marker | 3 | white | orange |
+| row 3 | 1, 2, 3 | dark grey, grey, white | pink, red, orange |
+| row 5 | 5, 9, 13, 17, 21, 25, 29 | red, amber, yellow, lime, green, spring, turquoise | salmon, yellow, mint, cyan, blue, magenta, amber |
+| row 7 | 33, 37, 41, 45, 49, 53, 57 | cyan, sky, ocean, blue, orchid, magenta, pink | all pale, and hard to tell apart |
+
+Two things fail separately. There is **no block of greys at 0-3**: index 2 is a red and
+index 3 is an orange. And there is **no hue every four indices**: row 5 does sweep through
+hues, but not that sweep, and row 7 is one pale pastel region rather than the second half
+of a ladder.
+
+The photographs this repo already had were right. Every index in the test that
+`push-probe`'s provisional table names came back as that colour: 2 red, 3 orange, 5
+salmon, 9 yellow, 13 mint, 25 magenta, 29 amber. Row 7 also confirms that table's own
+note that roughly 40-63 are washed out.
+
+Four things the frame bought that were not known before:
+
+- index **1 is pink**. It was unnamed.
+- index **17 is cyan**. It was unnamed.
+- indices **33 to 57 are pale pastels**, so that whole region is a brightness or
+  saturation band rather than more hues.
+- the painted L came back as an L in the top-left corner, so `probe_paint`'s coordinates
+  are right from the page to the hardware, with nothing mirrored on the way.
+
+What follows: the two Push 2 sources ([Ableton/push-interface](https://github.com/Ableton/push-interface)
+and the [push2_display crate](https://crates.io/crates/push2_display/0.2.0/code/)) describe
+different hardware, so they cannot name a Push 3 index. The name table has to be read off
+Push 3 photographs. And an index does NOT mean the same colour across generations, so it
+is one table per generation, not one table.
+
 ### Giving it back is safe, three ways
 
 The question that decides whether any of this is shippable - does a device leave Push
@@ -1024,8 +1070,9 @@ that then does arithmetic on the stream has to drop it too.
 - Whether atom `[4]` of a pad event ever differs from `1`.
 - Colour NAMES: the palette is photographed and every index is locatable, but the
   name table for `defineControls` is not written yet.
-- Everything about Push 2 and Push 1 - including whether a palette index means the
-  same colour there, which decides whether the name table is one table or three.
+- Everything about Push 2 and Push 1 apart from the palette, which is answered: an index
+  does not mean the same colour on a Push 2 as on a Push 3, so the name table is one
+  table per generation.
 - Two unattributed console lines appear on a reload of a device that is already
   loaded: `get: no valid object set` and `The Max function "SendMessage" returned
   with error 2: Bad parameter value`. They arrive between the payload extraction and

@@ -22,7 +22,7 @@ import { useSurface } from "@m4l-jweb/surface/react";
 import { useDevice } from "../shared/device";
 import { Frame } from "../shared/Frame";
 import { IN, OUT } from "./protocol";
-import { colourForVelocity, cssForIndex, nearestIndex, VELOCITY_BANDS } from "./palette";
+import { colourForVelocity, cssForIndex, nearestIndex, STRUCTURE_TEST, VELOCITY_BANDS } from "./palette";
 import surface from "./surface";
 
 /**
@@ -215,6 +215,29 @@ export default function PushProbe() {
     [otherHeld],
   );
 
+  /**
+   * Paint the structure test and say what each band should look like.
+   *
+   * The whole point is that the ANSWER is on the hardware and not in this log: the
+   * log states the prediction, the pads state what happened, and the two either agree
+   * or they do not. See STRUCTURE_TEST in palette.ts for what the pattern is and why
+   * it carries an orientation marker.
+   */
+  const structureTest = useCallback(() => {
+    setLit(() => {
+      const next: Record<string, number> = {};
+      for (const c of STRUCTURE_TEST) {
+        outlet(OUT.probe_paint, c.x, c.yFromTop, c.index);
+        next[padKey(c.x, c.yFromTop)] = c.index;
+      }
+      return next;
+    });
+    note("structure test - top-left L is the orientation marker, index 3");
+    note("row 3 (x 0-2) = 1,2,3: dark grey, grey, white - the photographs say 2 is RED");
+    note("row 5 (x 0-6) = 5,9,13,17,21,25,29: red amber yellow lime green spring turquoise");
+    note("row 7 (x 0-6) = 33,37,41,45,49,53,57: cyan sky ocean blue orchid magenta pink");
+  }, [note]);
+
   const clearAll = useCallback(() => {
     send(OUT.probe_clear);
     setLit({});
@@ -249,6 +272,10 @@ export default function PushProbe() {
           </button>
           <button style={S.btn} onClick={() => send(OUT.probe_palette, 1)}>
             pal 64-127
+          </button>
+          {/* Item 1b of doc/TODO.md: does the Push 2 every-four structure hold on a Push 3? */}
+          <button style={S.btn} onClick={structureTest} title="paint the greys and the two hue ladders, with an orientation marker">
+            struct
           </button>
           {/*
             STILL OPEN: the controls beside Button_Matrix that nobody has looked at.
