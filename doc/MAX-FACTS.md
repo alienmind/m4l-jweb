@@ -735,12 +735,50 @@ Painting `y*8 + x` and then `64 + y*8 + x` across the grid photographs the whole
 128-index palette in two frames, with every index at a known pad (y from the top, as
 above). Index **0 is off** - the top-left pad is the only dark one on page 0.
 
-Colour NAMES for `defineControls` are still to be read off those photographs. And
-whether an index means the same colour on a Push 2 remains open, which is why §2.2's
-names are library data resolved per generation rather than a number a device writes.
+That is how the palette WAS read, and it is not how it is read now: Live holds the whole
+table on disk, two sections below. The photographs survive only as the check that the
+paint path is intact. §2.2's names stay library data resolved per generation rather than a
+number a device writes, because an index does not mean the same colour on a Push 2.
 
-The Push 2 scheme does not describe a Push 3, so those photographs are the only source.
-See the next section.
+### The Push 2 colour scheme does not describe a Push 3 (2026-08-30)
+
+A published Push 2 scheme states the palette as a structure rather than a list: four
+greys at 0-3, then fourteen hues every four indices from 5, so 14 hues x 4 brightnesses.
+If it held, the name table would be a formula instead of a list. It does not hold.
+
+Seventeen indices were painted on a Push 3 in one frame and photographed. The frame
+carries an L-shaped marker of three pads in the top-left corner, because an L is unique
+under all eight symmetries of a square: a photograph of it cannot be read a row or a
+corner out, which is the one error that would fake this result.
+
+| pads | indices | Push 2 says | the Push 3 showed |
+|---|---|---|---|
+| the marker | 3 | white | orange |
+| row 3 | 1, 2, 3 | dark grey, grey, white | pink, red, orange |
+| row 5 | 5, 9, 13, 17, 21, 25, 29 | red, amber, yellow, lime, green, spring, turquoise | salmon, yellow, mint, cyan, blue, magenta, amber |
+| row 7 | 33, 37, 41, 45, 49, 53, 57 | cyan, sky, ocean, blue, orchid, magenta, pink | all pale, and hard to tell apart |
+
+Two things fail separately. There is **no block of greys at 0-3**: index 2 is a red and
+index 3 is an orange. And there is **no hue every four indices**: row 5 does sweep through
+hues, but not that sweep, and row 7 is one pale pastel region rather than the second half
+of a ladder.
+
+What the frame settled, and what it did not. It killed the structure, and it showed
+that **33 to 57 is one pale region** rather than more hues. It also showed the painted L
+arriving as an L in the top-left corner, so `probe_paint`'s coordinates are right from the
+page to the hardware with nothing mirrored on the way - which is the check worth keeping
+the frame for.
+
+It did NOT name indices. Reading a hue off a photographed LED is unreliable at the level
+of a name, and the section below - Live's own table - is what the names now come from. Two
+readings here are simply wrong against it: index 1 read as pink and is `#FF4032`, a red;
+index 17 read as cyan and is `#3663FC`, a blue. An LED at full brightness blows out its
+core in a photograph.
+
+What follows: the two Push 2 sources ([Ableton/push-interface](https://github.com/Ableton/push-interface)
+and the [push2_display crate](https://crates.io/crates/push2_display/0.2.0/code/)) describe
+different hardware, so they cannot name a Push 3 index. And an index does NOT mean the
+same colour across generations, so it is one table per generation, not one table.
 
 ### Live holds the pad palette, and the photographs were a page upside down (2026-08-30)
 
@@ -775,10 +813,18 @@ The second: **the greys were never missing, they were at the far end.** 118 `#59
 the independent check. Indices 65 to 117 are dim and shaded variants, which is why that
 range photographs as mud and why the structure test's row 7 read as one pale region.
 
-Two indices where the photograph and the table disagree, and the photograph is the one to
-distrust: index 1 read as pink where the table says `#FF4032`, and index 2 read as a bright
-red where the table says `#800400`. An LED at full brightness blows out its core in a
-photograph; the table is what Live sends.
+**Shading is Live's, and it is not a stride through the table.** `colors.pyc` also carries
+`determine_shaded_color_index`, `shade_levels`, `translate_color_index` and its inverse,
+`WHITE_MIDI_VALUE`, `TRANSLATED_WHITE_INDEX`, `UNCOLORED_INDEX` and
+`DISPLAY_BUTTON_SHADE_LEVEL`, plus `COLOR_INDEX_TO_PUSH_INDEX` imported from
+`ableton.v2.control_surface.screen_colors`. So a `.shade()` API is expressible, but its
+arithmetic is Live's and has not been read - do not assume a shade is `index + 1`.
+
+**Each entry's second field is unexplained.** `COLOR_TABLE[i]` is a PAIR: the `0xRRGGBB`
+above, and a second number that runs `2 * i` exactly for i under 41, then compresses -
+80, 80, 81, 81, 82, 82 - and ends at 127, non-decreasing throughout, 88 distinct values
+over 128 entries. It is a mapping into some other 128-wide index space. Nothing here reads
+it, and a guess about it would become a fact by repetition.
 
 **The palette is remappable.** The Push 2 interface manual documents
 `Set LED Color Palette Entry` (sysex `F0 00 21 1D 01 01 03 <i> <r> <g> <b> <w> F7`), `Get`
@@ -790,49 +836,6 @@ Also worth not confusing with it: Push's clip-colour picker (shift + clip) shows
 clip palette**, 70 colours in the track and clip context menu, which the LOM exposes as
 `Clip.color` / `Track.color` (`0x00rrggbb`) and `color_index`. Push maps one onto a pad by
 nearest match, the same job `nearestIndex` does. It is not the LED palette.
-
-### The Push 2 colour scheme does not describe a Push 3 (2026-08-30)
-
-A published Push 2 scheme states the palette as a structure rather than a list: four
-greys at 0-3, then fourteen hues every four indices from 5, so 14 hues x 4 brightnesses.
-If it held, the name table would be a formula instead of a list. It does not hold.
-
-Seventeen indices were painted on a Push 3 in one frame and photographed. The frame
-carries an L-shaped marker of three pads in the top-left corner, because an L is unique
-under all eight symmetries of a square: a photograph of it cannot be read a row or a
-corner out, which is the one error that would fake this result.
-
-| pads | indices | Push 2 says | the Push 3 showed |
-|---|---|---|---|
-| the marker | 3 | white | orange |
-| row 3 | 1, 2, 3 | dark grey, grey, white | pink, red, orange |
-| row 5 | 5, 9, 13, 17, 21, 25, 29 | red, amber, yellow, lime, green, spring, turquoise | salmon, yellow, mint, cyan, blue, magenta, amber |
-| row 7 | 33, 37, 41, 45, 49, 53, 57 | cyan, sky, ocean, blue, orchid, magenta, pink | all pale, and hard to tell apart |
-
-Two things fail separately. There is **no block of greys at 0-3**: index 2 is a red and
-index 3 is an orange. And there is **no hue every four indices**: row 5 does sweep through
-hues, but not that sweep, and row 7 is one pale pastel region rather than the second half
-of a ladder.
-
-The photographs this repo already had were right. Every index in the test that
-`push-probe`'s provisional table names came back as that colour: 2 red, 3 orange, 5
-salmon, 9 yellow, 13 mint, 25 magenta, 29 amber. Row 7 also confirms that table's own
-note that roughly 40-63 are washed out.
-
-Four things the frame bought that were not known before:
-
-- index **1 is pink**. It was unnamed.
-- index **17 is cyan**. It was unnamed.
-- indices **33 to 57 are pale pastels**, so that whole region is a brightness or
-  saturation band rather than more hues.
-- the painted L came back as an L in the top-left corner, so `probe_paint`'s coordinates
-  are right from the page to the hardware, with nothing mirrored on the way.
-
-What follows: the two Push 2 sources ([Ableton/push-interface](https://github.com/Ableton/push-interface)
-and the [push2_display crate](https://crates.io/crates/push2_display/0.2.0/code/)) describe
-different hardware, so they cannot name a Push 3 index. The name table has to be read off
-Push 3 photographs. And an index does NOT mean the same colour across generations, so it
-is one table per generation, not one table.
 
 ### Giving it back is safe, three ways
 
@@ -1117,8 +1120,11 @@ that then does arithmetic on the stream has to drop it too.
   two can disagree. What it costs was not measured - the music sounded right - and the
   obvious guess (a resample, or a pitch error) is a guess.
 - Whether atom `[4]` of a pad event ever differs from `1`.
-- Colour NAMES: the palette is photographed and every index is locatable, but the
-  name table for `defineControls` is not written yet.
+- What `COLOR_TABLE`'s second field is. It runs `2 * i` up to i = 40 and then compresses
+  to 127, so it maps into some other 128-wide index space, and nothing here reads it.
+- How Live shades a colour. `determine_shaded_color_index` and `shade_levels` are in
+  `colors.pyc` and have not been read, so a `.shade()` API is expressible but its
+  arithmetic is not known.
 - Everything about Push 2 and Push 1 apart from the palette, which is answered: an index
   does not mean the same colour on a Push 2 as on a Push 3, so the name table is one
   table per generation.
