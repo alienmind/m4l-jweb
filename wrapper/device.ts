@@ -710,7 +710,12 @@ function probe_other(name: unknown, hold: unknown): void {
 function probeOtherVerdict(control: string, values: number[]): void {
   var n = values.length;
   if (n < 8) {
-    probeLog(control + ": only " + n + " events - not enough to tell delta from absolute");
+    // A BUTTON lands here, and "not enough" was the wrong thing to tell somebody who
+    // pressed one three times and got exactly what they asked for. Too few events to
+    // separate a delta from a position is still plenty to show what a press CARRIES, so
+    // print the values rather than a complaint about how many there are.
+    probeLog(control + ": " + n + " events: " + values.join(", "));
+    probeLog(control + ": too few to tell delta from absolute - fine for a button, short for a stream");
     return;
   }
 

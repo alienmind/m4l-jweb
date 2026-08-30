@@ -278,33 +278,49 @@ export default function PushProbe() {
             struct
           </button>
           {/*
-            STILL OPEN: the controls beside Button_Matrix that nobody has looked at.
-            The first is where per-pad expression would live if it is reachable
-            through a grab at all - the matrix itself carries none.
+            THE CONTROLS NOBODY HAS READ. Each is one grab, one gesture, one release.
+
+            The LABEL is written out rather than derived from the name, because the five
+            jog-wheel controls all begin `Jogwheel` - `name.split("_")[0]` made five
+            buttons that said "jogwheel?" and could not be told apart.
           */}
-          {[
-            // Not a pad control at all - the scene column. THE point of this one: if the
-            // MPE stream survives grabbing it, a device can own part of the surface and
-            // keep expressive notes on the rest. If it dies, any grab silences the pads
-            // and the rule `defineControls` enforces is the stricter one.
-            "Scene_Launch_Buttons",
-            // THE CONTINUOUS CONTROLS, and the reason the DJ layout in section 7 was
-            // redrawn: a jog wheel and a touch strip are the gestures the pads cannot
-            // give (no slide, no pressure). Whether either emits a usable stream under
-            // a grab is unmeasured, and it decides whether that layout is buildable.
-            "Jogwheel",
-            "Touch_Strip_Control",
-            // WHERE THE STRIP'S POSITION MIGHT LIVE. `Touch_Strip_Control` carries
-            // direction and no position (a byte stepping by 64 and wrapping), which is
-            // what the DJ crossfader needed. These two are the names beside it that
-            // nobody has read - item 1 of doc/TODO.md.
-            "Nav_Select_Touch",
-            "Mpe_Pitch_Bend_Elements",
-            "Double_Press_Matrix",
-            "Single_Press_Event_Matrix",
-          ].map((name) => (
+          {(
+            [
+              // Not a pad control at all - the scene column. THE point of this one: if the
+              // MPE stream survives grabbing it, a device can own part of the surface and
+              // keep expressive notes on the rest. If it dies, any grab silences the pads
+              // and the rule `defineControls` enforces is the stricter one.
+              ["Scene_Launch_Buttons", "scene"],
+              // ANSWERED, kept as the controls. Jogwheel is a signed 7-bit delta, one per
+              // detent; Touch_Strip_Control is four values on a loop - direction, no
+              // position - and neither Nav_Select_Touch nor Mpe_Pitch_Bend_Elements
+              // reports anything at all.
+              ["Jogwheel", "jog"],
+              ["Touch_Strip_Control", "strip"],
+              ["Nav_Select_Touch", "nav"],
+              ["Mpe_Pitch_Bend_Elements", "mpe"],
+              // UNREAD, and the last cheap ones on the hardware. All five are in the
+              // 176-name `get_control_names` dump, so they exist; what their `value`
+              // carries is a guess until each is grabbed and pressed.
+              //
+              // A press, a tap and two nudges around the wheel, and a tap on the strip.
+              // These are the DISCRETE gestures beside the two continuous controls - a
+              // cue point, a nudge, a scratch stop - and a DJ layout wants them. The
+              // library declares `jogwheel` and `touch_strip` and none of these, on
+              // purpose: a role for an unread control is an invented name in everything
+              // but spelling.
+              ["Jogwheel_Press", "jog.press"],
+              ["Jogwheel_Tap", "jog.tap"],
+              ["Jogwheel_Left_nudge", "jog.L"],
+              ["Jogwheel_Right_nudge", "jog.R"],
+              ["Touch_Strip_Tap", "strip.tap"],
+              // Beside Button_Matrix, and still unread.
+              ["Double_Press_Matrix", "dbl"],
+              ["Single_Press_Event_Matrix", "single"],
+            ] as [string, string][]
+          ).map(([name, label]) => (
             <button key={name} style={otherHeld[name] ? S.btnOn : S.btn} title={name} onClick={() => toggleOther(name)}>
-              {name.split("_")[0].toLowerCase()}?
+              {label}?
             </button>
           ))}
           <button
