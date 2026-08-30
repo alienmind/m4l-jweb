@@ -1106,6 +1106,36 @@ The same attach notification is already recorded above as "not an event". It is 
 recording again as this: it is not enough to drop it from the OUTPUT, because anything
 that then does arithmetic on the stream has to drop it too.
 
+### Push must be in NOTE mode for a grabbed control to emit (Push 3, 2026-08-30)
+
+A grabbed control in Session (clip) view reports NOTHING. Same device, same grab, same
+finger on the strip: in clip view the observer fires once with the attach notification and
+never again; switch Push to note mode and the events arrive.
+
+This is worth more than it looks, because the failure is indistinguishable from the
+control not existing. `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elements` both RESOLVE to ids
+and both went silent in clip view, which reads exactly like "this control carries nothing"
+- and that reading would have been written down as a fact. Check the mode before
+concluding a control is dead.
+
+### `release_control` does not stop the observer (Push 3, 2026-08-30)
+
+Handing a control back leaves its `value` observer attached and firing. The wrapper's
+first version got away with this by accident: the observer lived in ONE variable, and
+`probeOtherObs = null` dropped the last reference, so the collector took the object and
+the events stopped as a side effect of garbage collection.
+
+Keyed by control name, that stops being true - the callback closure is still a live
+reference, so `delete` on the map entry frees nothing. A release that also tore down the
+per-control state produced hundreds of `TypeError: probeOtherValues[control] is undefined`,
+one per event, while the hardware carried on.
+
+Two rules follow. **Stop an observer by making its callback bail, not by dropping a
+reference to it** - a budget set to zero, or a flag it reads. And **a callback must survive
+its own state having been torn down**: note that `undefined <= 0` is `false`, so a guard
+written that way keeps running exactly when the entry it needs has gone. `!(n > 0)` is the
+one that stops.
+
 ### A probe that shares state across controls invents readings (2026-08-30)
 
 `probe_other` held its observer, its captured values and its event budget in three single
