@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.1 - the five gestures around the jog wheel and the touch strip
+
+Maintenance. Five new control roles, and nothing else changes.
+
+`Jogwheel_Press`, `Jogwheel_Tap`, `Jogwheel_Left_nudge`, `Jogwheel_Right_nudge` and
+`Touch_Strip_Tap` were the last controls on a Push 3 nobody had read. All five were
+grabbed and measured, all five are momentary buttons - 127 down, 0 up - and they are
+declared as `jogwheel_press`, `jogwheel_tap`, `jogwheel_left`, `jogwheel_right` and
+`touch_strip_tap`. A DJ deck can now address a cue, a nudge and a scratch stop.
+
+`Touch_Strip_Tap` reports the same pair wherever on the strip you tap, so it is not a
+position. It was the last candidate for an absolute reading off the strip, which settles
+that a crossfader has to be an encoder.
+
+Purely additive: no existing role changed and nothing behaves differently.
+
 ## 1.6.0 - Push pads, an optional web UI, and Snake
 
 Two features and one example.
