@@ -742,6 +742,55 @@ names are library data resolved per generation rather than a number a device wri
 The Push 2 scheme does not describe a Push 3, so those photographs are the only source.
 See the next section.
 
+### Live holds the pad palette, and the photographs were a page upside down (2026-08-30)
+
+The palette does not have to be photographed at all. Live 12 drives Push from a Python
+package on disk - `C:\ProgramData\Ableton\Program\Push\python\Push2\` - and
+`colors.pyc` there defines `COLOR_TABLE`, 128 entries, which `push_color_index_to_pad_rgb(i)`
+indexes directly and splits into bytes. That is the palette: index in, `0xRRGGBB` out.
+It now ships as `PUSH_PAD_RGB` in `@m4l-jweb/surface`, and `PALETTE_CSS` is derived from
+it rather than typed by hand.
+
+The file is compiled for Python 3.11 (pyc magic 3495), so reading it needs a marshal
+reader for that version, not the interpreter that happens to be installed.
+
+**It agrees with the hardware, and it explains both errors the photographs had made.**
+
+The first: `white: 69` was **`#5D1700`, a dark brown**. Page 1 of the old photographs was
+read 180 degrees out. Map each old reading through `191 - n` and all four land exactly:
+
+| the photographs said | true index | Live's value |
+|---|---|---|
+| red 64 | 127 | `#FF0000` |
+| green 65 | 126 | `#00FF00` |
+| blue 66 | 125 | `#0000FF` |
+| white 69 | 122 | `#CCCCCC` |
+
+Four readings, one rotation, no residue. Page 0 was the right way up - index 0 is off and
+was the only dark pad - which is why one page was right and the other silently was not.
+
+The second: **the greys were never missing, they were at the far end.** 118 `#595959`,
+119 `#1A1A1A`, 120 `#FFFFFF`, 122 `#CCCCCC`, 123 `#404040`, and the pure primaries at
+125, 126, 127. Ableton's own Push 2 manual tabulates exactly that tail, 122-127, which is
+the independent check. Indices 65 to 117 are dim and shaded variants, which is why that
+range photographs as mud and why the structure test's row 7 read as one pale region.
+
+Two indices where the photograph and the table disagree, and the photograph is the one to
+distrust: index 1 read as pink where the table says `#FF4032`, and index 2 read as a bright
+red where the table says `#800400`. An LED at full brightness blows out its core in a
+photograph; the table is what Live sends.
+
+**The palette is remappable.** The Push 2 interface manual documents
+`Set LED Color Palette Entry` (sysex `F0 00 21 1D 01 01 03 <i> <r> <g> <b> <w> F7`), `Get`
+(`04`) and `Reapply Color Palette` (`05`). So the named Push 2 scheme in the section above
+is a DEFAULT MAP, not a property of the hardware, and Live is free to load another - which
+is exactly what the failed structure test was seeing.
+
+Also worth not confusing with it: Push's clip-colour picker (shift + clip) shows **Live's
+clip palette**, 70 colours in the track and clip context menu, which the LOM exposes as
+`Clip.color` / `Track.color` (`0x00rrggbb`) and `color_index`. Push maps one onto a pad by
+nearest match, the same job `nearestIndex` does. It is not the LED palette.
+
 ### The Push 2 colour scheme does not describe a Push 3 (2026-08-30)
 
 A published Push 2 scheme states the palette as a structure rather than a list: four
