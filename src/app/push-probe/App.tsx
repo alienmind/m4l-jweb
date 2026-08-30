@@ -294,6 +294,11 @@ export default function PushProbe() {
             // a grab is unmeasured, and it decides whether that layout is buildable.
             "Jogwheel",
             "Touch_Strip_Control",
+            // WHERE THE STRIP'S POSITION MIGHT LIVE. `Touch_Strip_Control` carries
+            // direction and no position (a byte stepping by 64 and wrapping), which is
+            // what the DJ crossfader needed. These two are the names beside it that
+            // nobody has read - item 1 of doc/TODO.md.
+            "Nav_Select_Touch",
             "Mpe_Pitch_Bend_Elements",
             "Double_Press_Matrix",
             "Single_Press_Event_Matrix",
