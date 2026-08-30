@@ -210,7 +210,23 @@ crossing that device's bridge. If you add a message:
 against its own Max side. That is deliberate: an unrouted selector is a message
 falling on the floor, and it produces no error at runtime.
 
-## Writing Markdown in this repo
+## Writing
+
+One section, and it is the same in `m4l-jweb` and `m4l-gugelhupf`. If you change it in
+one, copy it to the other.
+
+**The goal is text that reads as though a person wrote it after doing the work.** Not
+text that reads as though it was generated from a diff. The rules below are what that
+difference turned out to be, each one learned by having the alternative rewritten by
+hand.
+
+### Punctuation
+
+Plain ASCII in documentation, commit messages and code comments. No em dashes, en
+dashes, middle dots or typographic ellipses - use `-`, `...`, `,`. Signal-flow arrows
+(`->`) and glyphs standing for real UI buttons are fine.
+
+### Plain language
 
 Every `.md` file here - `README.md`, everything in `doc/`, `CHANGELOG.md`, a README
 beside an asset folder - is written in **plain language**. This is the rule, and it
@@ -286,6 +302,75 @@ Plain language means saying it in fewer, simpler words, not saying less.
 Code comments follow the same spirit but are not covered by this rule: they explain
 mechanism to somebody reading the code, and they may be as long as the mechanism needs.
 
+
+### Say why, not only what
+
+**Every entry says what it is FOR.** What changed is in the diff. Why it was worth doing
+is not, and that is the half a reader cannot reconstruct. This applies to PR summaries,
+to every `.md` in the repo, and to code comments.
+
+A heading names the payoff, not the plumbing. These were all real, and all rewritten by
+hand afterwards because the first version said what moved rather than what it bought:
+
+| Was | Should be |
+|---|---|
+| "the library comes from npm, not from a path on one machine" | "built from latest m4l-jweb v1.6.1 so we have options to map Strudel sliders and actions to the Push control surface" |
+| "`open_url` was defined twice, and the build stopped" | "`open_url` moved upstream so we drop it" |
+| "the installer in the ZIP said 'No .amxd found' on a good download" | "fixed the installer included in the ZIP - 'No .amxd found'" |
+| "1.4.0, and the release zip is named after its version" | "release zips are now named after their version" |
+
+The rules behind those:
+
+- **Lead with the reason where the reason is the point.** "This was needed during
+  investigation on macOS where the device view was not fitting, so each device now posts a
+  diagnostics block" beats the same sentence with the reason moved to the end or dropped.
+- **Write as the team. "We" is correct**, not a lapse: "so we drop it", "so we can try to
+  explain the layout issues". The impersonal voice reads like a changelog generator.
+- **Ordinary verbs are fine.** "Fixed the installer" needs no improving. Reaching for a
+  crafted phrase is how a summary starts sounding written rather than reported.
+- **A purpose clause beats a second sentence of mechanism.** "to easily identify what's
+  what" earns its words; a paragraph on how the zip is named does not.
+- **Say it as honestly as you know it.** If a change is an investigation aid and not a
+  fix, say so - "so we can try to explain the layout issues", not "which makes the layout
+  question answerable". Do not promote a lead into a conclusion.
+- **One dense paragraph beats two tidy ones.** Two paragraphs on the same subject are one
+  paragraph and a paragraph break.
+
+Also cut, beyond the list above: **error codes and internal proof.** `TS2393`, which
+packages the lockfile resolved and at what version, "CI proves it from a clean checkout".
+The reviewer has the diff and the checks. Naming an error code is only useful when the
+reader would search for it.
+
+
+### Comments
+
+Comments say what the code cannot: the constraint, the trap, the thing that was measured
+in Live and cost a day. Not what the next line does. They may be as long as the mechanism
+needs.
+
+Never use a cliche formula like "this is the trap that cost us a day". State the point and
+stop.
+
+### Commit messages
+
+**Commit messages are not for literature. For that we have the markdown.**
+
+ONE LINE. `type: what changed`, stated plainly. No body.
+
+    feat: open external links in default browser
+    fix: release a dial when its slider is deleted
+    docs: clarify launchbrowser URL behavior
+    chore: remove orphaned Studio windows and update TODO
+
+No scope suffix by default (`feat:`, not `feat(strudel):`). The subject STATES, it does
+not argue: "remove orphaned Studio windows", not "drop the orphaned Studio windows,
+because nothing could open them any more".
+
+Everything you were about to put in the body already has a home: the constraint goes in a
+comment at that line, the measurement in `doc/MAX-FACTS.md` or `doc/ARCHITECTURE.md`, the
+dead end in the drawer of failed ideas, the remaining work in `doc/TODO.md`, and the case
+for the change in the PR summary. A commit says what changed; the repo says why.
+
 ## Pull request summaries
 
 Title: `<version> - <the areas that changed>`, plainly. "1.1.0 - better external windows
@@ -331,6 +416,10 @@ LEAVE OUT:
 
 Keep concrete numbers when they carry the argument (17 MB will not fit in a payload),
 and drop them when they are just credentials.
+
+**And the whole of "Say why, not only what" in Writing above applies here first.** A PR
+summary is where the reason for a change is most likely to be the only place it is ever
+written down.
 
 ## Verifying your work
 
