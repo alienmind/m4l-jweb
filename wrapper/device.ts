@@ -608,7 +608,16 @@ function probe_other(name: unknown, hold: unknown): void {
   var control = String(name);
   if (Number(hold) !== 1) {
     probeSurface!.call("release_control", control);
-    delete probeOtherObs[control];
+    // ZEROING THE BUDGET IS WHAT STOPS IT, not releasing the control and not dropping the
+    // reference. `release_control` hands the control back and the observer KEEPS FIRING;
+    // the old single-variable code got away with `probeOtherObs = null` only because that
+    // was the last reference and the collector took the object. Deleting a map entry is
+    // not the last reference - the callback closure is still live - so a release that tore
+    // its own state down produced hundreds of
+    // `TypeError: probeOtherValues[control] is undefined`, one per event, while the
+    // hardware carried on. The callback's first line already bails when the budget is 0,
+    // so setting it there is the one thing that reliably silences it.
+    probeOtherLeft[control] = 0;
     // THE VERDICT ON RELEASE, not only when the dump fills. Sixty events is four seconds
     // of a jog wheel and half a second of a touch strip, so waiting for the counter to
     // reach zero meant the useful runs - a slow, deliberate turn - never printed one.
@@ -618,8 +627,9 @@ function probe_other(name: unknown, hold: unknown): void {
     var seen = probeOtherValues[control];
     if (seen && seen.length) probeOtherVerdict(control, seen);
     else probeLog(control + ": NO events while held - it reports nothing, or nothing moved it");
-    delete probeOtherValues[control];
-    delete probeOtherLeft[control];
+    // The state STAYS, keyed by name. A grab resets it; a release must not delete what a
+    // still-attached callback is holding a reference to.
+    probeOtherValues[control] = [];
     probeLog("released " + control);
     return;
   }
@@ -641,7 +651,9 @@ function probe_other(name: unknown, hold: unknown): void {
   delete probeOtherObs[control];
   try {
     probeOtherObs[control] = new LiveAPI(function (a: unknown[]) {
-      if (!a || a[0] != "value" || probeOtherLeft[control] <= 0) return;
+      // `> 0` and not `<= 0`: an undefined budget must stop the callback, and
+      // `undefined <= 0` is FALSE - which is exactly how a torn-down entry kept going.
+      if (!a || a[0] != "value" || !(probeOtherLeft[control] > 0) || !probeOtherValues[control]) return;
       probeOtherLeft[control]--;
       var raw = control + " cb: " + a.length + " atoms";
       for (var k = 0; k < a.length; k++) raw += " [" + k + "]=" + String(a[k]);
