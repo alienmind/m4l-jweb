@@ -1106,6 +1106,25 @@ The same attach notification is already recorded above as "not an event". It is 
 recording again as this: it is not enough to drop it from the OUTPUT, because anything
 that then does arithmetic on the stream has to drop it too.
 
+### A probe that shares state across controls invents readings (2026-08-30)
+
+`probe_other` held its observer, its captured values and its event budget in three single
+variables. Grabbing more than one control at a time pooled everything: the second grab
+overwrote the observer reference, every callback pushed into the same array, and each
+release printed that array under its own name.
+
+What that produced, on a Push 3, is the reason it is written down. Three controls held
+together - `Touch_Strip_Control`, `Nav_Select_Touch`, `Mpe_Pitch_Bend_Elements` - gave
+three verdicts identical to the atom: `59 events, range -128..64, 4 distinct values`. Only
+the strip had emitted anything. The other two produced nothing but the attach notification,
+and both looked measured. A probe that reports silence as somebody else's data is worse
+than one that reports nothing.
+
+The budget was shared with the MATRIX observer too, so pressing `grab` mid-run silently
+ate the other control's remaining events.
+
+Now keyed by control name, and a control that emitted nothing says so.
+
 ### Still open
 
 - Whether `Mpe_Pitch_Bend_Elements` - listed by `get_control_names` next to

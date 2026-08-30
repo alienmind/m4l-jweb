@@ -171,6 +171,27 @@ one of these bites, read the fact behind it there.
   too, and cutting *that* kills every LiveAPI observer (hard rule 4) in a way
   nothing reports.
 
+## Closing a TODO item
+
+**A finished item does not just get deleted, and it never stays on the list as "done".**
+An item leaves `doc/TODO.md` exactly one of two ways:
+
+1. **It is parked.** It goes to the `# Parked` section at the END of `doc/TODO.md`, with
+   one paragraph saying what it was and why it is not work any more. Park anything that
+   was dropped, answered in the negative, or turned out never to have had a consumer -
+   the point is that nobody rediscovers it and starts over.
+2. **It is consolidated.** What was learned goes to `doc/MAX-FACTS.md` if it is a
+   MEASUREMENT (what the hardware, Max or Live actually does), and to
+   `doc/ARCHITECTURE.md` if it is a MECHANISM (how the layers fit, what a device
+   declares, which seam owns what). Both, if it is both.
+
+`doc/TODO.md` holds open work only. If an item is finished and nothing was learned worth
+writing down, park it in one line rather than leaving it there marked done.
+
+When you consolidate, go back and fix what the new fact contradicts. A file that states a
+conclusion and then re-argues the claim it overturned is worse than one that never
+recorded either, and this repo has produced exactly that.
+
 ## The contract between the two sides
 
 `src/app/<device>/protocol.ts` is the single source of truth for every selector

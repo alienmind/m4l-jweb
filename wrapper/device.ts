@@ -318,11 +318,22 @@ var probeMatrix: LiveAPI | null = null;
 var probeMatrixId = 0;
 /** The value observer. Dropping this reference kills the observer with it. */
 var probeValueObs: LiveAPI | null = null;
-/** The observer for whatever probe_other last grabbed. */
-var probeOtherObs: LiveAPI | null = null;
-/** The first atom of each event probe_other saw, for the delta-or-absolute verdict. */
-var probeOtherValues: number[] = [];
-/** How many more raw callback payloads to dump. Bounded so a held pad cannot flood. */
+/**
+ * probe_other's state, KEYED BY CONTROL NAME - all three of these, and that is the point.
+ *
+ * They were single variables, and holding two controls at once pooled every event into one
+ * bucket: the second grab overwrote the observer, both callbacks pushed into the same array,
+ * and each release printed that array under its own name. Three controls held together
+ * produced three IDENTICAL verdicts - 59 events, 4 distinct values - for one control's
+ * movement, while the two that had emitted nothing at all looked measured. A probe that
+ * invents a reading is worse than a probe that says nothing.
+ */
+var probeOtherObs: { [name: string]: LiveAPI } = {};
+/** The first atom of each event, per control, for the delta-or-absolute verdict. */
+var probeOtherValues: { [name: string]: number[] } = {};
+/** How many more raw payloads to dump, per control. Bounded so a held control cannot flood. */
+var probeOtherLeft: { [name: string]: number } = {};
+/** The same budget for the MATRIX, which is a different observer and must not share one. */
 var probeRawLeft = 0;
 /** The deferred first frame after a grab - see probe_grab. */
 var probeFirstFrameTask: Task | null = null;
@@ -597,11 +608,18 @@ function probe_other(name: unknown, hold: unknown): void {
   var control = String(name);
   if (Number(hold) !== 1) {
     probeSurface!.call("release_control", control);
-    probeOtherObs = null;
+    delete probeOtherObs[control];
     // THE VERDICT ON RELEASE, not only when the dump fills. Sixty events is four seconds
     // of a jog wheel and half a second of a touch strip, so waiting for the counter to
     // reach zero meant the useful runs - a slow, deliberate turn - never printed one.
-    if (probeOtherValues.length) probeOtherVerdict(control);
+    //
+    // SILENCE IS A RESULT. A control that emitted nothing while you moved says so, rather
+    // than borrowing whatever the last one reported.
+    var seen = probeOtherValues[control];
+    if (seen && seen.length) probeOtherVerdict(control, seen);
+    else probeLog(control + ": NO events while held - it reports nothing, or nothing moved it");
+    delete probeOtherValues[control];
+    delete probeOtherLeft[control];
     probeLog("released " + control);
     return;
   }
@@ -618,13 +636,13 @@ function probe_other(name: unknown, hold: unknown): void {
   // answered only by a TRACE: whether the numbers repeat around zero (a delta) or climb
   // (an absolute position) cannot be read off sixteen events that go past in half a
   // second. Sixty is about four seconds of slow turning.
-  probeRawLeft = 60;
-  probeOtherValues = [];
-  probeOtherObs = null;
+  probeOtherLeft[control] = 60;
+  probeOtherValues[control] = [];
+  delete probeOtherObs[control];
   try {
-    probeOtherObs = new LiveAPI(function (a: unknown[]) {
-      if (!a || a[0] != "value" || probeRawLeft <= 0) return;
-      probeRawLeft--;
+    probeOtherObs[control] = new LiveAPI(function (a: unknown[]) {
+      if (!a || a[0] != "value" || probeOtherLeft[control] <= 0) return;
+      probeOtherLeft[control]--;
       var raw = control + " cb: " + a.length + " atoms";
       for (var k = 0; k < a.length; k++) raw += " [" + k + "]=" + String(a[k]);
       probeLog(raw);
@@ -636,10 +654,10 @@ function probe_other(name: unknown, hold: unknown): void {
       // distinct value AND made min/max NaN. The first run of this printed
       // "range NaN..NaN, 5 distinct values" for a control that has four.
       var v = Number(a[1]);
-      if (a.length >= 2 && v === v) probeOtherValues.push(v);
-      if (probeRawLeft === 0) probeOtherVerdict(control);
+      if (a.length >= 2 && v === v) probeOtherValues[control].push(v);
+      if (probeOtherLeft[control] === 0) probeOtherVerdict(control, probeOtherValues[control]);
     }, "id " + id);
-    probeOtherObs.property = "value";
+    probeOtherObs[control].property = "value";
     probeLog("observing " + control + " - now MOVE it: turn the wheel, or run a finger up the strip");
   } catch (e) {
     probeLog("cannot observe " + control + " - " + (e as Error).message);
@@ -658,26 +676,26 @@ function probe_other(name: unknown, hold: unknown): void {
  * -1, or 127 and 1 as two's-complement - no matter how far you turn, and its values do not
  * trend. An ABSOLUTE position sweeps a range and mostly moves one way while you do.
  */
-function probeOtherVerdict(control: string): void {
-  var n = probeOtherValues.length;
+function probeOtherVerdict(control: string, values: number[]): void {
+  var n = values.length;
   if (n < 8) {
     probeLog(control + ": only " + n + " events - not enough to tell delta from absolute");
     return;
   }
 
-  var lo = probeOtherValues[0];
-  var hi = probeOtherValues[0];
+  var lo = values[0];
+  var hi = values[0];
   var distinct: { [v: string]: boolean } = {};
   var rising = 0;
   var falling = 0;
   for (var i = 0; i < n; i++) {
-    var v = probeOtherValues[i];
+    var v = values[i];
     if (v < lo) lo = v;
     if (v > hi) hi = v;
     distinct[String(v)] = true;
     if (i > 0) {
-      if (v > probeOtherValues[i - 1]) rising++;
-      else if (v < probeOtherValues[i - 1]) falling++;
+      if (v > values[i - 1]) rising++;
+      else if (v < values[i - 1]) falling++;
     }
   }
   var kinds = 0;
