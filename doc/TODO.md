@@ -148,7 +148,10 @@ in the middle:
   `../m4l-qobuz-dj`.
 - as part of this process, we will carve out the mini game, "push-snake", under its own separate,
   m4l-patchboard compatible-scaffolded separate project, under ../m4l-push-games. This will be a new
-  separately buildable project with separate pipeline just for push based minigames
+  separately buildable project with separate pipeline just for push based minigames structured
+  like current push-snake. It needs to carve out also the necessary pipeline elements
+  The project needs to have room for new games planned in the future (like push-tetris, etc, not
+  yet detailed enough)
 
 The one thing NOT to rename with it: `doc/MAX-FACTS.md`'s contents. Those measurements are
 about Max, not about this library, and they outlive both names.
