@@ -738,6 +738,18 @@ function probeOtherVerdict(control: string, values: number[]): void {
   for (var key in distinct) if (distinct.hasOwnProperty(key)) kinds++;
 
   probeLog(control + ": " + n + " events, range " + lo + ".." + hi + ", " + kinds + " distinct values, " + rising + " up / " + falling + " down");
+
+  // A MOMENTARY BUTTON, and it has to be tested before the delta branch. Two values that
+  // are exactly 0 and 127 is a gate - down and up - and the delta test below matched it
+  // and then said "1 and 127 are +1 and -1, a signed 7-bit step, one per detent" about a
+  // button somebody had just pressed four times. All five jog and strip gestures land
+  // here, and a wrong reading of a control this cheap to measure is how an invented fact
+  // gets into the docs.
+  if (kinds === 2 && lo === 0 && hi === 127) {
+    probeLog(control + ": a MOMENTARY BUTTON - 127 down, 0 up, " + (n / 2) + " press(es)");
+    return;
+  }
+
   if (kinds <= 4) {
     probeLog(control + ": looks like a DELTA - it only ever reports " + kinds + " values, so it says CHANGE, not position");
     // A relative encoder sends its step as a signed 7-bit number, so one detent

@@ -285,9 +285,15 @@ So this section survives, one control poorer, and it survives on the half that m
 there is no other continuous rotary on the hardware, and a DJ deck without a platter is a
 playlist.
 
-Still unread, same cost each: `Jogwheel_Press`, `Jogwheel_Tap`, `Jogwheel_Left_nudge`,
-`Jogwheel_Right_nudge` and `Touch_Strip_Tap`. The two controls that might have carried the
-strip's real position have now been read, and they carry nothing.
+**Everything on the wheel and the strip has now been read.** `Jogwheel_Press`,
+`Jogwheel_Tap`, `Jogwheel_Left_nudge`, `Jogwheel_Right_nudge` and `Touch_Strip_Tap` are all
+momentary buttons - 127 down, 0 up - and all five have a role in `defineControls`. So the
+deck gets a platter, a press, a tap and two nudges, plus the strip and a tap on it: a cue,
+a nudge and a scratch stop are all addressable.
+
+`Touch_Strip_Tap` gives the same pair wherever you tap it, so it is not a position either.
+Nothing on this hardware is an absolute fader, and the crossfader stays the `xfader`
+encoder for good.
 
 ### 7 Where this sits in the order
 

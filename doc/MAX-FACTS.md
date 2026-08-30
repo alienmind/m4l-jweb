@@ -1111,6 +1111,35 @@ this measurement were thrown away because the probe was lying - see the two sect
 below - which is the reason the run above was done one control at a time on a freshly
 dragged device.
 
+### The five gestures around the wheel and the strip are momentary buttons (Push 3, 2026-08-30)
+
+The last unread controls on the hardware, one grab each, one gesture each. All five
+resolve, and all five carry the same thing: **127 on the way down, 0 on the way up.**
+
+| control | id | trace |
+|---|---|---|
+| `Jogwheel_Press` | -5 | 8 events, 0..127, 2 distinct - four presses |
+| `Jogwheel_Tap` | -6 | 48 events, 0..127, 2 distinct |
+| `Jogwheel_Left_nudge` | -7 | 8 events, 0..127, 2 distinct |
+| `Jogwheel_Right_nudge` | -8 | 12 events, 0..127, 2 distinct |
+| `Touch_Strip_Tap` | -9 | 59 events, 0..127, 2 distinct |
+
+**`Touch_Strip_Tap` reports the same pair wherever you tap.** Bottom, middle or top of the
+strip gives `127, 0` and nothing else, so it is a tap and not a position. That was the last
+candidate for an absolute reading off the strip, and it closes the question the crossfader
+was waiting on: there is no fader anywhere on this hardware.
+
+So a jog wheel is one continuous control (a signed 7-bit delta, one per detent) plus four
+buttons, and the strip is one relative control plus one button. All seven now have a role
+in `defineControls`: `jogwheel`, `jogwheel_press`, `jogwheel_tap`, `jogwheel_left`,
+`jogwheel_right`, `touch_strip`, `touch_strip_tap`.
+
+**The verdict had to learn what a button is first.** Two distinct values matched its delta
+test, which then announced "1 and 127 are +1 and -1 - a signed 7-bit step, one per detent"
+about a button somebody had just pressed four times. Exactly 0 and 127 is now recognised
+as a gate before the delta branch is reached. A control this cheap to measure is exactly
+where a wrong reading turns into an invented fact.
+
 ### `probe_other`'s first verdict was wrong, and the bug is worth keeping
 
 It printed `range NaN..NaN, 5 distinct values` for a control that has four. Observing a

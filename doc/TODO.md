@@ -129,3 +129,9 @@ control at a time on a Push 3 in note mode; written up in [MAX-FACTS.md](MAX-FAC
 "The touch strip reports a WRAPPING BYTE, not a position". The crossfader is the `xfader`
 encoder, and PUSH-USECASES says so. The jog wheel, which was the other half of that
 question, works and needs nothing.
+
+**And the five gestures around them are read too.** `Jogwheel_Press`, `Jogwheel_Tap`,
+`Jogwheel_Left_nudge`, `Jogwheel_Right_nudge` and `Touch_Strip_Tap` are momentary buttons -
+127 down, 0 up - and all five now have a role in `defineControls`. `Touch_Strip_Tap`
+reports the same pair wherever you tap, which was the last candidate for an absolute
+reading off the strip. Nothing on the hardware is unread any more.

@@ -85,6 +85,13 @@ export type ControlRole =
   | "layout"
   | "note_mode"
   | "session_mode"
+  // The gestures around the jog wheel and the strip. MEASURED as momentary buttons on a
+  // Push 3: 127 down, 0 up. They are buttons that happen to live on continuous hardware.
+  | "jogwheel_press"
+  | "jogwheel_tap"
+  | "jogwheel_left"
+  | "jogwheel_right"
+  | "touch_strip_tap"
   // Streams
   | "jogwheel"
   | "touch_strip";
@@ -128,6 +135,14 @@ export const ROLE_NAMES: Record<ControlRole, readonly string[]> = {
   session_mode: ["Session_Mode_Button"],
   jogwheel: ["Jogwheel"],
   touch_strip: ["Touch_Strip_Control"],
+  // All five measured on a Push 3, one grab each: they resolve, and every one is a
+  // momentary button - 127 on the way down, 0 on the way up. `Touch_Strip_Tap` reports
+  // the SAME pair wherever on the strip you tap, so it is a tap and not a position.
+  jogwheel_press: ["Jogwheel_Press"],
+  jogwheel_tap: ["Jogwheel_Tap"],
+  jogwheel_left: ["Jogwheel_Left_nudge"],
+  jogwheel_right: ["Jogwheel_Right_nudge"],
+  touch_strip_tap: ["Touch_Strip_Tap"],
 };
 
 /**
@@ -179,6 +194,11 @@ const BUTTON_ROLES: ControlRole[] = [
   "layout",
   "note_mode",
   "session_mode",
+  "jogwheel_press",
+  "jogwheel_tap",
+  "jogwheel_left",
+  "jogwheel_right",
+  "touch_strip_tap",
 ];
 
 /** The roles that are a continuous stream rather than a gate. */
