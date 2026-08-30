@@ -4,6 +4,15 @@
 # (`npm login` && `pnpm release`) happens here instead, from a clean checkout that
 # has just proved it builds and passes its tests.
 #
+# A PRERELEASE TAG - anything with a hyphen in it, `v1.6.0-beta.1` - BUILDS AND
+# RELEASES BUT DOES NOT PUBLISH TO NPM. The GitHub Release is public, marked as a
+# prerelease, and carries the same devices and zips; npm is skipped.
+#
+# That is deliberate. A beta is usually cut from a branch that has not been merged, and
+# npm is permanent: a version cannot be republished and cannot really be taken back. A
+# beta on npm should be a thing somebody decided to do, not a side effect of wanting a
+# downloadable build. To publish one anyway, tag a non-prerelease version.
+#
 # THE TAG IS THE SOURCE OF TRUTH, AND IT IS CHECKED. A tag that does not match the
 # version in package.json is the one mistake this cannot recover from: npm refuses
 # to republish a version, so a wrong number is permanent. The job fails BEFORE it
@@ -56,6 +65,7 @@ jobs:
       # bump that missed one package would publish a 0.6.0 that depends on a 0.5.0
       # that no longer exists - and it cannot be taken back.
       - name: the tag must be the version
+        id: version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           ROOT=$(node -p "require('./package.json').version")
@@ -70,7 +80,14 @@ jobs:
               exit 1
             fi
           done
-          echo "releasing $ROOT"
+          # A hyphen is what makes it a prerelease: 1.6.0-beta.1, 1.6.0-rc.2. It gates
+          # the npm publish below and marks the GitHub Release.
+          case "$TAG" in
+            *-*) PRE=true ;;
+            *)   PRE=false ;;
+          esac
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "releasing $ROOT (prerelease: $PRE)"
 
       - run: pnpm build
       - run: pnpm test
@@ -86,6 +103,7 @@ jobs:
       # a Trusted Publisher configured on npm (see header) and `id-token: write` above,
       # npm authenticates over OIDC and generates provenance. No token, nothing in `env`.
       - name: publish to npm (pnpm packs, npm publishes over OIDC)
+        if: steps.version.outputs.prerelease != 'true'
         run: |
           for dir in packages/*/; do
             ( cd "$dir" && pnpm pack --pack-destination "$RUNNER_TEMP" )
@@ -103,6 +121,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             dist/m4l-jweb/*.amxd
             dist/m4l-jweb.zip
