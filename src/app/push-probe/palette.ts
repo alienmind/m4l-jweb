@@ -30,6 +30,9 @@ export interface Swatch {
  */
 export const SWATCHES: Swatch[] = [
   { index: 0, rgb: [0, 0, 0] }, // off
+  // 1 and 17 came off the structure-test frame rather than the palette pages, and are
+  // the only two entries here whose position in the picture is not in doubt.
+  { index: 1, rgb: [255, 90, 150] }, // pink
   { index: 2, rgb: [255, 0, 0] },
   { index: 3, rgb: [255, 106, 0] },
   { index: 5, rgb: [255, 138, 106] },
@@ -41,6 +44,7 @@ export const SWATCHES: Swatch[] = [
   { index: 13, rgb: [74, 211, 154] },
   { index: 14, rgb: [74, 209, 209] },
   { index: 16, rgb: [53, 180, 224] },
+  { index: 17, rgb: [0, 200, 255] }, // cyan
   { index: 18, rgb: [30, 79, 224] },
   { index: 21, rgb: [106, 90, 224] },
   { index: 22, rgb: [154, 90, 224] },
@@ -114,3 +118,59 @@ export function cssForIndex(index: number): string {
   const s = SWATCHES.find((sw) => sw.index === index);
   return s ? `rgb(${s.rgb[0]}, ${s.rgb[1]}, ${s.rgb[2]})` : "#0e1013";
 }
+
+/**
+ * THE STRUCTURE TEST - one press that settles item 1b of doc/TODO.md.
+ *
+ * A Push 2 colour scheme states the palette as a STRUCTURE rather than a list: four
+ * greys at 0-3, then fourteen hues every four indices from 5. The table above says
+ * something else - it puts pure red at index 2, where that scheme puts GREY. One of
+ * the two is wrong, and the cheapest way to find out which is to paint the claim and
+ * look at it.
+ *
+ * The pattern is four bands, in hardware coordinates (y from the TOP):
+ *
+ * - an L-shaped MARKER at the top-left corner, three pads of index 3. Its only job is
+ *   orientation: an L is unique under all eight symmetries of a square, so a
+ *   photograph of the result cannot be read a row or a corner out - which is exactly
+ *   the error that would put red at 2 instead of 5.
+ * - row 3: indices 1, 2, 3. The Push 2 scheme says dark grey, grey, white. The
+ *   photographs say index 2 is pure red. This row alone decides it.
+ * - row 5: 5, 9, 13, 17, 21, 25, 29 - red, amber, yellow, lime, green, spring,
+ *   turquoise if the every-four spacing holds.
+ * - row 7: 33, 37, 41, 45, 49, 53, 57 - cyan, sky, ocean, blue, orchid, magenta, pink.
+ *
+ * IT WAS RUN, AND THE SCHEME DOES NOT HOLD (Push 3, 2026-08-30). Index 2 came back a
+ * red and index 3 an orange, so there is no block of greys; row 7 came back one pale
+ * pastel region rather than a second hue ladder. The photographs above were right about
+ * every index they name. Written up in doc/MAX-FACTS.md, "The Push 2 colour scheme does
+ * not describe a Push 3", and the consequences are item 1b of doc/TODO.md: there is no
+ * formula to generate, the Push 2 sources describe different hardware, and it is one
+ * table per generation.
+ *
+ * The frame stays because it is still the cheapest way to check the paint path end to
+ * end: the L goes to the hardware as an L, in the top-left corner, or something between
+ * here and the pads is mirrored.
+ */
+export interface StructureCell {
+  x: number;
+  /** 0 is the TOP row, as the hardware counts it. */
+  yFromTop: number;
+  index: number;
+  /** What the Push 2 scheme predicted. Kept as the falsified claim, not as a fact. */
+  expect: string;
+}
+
+const HUES_LOW = ["red", "amber", "yellow", "lime", "green", "spring", "turquoise"];
+const HUES_HIGH = ["cyan", "sky", "ocean", "blue", "orchid", "magenta", "pink"];
+
+export const STRUCTURE_TEST: StructureCell[] = [
+  { x: 0, yFromTop: 0, index: 3, expect: "marker" },
+  { x: 1, yFromTop: 0, index: 3, expect: "marker" },
+  { x: 0, yFromTop: 1, index: 3, expect: "marker" },
+  { x: 0, yFromTop: 3, index: 1, expect: "dark grey" },
+  { x: 1, yFromTop: 3, index: 2, expect: "grey (the photographs say RED)" },
+  { x: 2, yFromTop: 3, index: 3, expect: "white" },
+  ...HUES_LOW.map((expect, i) => ({ x: i, yFromTop: 5, index: 5 + i * 4, expect })),
+  ...HUES_HIGH.map((expect, i) => ({ x: i, yFromTop: 7, index: 33 + i * 4, expect })),
+];
