@@ -36,70 +36,95 @@ only be run with the hardware in the room has been run. The jog wheel is answere
 surface you program". What was measured is in [MAX-FACTS.md](MAX-FACTS.md), "Grabbing a
 Push control".
 
-Three things are still open, and none of them blocks anything:
+Two things are still open, and neither blocks anything. Both are questions the
+hardware has to answer, and both have the machinery to ask already built. A third, 1c,
+is on this list by accident and should probably go.
 
-### 1a. The touch strip has no readable position
+### 1a. Where the touch strip's position lives
 
-**J1 is answered and the jog wheel works.** Grabbed, `Jogwheel` streams continuously and
-reports a DELTA of one detent as a signed 7-bit step - 1 clockwise, 127 anticlockwise, one
-event per detent. A device integrates them itself. The DJ platter in
+**Answered:** the jog wheel works. Grabbed, `Jogwheel` streams continuously and reports a
+DELTA of one detent as a signed 7-bit step - 1 clockwise, 127 anticlockwise, one event per
+detent. A device integrates them itself, and the DJ platter in
 [PUSH-USECASES.md](PUSH-USECASES.md) is buildable.
 
-**J2 is answered in the negative.** `Touch_Strip_Control` also streams, but its `value` is
-a byte counting in steps of 64 and wrapping: four distinct values over 180 events. The
-direction of travel is recoverable from the wrapped difference; the position is not. That
-is a relative control, not the ~64-step fader the crossfader wanted.
+**Answered in the negative:** `Touch_Strip_Control` also streams, but its `value` is a byte
+counting in steps of 64 and wrapping - four distinct values over 180 events. The direction
+of travel is recoverable from the wrapped difference; the position is not. That is a
+relative control, not the ~64-step fader the crossfader wanted. Both are measured in
+[MAX-FACTS.md](MAX-FACTS.md).
 
-Both are measured in [MAX-FACTS.md](MAX-FACTS.md).
+**Still to do:** find the control that carries the strip's absolute position, or establish
+that none does. `get_control_names` lists `Nav_Select_Touch` and
+`Mpe_Pitch_Bend_Elements`; neither has been read. `probe_other <name> 1` in `push-probe`
+grabs any control by name, dumps its atoms and says whether the trace looks like a delta or
+a position, so this is one button press per candidate.
 
-What is left is one question, and it is not scheduled: **where the strip's real position
-lives.** `get_control_names` lists `Nav_Select_Touch` and `Mpe_Pitch_Bend_Elements` and
-nobody has read either. `probe_other <name> 1` in `push-probe` grabs any control by name,
-dumps its atoms and says whether the trace looks like a delta or a position.
+**What it costs if it stays open:** the DJ crossfader, and nothing else. Every other
+use case in [PUSH-USECASES.md](PUSH-USECASES.md) is buildable today.
 
-### 1b. The colour table is 23 photographed guesses
+### 1b. Naming the 128 palette indices
 
-`PUSH_PALETTE` ships about 23 names, read off two photographs of the palette pages through
-a camera at one white balance. Nothing in the library depends on them, which is why they
-live in `push-probe` and not in `@m4l-jweb/surface`. No grey is named because none was
-identified, which is why `push-snake`'s wall is `tan`.
+`PUSH_PALETTE` ships 23 names in `@m4l-jweb/surface`, read off two photographs of the
+palette pages through a camera at one white balance. `push-snake` runs on them, so they
+work; they are not a table anybody measured.
 
-**The structure hypothesis is dead, and the photographs were right.** A Push 2 scheme
-described the palette as four greys at 0-3 then fourteen hues every four indices from 5.
-Painted on a Push 3 and photographed with an orientation marker, it fails twice over:
-index 2 is a red and index 3 an orange, so there is no grey block, and row 7 (33 to 57) is
-one pale pastel region rather than a second hue ladder. Every index the photographs
-already named came back as that colour. The frame and what it settles are in
-[MAX-FACTS.md](MAX-FACTS.md), "The Push 2 colour scheme does not describe a Push 3".
+**Answered:** the palette is not a structure. A Push 2 scheme described it as four greys at
+0-3 then fourteen hues every four indices from 5, which would have made the table a formula.
+Painted on a Push 3 and photographed with an orientation marker, it fails twice: index 2 is
+a red and index 3 an orange, so there is no grey block, and 33-57 is one pale pastel region
+rather than a second hue ladder. Every index the photographs already named came back as
+that colour. Written up in [MAX-FACTS.md](MAX-FACTS.md), "The Push 2 colour scheme does not
+describe a Push 3".
 
-Three consequences:
+Three consequences, all of which shrink the work rather than grow it:
 
 - The two Push 2 sources ([Ableton/push-interface](https://github.com/Ableton/push-interface),
   the [push2_display crate](https://crates.io/crates/push2_display/0.2.0/code/)) describe
-  different hardware and cannot name a Push 3 index. Nothing to read.
-- There is no formula to generate. `hue(name, brightness)` was worth having and is not
-  available; the table is a list.
-- It is **one table per generation**, not one table.
+  different hardware and cannot name a Push 3 index. Nothing to read there.
+- There is no formula to generate. The table is a list.
+- It is one table per generation, not one table.
 
-So the only route left is the one that was always there: **read the 128 indices off
-oriented Push 3 photographs.** Nothing blocks it.
+**Still to do, in order:**
 
-- `probe_palette 0` and `probe_palette 1` paint `base + y*8 + x` on all 64 pads, y from
-  the TOP. Page 0 is self-orienting - index 0 is off, so the only dark pad is the
-  top-left one.
-- The `struct` button's L marker showed the paint path's coordinates are correct end to
-  end, so a photograph of either page can be trusted to be the right way up.
-- What is missing is the sampling, not the pictures: shoot both pages under one known
-  white balance, sample each pad's centre, and write out 128 names. The washed-out band
-  from about 40 to 63 is where naming will be hardest, and where a name matters least.
-- Four indices are now named that were not: 1 is pink, 2 red, 3 orange, 17 cyan.
+1. **Find a grey.** None of the 23 names is one, which is why `push-snake`'s wall is `tan`,
+   and the Push 2 scheme's claim that 1 and 2 are greys is now known false. A wall, a
+   grid line and a dimmed pad all want one, and no index is known to be one.
+2. **Shoot both `probe_palette` pages under one known white balance and sample them.**
+   Page 0 is self-orienting: index 0 is off, so the only dark pad is the top-left one.
+   The paint path's coordinates are confirmed correct end to end by the `struct` button's
+   L marker, so a photograph of either page can be trusted to be the right way up.
+3. **Write the names out.** Use Ableton's own vocabulary where it fits rather than
+   inventing one: `live.push`'s note colours are a named palette shipped by Live -
+   `red_red`, `red_red_shade`, `red_red_shade_two`, `ocean`, `deep_ocean`, `sky`,
+   `light_grey`, `dark_grey`, `black`, `white`, `yellow_highlight`. It maps symbols to
+   notes rather than to pad indices, so it cannot shortcut the sampling, but the names
+   and the `_shade` suffixes are the ones Ableton uses for this hardware.
 
-### 1c. `live.push` in `defineSurface` - separate, droppable
+Two indices are named that were not: **1 is pink, 17 is cyan.** Neither is in
+`PUSH_PALETTE` yet - `pink` there is already index 26.
 
-`live.push` configures Push's own note mode: `play_pad_map`, `play_note_colors`,
-`play_usage`, and the expressive-pad geometry. It colours **notes, not pads**, so it cannot
-address a step grid and shares nothing with the above. One box, a few attributes, no
-protocol, no risk. Ship it separately, or not at all.
+**What it costs if it stays open:** nothing is blocked. A device picks from 23 working
+names and cannot say "grey".
+
+### 1c. `live.push` in `defineSurface` - no consumer, probably delete
+
+**This is not work anybody asked for.** It entered the plan as a CORRECTION: a brief
+claimed `live.push` was "an abstraction for talking to the pads", which is false, and the
+section proving it false was later carried into this backlog as an item. No device wants
+it and none is planned.
+
+What it does: `live.push` configures Push's own note mode - `play_pad_map`
+(`scale` or `serial`), `play_note_colors` (up to 128 symbols, one per MIDI note),
+`play_usage` (`never` / `first_or_selected` / `first`), and the expressive-pad geometry.
+Its consumer would be a device that KEEPS Push's note path and restyles it, which is the
+opposite of takeover - takeover claims `Button_Matrix` and takes the pads off the note
+path entirely. Its own refpage disowns the pad coordinate anyway: the note-to-pad
+positions change with the user's layout and octave buttons, so the colours are not pinned
+to pads.
+
+The fact worth keeping is the disclaimer, and it is already in
+[PUSH-USECASES.md](PUSH-USECASES.md) under "What it is not". Delete this item unless a
+device turns up that wants it.
 
 ---
 
