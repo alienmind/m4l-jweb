@@ -24,6 +24,48 @@ outlets = 2;
  */
 var MODE: string = jsarguments.length > 1 ? String(jsarguments[1]) : "midi";
 
+/**
+ * The global object of this [js], captured where `this` still IS it.
+ *
+ * Inside a function `this` is no longer the jsthis, so a handler cannot be looked
+ * up by name from in there. Taken here, at top level, it stays reachable. See
+ * list() for the one thing it is for.
+ */
+var JSTHIS: Record<string, unknown> = this as unknown as Record<string, unknown>;
+
+/**
+ * `list <selector> <args...>` - the same message, wearing macOS's hat.
+ *
+ * On macOS, [jweb~] delivers a page's `max.outlet("native_hide", "param-play")` to
+ * this [js] as a LIST whose first element happens to be the selector, instead of as
+ * a message NAMED by it. Max then looks for a function called `list`, finds none,
+ * and everything the device view ever says is swallowed by anything(). Measured on
+ * Max 9.0.10 inside Live 12 Suite, 2026-10-07: get_state, param_label, native_show,
+ * native_hide, window_send - every one of them arrived as `list`.
+ *
+ * Nothing about the device view works without this. The native parameters are never
+ * hidden, the pattern never reaches the page, a knob turn never leaves the device,
+ * and the Studio never hears the transport - with no error anywhere, because being
+ * swallowed is what anything() is for.
+ *
+ * So: take the first element as the name, look up the handler, and call it with the
+ * rest. `fn.apply(JSTHIS, ...)` and not a plain call - these are our own functions,
+ * not Max host functions (those crash Live when applied, see outlet/messnamed), and
+ * they need the jsthis that a plain call would have given them.
+ */
+function list(): void {
+  if (!arguments.length) return;
+  var name = String(arguments[0]);
+  var rest: unknown[] = [];
+  for (var i = 1; i < arguments.length; i++) rest.push(arguments[i]);
+  var fn = JSTHIS[name];
+  if (typeof fn !== "function") {
+    (anything as any).apply(JSTHIS, arguments);
+    return;
+  }
+  (fn as (...a: unknown[]) => void).apply(JSTHIS, rest);
+}
+
 post("m4l-jweb: wrapper loaded (build " + buildStamp() + ", mode " + MODE + ")\n");
 
 /** The build this device instance actually is. Injected by the build. */
@@ -85,8 +127,21 @@ function reload(): void {
  * The [jweb] outlet can fan out to this [js] AND to other consumers, so
  * messages meant for someone else land here too. Swallow them instead of
  * logging "js: no function <name>" on every one.
+ *
+ * It swallows them SILENTLY, which is the right default and was also a blind spot:
+ * a selector that should have had a handler and did not looks, from here, exactly
+ * like a message addressed to somebody else. So the first few are named. The count
+ * is small on purpose - this is a catch-all on a path a knob sweep goes down.
  */
-function anything(): void {}
+var swallowed = 0;
+function anything(): void {
+  if (swallowed >= 20) return;
+  swallowed += 1;
+  var parts: string[] = [];
+  for (var i = 0; i < arguments.length; i++) parts.push(String(arguments[i]));
+  post("m4l-jweb: unhandled '" + String(messagename) + "' " + parts.join(" ") + "\n");
+  if (swallowed === 20) post("m4l-jweb: ...and no more unhandled messages will be named\n");
+}
 
 /* ------------------------------------------------------------------ *
  * Who to answer
@@ -138,6 +193,25 @@ function ui_ready(): void {
   // The device resends its own state here. The page loads asynchronously, so
   // anything sent before it was listening is simply gone.
   if (typeof onUiReady === "function") onUiReady();
+}
+
+/**
+ * `page_log <text...>` - the DEVICE VIEW's way to say something in the Max window.
+ *
+ * jweb ships no inspector, so a page's `console.log` is written where nobody can
+ * read it. Windows got this first (see the `log` selector in window()); the device
+ * view needs it for the same reason and could not have it, which is one page less
+ * than the whole device could speak for itself.
+ *
+ * NOT called `log`. A window's selectors are dispatched by hand, in window()'s own
+ * if-chain, so `log` is safe there; the device view's go through MAX, which looks up
+ * a global function of that name in this [js]. A name as ordinary as `log` is one to
+ * stay away from in a namespace that is not ours.
+ */
+function page_log(): void {
+  var parts: string[] = [];
+  for (var i = 0; i < arguments.length; i++) parts.push(String(arguments[i]));
+  post("m4l-jweb: page: " + parts.join(" ") + "\n");
 }
 
 /**
@@ -542,7 +616,12 @@ function window(id: string): void {
   var prev = replyWindow;
   replyWindow = id;
   try {
-    if (selector === "ui_ready") ui_ready();
+    // A window's page reporting in is the one signal that it was just opened, so
+    // it is also when the size poll is worth running again. See followWindowSizes.
+    if (selector === "ui_ready") {
+      ui_ready();
+      followWindowSizes();
+    }
     else if (selector === "get_state") get_state(String(args[0]));
     else if (selector === "sync_state") (sync_state as any).apply(null, args);
     // A window's page owns the code in devices like this one, so it is the page
@@ -555,6 +634,10 @@ function window(id: string): void {
     else if (selector === "param_label") param_label(String(args[0]), args.slice(1).join(" "));
     else if (selector === "param_unit") param_unit(String(args[0]), args.slice(1).join(" "));
     else if (selector === "param_range") param_range(String(args[0]), Number(args[1]), Number(args[2]));
+    // A window's page has a console nobody can open: jweb ships no inspector, so a
+    // `console.warn` in there is written to a place with no reader. `log` is the
+    // door out - the page says it, and it lands in the Max window with the rest.
+    else if (selector === "log") post("m4l-jweb: window " + id + ": " + args.join(" ") + "\n");
     else if (typeof onWindowMessage === "function") (onWindowMessage as any).apply(null, [id, selector].concat(args as any[]));
     else post("m4l-jweb: window " + id + " sent unhandled '" + selector + "'\n");
   } finally {
@@ -592,8 +675,13 @@ function loadWebview(): void {
   try {
     var url = resolveUiUrl();
     if (!url) return;
-    outlet(0, "url", url);
-    post("m4l-jweb: sent url " + url + "\n");
+    // `read <url>` is the message that LOADS a page. `url` is jweb's own OUTPUT:
+    // the reference lists it among the two messages the object sends after a
+    // successful read (`url <final url>` and `title <title>`), and jweb's message
+    // list has no `url` input at all. Sending `url` therefore loads nothing and
+    // reports nothing - the console says the right path and the view stays grey.
+    outlet(0, "read", url);
+    post("m4l-jweb: sent read " + url + "\n");
 
     loadWindows();
   } catch (e) {
@@ -655,12 +743,23 @@ function loadWindows(): void {
  * the one that runs in a given load), so without this every page is fetched
  * twice. For a small window that is waste; for a `site:` window it is tens of MB
  * and a visible second load.
+ *
+ * NO CACHE-BUSTER ON A SITE WINDOW. The `?v=<stamp>` is ours, but the query string
+ * belongs to the page, and a whole third-party site is entitled to read it. The one
+ * that sent us here does: strudel.cc takes any query as the hash of a shared
+ * pattern, fetches it from its database, and dereferences the answer without
+ * checking it - so our stamp became a pattern id that does not exist, and the
+ * TypeError took the engine's boot down with it. The editor drew, evaluated
+ * nothing, and reported nothing. A site's own assets are content-hashed anyway,
+ * which is what the stamp was there to do.
  */
 function sendWindowUrl(winId: string, target: string): void {
-  var url = encodeURI("file:///" + target) + "?v=" + encodeURIComponent(buildStamp());
+  var url = fileUrl(target) + (isSiteWindow(winId) ? "" : "?v=" + encodeURIComponent(buildStamp()));
   if (sentWindowUrls[winId] === url) return;
   sentWindowUrls[winId] = url;
-  messnamed("window-read-" + winId, "url", url);
+  // `read`, for the same reason as in loadWebview - and the receive this lands on
+  // is already named window-read-<id>.
+  messnamed("window-read-" + winId, "read", url);
   post("m4l-jweb: window " + winId + " -> " + url + "\n");
 }
 
@@ -679,6 +778,14 @@ var sentWindowUrls: { [id: string]: string } = {};
  * reports only what it is asked. So this polls, cheaply, and only while the window
  * is actually open.
  *
+ * ON macOS THE POLL IS NOT FREE. Reading a subpatcher's `wind` makes Max print
+ * `The Max function "SendMessage" returned with error 9999: Internal error.` - not
+ * a JS exception, so the try/catch below never sees it, and at two ticks a second
+ * it buries every other line in the console. The poll therefore RUNS FOR A WHILE
+ * AND STOPS: POLL_TICKS ticks, re-armed each time a window's page reports in. A
+ * window dragged bigger long after it opened is no longer followed, which is the
+ * price of a console somebody can read.
+ *
  * WHY IT MAY NOT WORK, and what to watch. This repo has already measured that
  * setting `presentation_rect` at runtime is accepted but NOT redrawn in a frozen
  * M4L device (see setNativeHidden). That was the device view, which is Live's
@@ -691,13 +798,19 @@ var resizeTask: Task | null = null;
 /** The last size applied per window, so the log is one line and not one per poll. */
 var appliedSize: { [id: string]: string } = {};
 
+/** Half-second ticks the poll runs before it stops. 30 is fifteen seconds. */
+var POLL_TICKS = 30;
+
 function followWindowSizes(): void {
   if (headless()) return; // no windows without a browser to put one in
   var ids = listWindowIds();
   if (!ids.length) return;
   if (resizeTask) resizeTask.cancel();
+  var left = POLL_TICKS;
   resizeTask = new Task(function () {
     for (var i = 0; i < ids.length; i++) fitWindowPage(ids[i]);
+    left -= 1;
+    if (left <= 0 && resizeTask) resizeTask.cancel();
   }, this);
   resizeTask.interval = 500;
   resizeTask.repeat();
@@ -802,7 +915,32 @@ function resolveUiUrl(): string | null {
   }
   // Cache-buster: the URL changes per build, so Chromium can never serve a page
   // it cached from a previous build of the same file path.
-  return encodeURI("file:///" + target) + "?v=" + encodeURIComponent(buildStamp());
+  return fileUrl(target) + "?v=" + encodeURIComponent(buildStamp());
+}
+
+/**
+ * A MAX path -> a `file://` URL a browser can open.
+ *
+ * `this.patcher.filepath` is in Max's own path style, and on macOS that style
+ * leads with the volume name and a colon: `Mac:/Users/mac/Music/...`. Pasting
+ * `file:///` onto it gives `file:///Mac:/Users/...`, which the browser resolves as
+ * the literal folder `/Mac:` and cannot find. That is a device view that stays
+ * blank while the console prints a path that looks right.
+ *
+ * Windows is the case the plain concatenation was written for, and it stays: there
+ * the prefix is a drive letter, and `file:///C:/Users/...` is correct. So only a
+ * prefix of two characters or more is stripped.
+ *
+ * The boot volume is what gets stripped to `/`. A device living on a SECOND volume
+ * would need `/Volumes/<name>` instead, and that case is not handled here - Max's
+ * JS has no way to ask which volume booted, and [conformpath] is an object, not
+ * something [js] can call.
+ */
+function fileUrl(maxPath: string): string {
+  var m = /^([^\/:]{2,}):(\/.*)$/.exec(maxPath);
+  var path = m ? m[2] : maxPath;
+  if (path.charAt(0) !== "/") path = "/" + path;
+  return encodeURI("file://" + path);
 }
 
 /** The folder the .amxd lives in, derived from the patcher's own path. */

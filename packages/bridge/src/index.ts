@@ -148,6 +148,21 @@ export function sendToWindow(windowId: string, selector: string, value: unknown)
   outlet("window_send", windowId, selector, value);
 }
 
+/**
+ * Say something in the MAX CONSOLE, from a page.
+ *
+ * `console.log` is the wrong tool inside a device: jweb ships no inspector, so the
+ * page's own console has no reader, and a page that is misbehaving looks exactly
+ * like one that was never reached. This goes out as `log <text...>`, which the
+ * wrapper posts. Outside Max it falls back to the console, which there IS readable.
+ *
+ * It is for diagnosis, not for chatter: every line costs a Max message, and the
+ * console is the only place anyone can watch a device think.
+ */
+export function log(...parts: unknown[]): void {
+  outlet("page_log", ...parts.map((p) => String(p)));
+}
+
 /* ------------------------------------------------------------------ *
  * The chain contract
  *

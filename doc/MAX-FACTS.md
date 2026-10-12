@@ -199,6 +199,104 @@ memory, no server, no frame grab), so mirroring one page's canvas into another m
 shipping encoded frames as messages - which costs a synchronous GPU read inside
 whichever page is making the sound.
 
+## macOS: a page's message arrives at `[js]` as a LIST (2026-10-07)
+
+A page calls `max.outlet("native_hide", "param-play")`. On Windows that reaches the
+patcher's `[js]` as a message NAMED `native_hide`, and Max calls the function of that
+name. **On macOS it arrives as a `list` whose first element is the selector.** Max then
+looks for a function called `list`, and a wrapper that does not define one has every
+message from its device view swallowed by its own `anything()` catch-all.
+
+Measured on Max 9.0.10 inside Live 12 Suite. Every selector went the same way:
+
+    unhandled 'list' get_state code
+    unhandled 'list' param_label s1 S1
+    unhandled 'list' native_show obj-jweb
+    unhandled 'list' native_hide param-play
+
+Nothing in the device view works, and nothing says so. The native parameters are never
+hidden, the pattern never reaches the page, a knob turn never leaves the device, and a
+window never hears the transport. It presents as a layout problem, as a dead button, as
+a silent engine - anything but a message that was addressed and never delivered.
+
+The fix is a `list` handler that takes the first element as the name, looks the handler
+up on the jsthis captured at top level, and applies the rest to it. Note that WINDOW
+messages were never affected: they are tagged `window <id> <selector> ...` by the
+patcher and dispatched by hand in the wrapper, so the first atom is always `window` and
+Max's own lookup is never asked for anything else.
+
+**A silent catch-all hides this and everything like it.** `function anything() {}` is
+right - a `[jweb]` outlet fans out, so messages for other consumers do land here - but
+naming the first few costs nothing and is the difference between an afternoon and five
+minutes.
+
+## `url` is what `[jweb]` SAYS, not what it is told (2026-10-07)
+
+`jweb` and `jweb~` load a page from `read <url or path>`, `readfile <path>`, or the
+`@url` attribute at creation. The reference's message list is `(mouse)`, `anything`,
+`back`, `executejavascript`, `forward`, `gotohistory`, `mute`, `read`, `readfile`,
+`reload`, plus `signal` for `jweb~`. **There is no `url` input.** `url` is an OUTPUT:
+after a successful `read` the object sends `url <the final url>` and `title <the title>`
+out of its right outlet.
+
+So `outlet(0, "url", theUrl)` loads nothing. It is also not silent-looking: the console
+line the wrapper prints beside it says the right path, the object sits there grey, and
+`Initial URL` in the inspector stays empty. The device view then looks like a render or
+a layout problem and is neither.
+
+`@url` cannot replace it for a device, because the URL is not known at build time: Live
+embeds a copy of the device per set, so the absolute path differs per instance, and the
+cache-buster is a per-build stamp. `read`, sent at load, is the form that works.
+
+## macOS: `this.patcher.filepath` leads with the VOLUME NAME (2026-10-07)
+
+`filepath` is in Max's own path style. On macOS that is `Mac:/Users/you/...` - the
+volume name, a colon, then the path. On Windows it is `C:/Users/you/...`.
+
+`"file:///" + filepath` is therefore right on Windows and wrong on macOS: it builds
+`file:///Mac:/Users/...`, which a browser resolves as the literal folder `/Mac:` and
+reports as "File not found". The boot volume is `/`, so the prefix is dropped, not
+translated:
+
+    Mac:/Users/mac/x.html   ->  file:///Users/mac/x.html
+    C:/Users/you/x.html     ->  file:///C:/Users/you/x.html   (left alone)
+
+A single-letter prefix is a Windows drive and stays. Two characters or more is a macOS
+volume name and goes. A device on a SECOND volume would need `/Volumes/<name>` and is
+not handled: `[js]` cannot ask which volume booted, and `[conformpath]` - which converts
+path styles properly, `pathstyle native` - is an object, not something `[js]` can call.
+
+The same path reaches the page as `device_folder`, in Max style, and anything the page
+builds from it has the same problem.
+
+## macOS: reading a subpatcher's `wind` floods the console (2026-10-07)
+
+Reading `.wind` on a subpatcher - `visible`, `size` - makes Max print
+
+    The Max function "SendMessage" returned with error 9999: Internal error.
+
+It is not a JS exception, so a `try/catch` around the read never sees it, and the page
+still fits correctly. At the window-size poll's two ticks a second it buries every other
+line within a minute, which is enough to make any other problem undiagnosable.
+
+The poll is therefore bounded: it runs for a fixed number of ticks and stops, re-armed
+whenever a window's page reports `ui_ready`. A window dragged bigger long after it
+opened is no longer followed.
+
+## A page inside `[jweb]` has a console with no reader (2026-10-07)
+
+jweb ships no inspector, so `console.log` inside a window's page goes nowhere a human
+can look, and a page that fails to start looks identical to one that started and made no
+sound. The way out is the wrapper's `log` selector: the page sends `log <text>` and it
+is posted to the Max window.
+
+Worth knowing when testing such a page in an ordinary browser instead: a built site
+whose scripts are separate `type="module"` files cannot be opened from `file://` at all -
+Chromium blocks it as a cross-origin request from the `null` origin, and the page comes
+up blank. Serve it over HTTP to test it. Max's own Chromium does not apply that rule, so
+the same site loads fine inside the device. A single-file page with its script inline is
+not affected either way.
+
 ## A window shown in PRESENTATION cannot be resized at runtime (2026-07-22)
 
 Same root as the `presentation_rect` fact above, met again in a floating window: writing

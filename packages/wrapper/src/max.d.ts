@@ -302,3 +302,6 @@ declare function onTempoChange(bpm: number): void;
  * device beyond shared state.
  */
 declare function onWindowMessage(windowId: string, selector: string, ...args: unknown[]): void;
+
+/** The name of the Max message currently being handled. Set before each call. */
+declare var messagename: string;
